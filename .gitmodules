@@ -1,0 +1,18 @@
+[submodule "libsymmetrix/external/cblas-prototypes"]
+	path = libsymmetrix/external/cblas-prototypes
+	url = https://github.com/wcwitt/cblas-prototypes
+[submodule "libsymmetrix/external/json"]
+	path = libsymmetrix/external/json
+	url = https://github.com/nlohmann/json
+[submodule "libsymmetrix/external/kokkos"]
+	path = libsymmetrix/external/kokkos
+	url = https://github.com/kokkos/kokkos
+[submodule "libsymmetrix/external/kokkos-kernels"]
+	path = libsymmetrix/external/kokkos-kernels
+	url = https://github.com/kokkos/kokkos-kernels
+[submodule "libsymmetrix/external/sphericart"]
+	path = libsymmetrix/external/sphericart
+	url = https://github.com/lab-cosmo/sphericart
+[submodule "symmetrix/external/pybind11"]
+	path = symmetrix/external/pybind11
+	url = https://github.com/pybind/pybind11
