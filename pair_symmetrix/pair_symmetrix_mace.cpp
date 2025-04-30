@@ -358,8 +358,11 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
   if (eflag_global)
     eng_vdwl += energy;
 
-  if (eflag_atom)
-    error->all(FLERR, "Atomic energies not yet supported by pair_style symmetrix/mace.");
+  if (eflag_atom) {
+    for (int ii=0; ii<num_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
+    }
+  }
 
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {
@@ -475,6 +478,12 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   if (eflag_global)
     eng_vdwl += energy;
+
+  if (eflag_atom) {
+    for (int ii=0; ii<num_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
+    }
+  }
 
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {

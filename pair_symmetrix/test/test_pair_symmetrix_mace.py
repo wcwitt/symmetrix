@@ -47,6 +47,12 @@ def test_h20(pair_style):
     e = L.get_thermo("pe")
     assert e == pytest.approx(-2071.839005822318, rel=1e-4, abs=1e-6)
 
+    # ----- atomic energies -----
+    L.command("compute peratom all pe/atom")
+    L.command("run 0")
+    pe_atom = L.extract_compute("peratom", 1, 1)
+    assert e == pytest.approx(sum([pe_atom[i] for i in range(3)]))
+
     # ----- forces -----
     h = 1e-4
     x = L.numpy.extract_atom("x")
