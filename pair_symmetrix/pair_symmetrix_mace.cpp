@@ -158,14 +158,8 @@ void PairSymmetrixMACE::coeff(int narg, char **arg)
 double PairSymmetrixMACE::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
-
-  if (mode == "default") {
-    return mace->r_cut;
-  } else if (mode == "no_mpi_message_passing") {
-    return mace->r_cut;
-  } else {
-    return 2*mace->r_cut;
-  }
+  
+  return mace->r_cut;
 }
 
 /* ----------------------------------------------------------------------
@@ -179,14 +173,12 @@ void PairSymmetrixMACE::init_style()
 
   if (mode == "default") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
-  } else if (mode == "no_domain_decomposition") {
-    neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
   } else {
     // enforce the communication cutoff is more than twice the model cutoff
     const double comm_cutoff = comm->get_comm_cutoff();
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
     if ((mace->r_cut*2) > comm_cutoff){
-      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for selected operation mode (no_mpi_message_passing)");
+      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for selected operation mode {}", mode);
     }
   }
 }
