@@ -528,7 +528,6 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
 void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 {
-  // TODO: out of date
   ev_init(eflag, vflag);
 
   const int num_local_nodes = list->inum;
