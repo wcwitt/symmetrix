@@ -174,12 +174,9 @@ void PairSymmetrixMACE::init_style()
   if (mode == "default") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
   } else {
-    // enforce the communication cutoff is more than twice the model cutoff
-    const double comm_cutoff = comm->get_comm_cutoff();
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
-    if ((mace->r_cut*2) > comm_cutoff){
-      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for selected operation mode {}", mode);
-    }
+    if (comm->get_comm_cutoff() < 2*mace->r_cut)
+      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for mode: {}", mode);
   }
 }
 
