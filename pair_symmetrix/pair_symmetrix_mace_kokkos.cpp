@@ -746,6 +746,40 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int ef
 //    }
 //  }
 
+  if (vflag_global) {
+    Kokkos::View<double*,Kokkos::LayoutRight> v("v", 6); // TODO: make device space
+    Kokkos::deep_copy(v, 0.0);
+    Kokkos::parallel_for("VirialReduction", num_nodes, KOKKOS_LAMBDA (const int ii) {
+      const int i = node_indices(ii);
+      int ij = 0;
+      for (int iii=0; iii<ii; ++iii)  // advance ij to first pair for this "i"
+          ij += num_neigh(iii);
+      for (int jj=0; jj<num_neigh(ii); ++jj) {
+        const double x = xyz(3*ij);
+        const double y = xyz(3*ij+1);
+        const double z = xyz(3*ij+2);
+        const double f_x = mace_node_forces(3*ij);
+        const double f_y = mace_node_forces(3*ij+1);
+        const double f_z = mace_node_forces(3*ij+2);
+        // TODO: get rid of atomics and make proper reduction
+        Kokkos::atomic_add(&v(0),  x*f_x);
+        Kokkos::atomic_add(&v(1),  y*f_y);
+        Kokkos::atomic_add(&v(2),  z*f_z);
+        Kokkos::atomic_add(&v(3),  0.5*(x*f_y + y*f_x));
+        Kokkos::atomic_add(&v(4),  0.5*(x+f_z + z*f_x));
+        Kokkos::atomic_add(&v(5),  0.5*(y+f_z + z*f_y));
+        ij += 1;
+      }
+    });
+    auto h_v = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), v);
+    virial[0] += h_v(0);
+    virial[1] += h_v(1);
+    virial[2] += h_v(2);
+    virial[3] += h_v(3);
+    virial[4] += h_v(4);
+    virial[5] += h_v(5);
+  }
+
   if (vflag_atom)
     error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace/kk.");
 }

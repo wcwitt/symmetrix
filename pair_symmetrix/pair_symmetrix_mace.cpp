@@ -177,9 +177,8 @@ void PairSymmetrixMACE::init_style()
     // enforce the communication cutoff is more than twice the model cutoff
     const double comm_cutoff = comm->get_comm_cutoff();
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
-    if ((mace->r_cut*2) > comm_cutoff){
-      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for selected operation mode {}", mode);
-    }
+    if (comm->get_comm_cutoff() < 2*mace->r_cut)
+      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for mode: {}", mode);
   }
 }
 
@@ -359,8 +358,11 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
   if (eflag_global)
     eng_vdwl += energy;
 
-  if (eflag_atom)
-    error->all(FLERR, "Atomic energies not yet supported by pair_style symmetrix/mace.");
+  if (eflag_atom) {
+    for (int ii=0; ii<num_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
+    }
+  }
 
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {
@@ -477,6 +479,12 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
   if (eflag_global)
     eng_vdwl += energy;
 
+  if (eflag_atom) {
+    for (int ii=0; ii<num_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
+    }
+  }
+
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {
     const int i = node_indices[ii];
@@ -519,7 +527,6 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
 void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 {
-  // TODO: out of date
   ev_init(eflag, vflag);
 
   const int num_local_nodes = list->inum;
