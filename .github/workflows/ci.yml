@@ -1,0 +1,59 @@
+name: CI-CPU
+
+on: [push, pull_request]
+
+jobs:
+  build-package-run-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev
+    
+    - name: Set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Create python venv
+      run: |
+        python -m venv test_venv
+        source test_venv/bin/activate
+        pip install mace-torch
+        pip install pytest
+        
+      
+    - name: Clone and build LAMMPS
+      run: |
+        git clone -b stable https://github.com/lammps/lammps.git
+        cd pair_symmetrix
+        chmod +x install.sh
+        ./install.sh ../lammps
+        cd ../lammps
+        mkdir build
+        cd build
+        cmake ../cmake  -D CMAKE_CXX_STANDARD=20 \
+                        -D CMAKE_CXX_STANDARD_REQUIRED=ON \
+                        -D SPHERICART_ENABLE_CUDA=OFF \
+                        -D BUILD_SHARED_LIBS=on\
+                        -D CMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
+                        -D BUILD_MPI=ON \
+                        ../cmake
+        
+        cmake --build . -j 20
+
+        cmake --install .
+
+        make install-python
+        
+        cd ../..
+    
+    - name: Run tests
+      run: |
+        cd pair_symmetrix/test/
+        python -m pytest
