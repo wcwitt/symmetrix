@@ -239,7 +239,7 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
 
   // count neighbors
   int neigh_list_size = 0;
-  for (int ii=0; ii<atom->nlocal; ++ii) {
+  for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -257,7 +257,7 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
   }
 
   // resize neighbor list variables
-  num_nodes = atom->nlocal;
+  num_nodes = list->inum;
   node_indices.resize(num_nodes);
   node_types.resize(num_nodes);
   num_neigh.resize(num_nodes);
@@ -268,7 +268,7 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
 
   // fill neighbor list variables
   int ij = 0;
-  for (int ii=0; ii<atom->nlocal; ii++) {
+  for (int ii=0; ii<list->inum; ii++) {
     const int i = list->ilist[ii];
     node_indices[ii] = i;
     node_types[ii] = mace_types[atom->type[i]-1];
@@ -318,7 +318,7 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
   // create H1 vector (that will include ghost atom contributions)
   H1.resize((atom->nlocal+atom->nghost)*mace->num_LM*mace->num_channels);
   // sort local H1 contributions by i (rather than ii)
-  for (int ii=0; ii<atom->nlocal; ++ii) {
+  for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     for (int k=0; k<mace->num_LM*mace->num_channels; ++k) {
       H1[i*mace->num_LM*mace->num_channels+k] = mace->H1[ii*mace->num_LM*mace->num_channels+k];
@@ -413,7 +413,7 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   // count neighbors
   int neigh_list_size = 0;
-  for (int ii=0; ii<atom->nlocal; ++ii) {
+  for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -431,9 +431,9 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
   }
 
   // resize neighbor list variables
-  num_nodes = atom->nlocal;
+  num_nodes = list->inum;
   node_indices.resize(neigh_list_size);
-  node_types.resize(atom->nlocal);
+  node_types.resize(list->inum);
   num_neigh.resize(num_nodes);
   neigh_indices.resize(neigh_list_size);
   neigh_types.resize(neigh_list_size);
@@ -442,7 +442,7 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   // fill neighbor list variables
   int ij = 0;
-  for (int ii=0; ii<atom->nlocal; ii++) {
+  for (int ii=0; ii<list->inum; ii++) {
     const int i = list->ilist[ii];
     node_indices[ii] = i;
     node_types[ii] = mace_types[atom->type[i]-1];
@@ -711,6 +711,12 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
       virial[3] += 0.5*(x*f_y + y*f_x);
       virial[4] += 0.5*(x+f_z + z*f_x);
       virial[5] += 0.5*(y+f_z + z*f_y);
+    }
+  }
+
+  if (eflag_atom) {
+    for (int ii=0; ii<num_local_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
     }
   }
 
