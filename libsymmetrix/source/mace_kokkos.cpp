@@ -651,7 +651,6 @@ void MACEKokkos::compute_Phi1(
     auto Phi1 = this->Phi1;
     auto Phi1r = this->Phi1r;
 
-
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
@@ -836,7 +835,6 @@ void MACEKokkos::compute_A1(int num_nodes)
     Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
     Kokkos::deep_copy(A1, 0.0);
 
-    // local references to class members accessed in the parallel region
     const auto l_max = this->l_max;
     const auto num_channels = this->num_channels;
     const auto Phi1_l = this->Phi1_l;
