@@ -13,7 +13,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev
+        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
     
     - name: Set up python
       uses: actions/setup-python@v5
