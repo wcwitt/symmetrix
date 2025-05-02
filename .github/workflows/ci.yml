@@ -26,10 +26,12 @@ jobs:
         source test_venv/bin/activate
         pip install mace-torch
         pip install pytest
+        deactivate
         
       
     - name: Clone and build LAMMPS
       run: |
+        source test_venv/bin/activate
         git clone -b release https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
