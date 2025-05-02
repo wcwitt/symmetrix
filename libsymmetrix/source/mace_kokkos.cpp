@@ -238,7 +238,6 @@ void MACEKokkos::reverse_Phi0(
     auto Phi0_adj = this->Phi0_adj;
     auto node_forces = this->node_forces;
 
-    // build i_list and j_list
     int total_num_neigh;
     Kokkos::parallel_reduce("total_num_neigh", num_nodes, KOKKOS_LAMBDA (const int i, int& sum) {
         sum += num_neigh(i);
@@ -637,24 +636,21 @@ void MACEKokkos::compute_Phi1(
             update += num_neigh(i);
         });
 
-    const int num_lm = this->num_lm;
-    const int num_channels = this->num_channels;
-    auto Phi1_l = this->Phi1_l;
-    auto Phi1_l1 = this->Phi1_l1;
-    auto Phi1_l2 = this->Phi1_l2;
-    auto Phi1_lme = this->Phi1_lme;
-    auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
-    auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
-    auto Phi1r = this->Phi1r;
+    const auto num_channels = this->num_channels;
+    const auto num_lm = this->num_lm;
+    const auto num_lelm1lm2 = this->num_lelm1lm2;
+    const auto Phi1_lm1 = this->Phi1_lm1;
+    const auto Phi1_lm2 = this->Phi1_lm2;
+    const auto Phi1_lel1l2 = this->Phi1_lel1l2;
+    const auto Phi1_lme = this->Phi1_lme;
+    const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
+    const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
+    const auto R1 = this->R1;
+    const auto Y = this->Y;
+    const auto H1 = this->H1;
     auto Phi1 = this->Phi1;
-    auto R1 = this->R1;
-    auto Y = this->Y;
-    auto H1 = this->H1;
+    auto Phi1r = this->Phi1r;
 
-    auto num_lelm1lm2 = this->num_lelm1lm2;
-    auto Phi1_lm1 = this->Phi1_lm1;
-    auto Phi1_lm2 = this->Phi1_lm2;
-    auto Phi1_lel1l2 = this->Phi1_lel1l2;
 
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32),
@@ -715,27 +711,24 @@ void MACEKokkos::reverse_Phi1(
     if (zero_H1_adj)
         Kokkos::deep_copy(H1_adj, 0.0);
 
-    const int num_lm = this->num_lm;
-    const int num_channels = this->num_channels;
-    const int num_lelm1lm2 = this->num_lelm1lm2;
+    const auto num_lm = this->num_lm;
+    const auto num_channels = this->num_channels;
+    const auto num_lelm1lm2 = this->num_lelm1lm2;
     const auto Phi1_lm1 = this->Phi1_lm1;
     const auto Phi1_lm2 = this->Phi1_lm2;
     const auto Phi1_lel1l2 = this->Phi1_lel1l2;
-    auto Phi1_l = this->Phi1_l;
-    auto Phi1_l1 = this->Phi1_l1;
-    auto Phi1_l2 = this->Phi1_l2;
-    auto Phi1_lme = this->Phi1_lme;
-    auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
-    auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
+    const auto Phi1_lme = this->Phi1_lme;
+    const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
+    const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
+    const auto R1 = this->R1;
+    const auto R1_deriv = this->R1_deriv;
+    const auto Y = this->Y;
+    const auto Y_grad = this->Y_grad;
+    const auto H1 = this->H1;
+    const auto H1_adj = this->H1_adj;
+    const auto node_forces = this->node_forces;
     auto dPhi1r = this->dPhi1r;
     auto dPhi1 = this->dPhi1;
-    auto R1 = this->R1;
-    auto R1_deriv = this->R1_deriv;
-    auto Y = this->Y;
-    auto Y_grad = this->Y_grad;
-    auto H1 = this->H1;
-    auto H1_adj = this->H1_adj;
-    auto node_forces = this->node_forces;
 
     // Compute dE/dPhi1 (named dPhi1)
     Kokkos::parallel_for("Reverse Phi1",
