@@ -57,5 +57,6 @@ jobs:
     
     - name: Run tests
       run: |
+        source test_venv/bin/activate
         cd pair_symmetrix/test/
         python -m pytest
