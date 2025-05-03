@@ -5,6 +5,10 @@
 
 -----
 
+### LAMMPS integration
+
+See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
+
 ### References
 
 The earliest `symmetrix` results were reported in:
