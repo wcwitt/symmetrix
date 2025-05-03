@@ -120,11 +120,11 @@ void reverse_H1(const int num_nodes);
 
 // Phi1
 int num_lelm1lm2, num_lme;
-Kokkos::View<double***,Kokkos::LayoutRight> Phi1r, dPhi1r;
-Kokkos::View<double***,Kokkos::LayoutRight> Phi1, dPhi1;
 Kokkos::View<int*> Phi1_l, Phi1_l1, Phi1_l2;
 Kokkos::View<int*> Phi1_lme, Phi1_lelm1lm2;
 Kokkos::View<double*> Phi1_clebsch_gordan;
+Kokkos::View<double***,Kokkos::LayoutRight> Phi1r, dPhi1r;
+Kokkos::View<double***,Kokkos::LayoutRight> Phi1, dPhi1;
 void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
 void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 

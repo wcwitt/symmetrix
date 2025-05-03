@@ -744,12 +744,6 @@ void MACEKokkos::reverse_Phi1(
             }
         });
 
-    // Build i_list and j_list
-    int total_num_neigh;
-    Kokkos::parallel_reduce("total_num_neigh", num_nodes, KOKKOS_LAMBDA (const int i, int& sum) {
-        sum += num_neigh(i);
-    }, total_num_neigh);
-    Kokkos::fence();
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
@@ -760,71 +754,58 @@ void MACEKokkos::reverse_Phi1(
             update += num_neigh_i;
         });
     Kokkos::fence();
-    Kokkos::View<int*> i_list("i_list", total_num_neigh);
-    Kokkos::View<int*> j_list("j_list", total_num_neigh);
-    Kokkos::parallel_for("ij lists",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i) {
-            int ij = first_neigh(i);
+
+    Kokkos::parallel_for("Reverse Phi1r",
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank();
+            const int i0 = first_neigh(i);
             for (int j=0; j<num_neigh(i); ++j) {
-                i_list(ij) = i;
-                j_list(ij) = j;
-                ij += 1;
+                const int ij = i0 + j;
+                const double r_ij = r(ij);
+                const double x_ij = xyz(3*ij) / r_ij;
+                const double y_ij = xyz(3*ij+1) / r_ij;
+                const double z_ij = xyz(3*ij+2) / r_ij;
+                double f_x, f_y, f_z;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_lelm1lm2),
+                    [&] (const int lelm1lm2, double& f_x, double& f_y, double& f_z) {
+                        const int lm1 = Phi1_lm1(lelm1lm2);
+                        const int lm2 = Phi1_lm2(lelm1lm2);
+                        const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+                        const double* R1_ij_lel1l2 = &R1(ij,lel1l2*num_channels);
+                        const double* R1_deriv_ij_lel1l2 = &R1_deriv(ij,lel1l2*num_channels);
+                        const double Y_ij_lm1 = Y(ij*num_lm+lm1);
+                        const double xY_ij_lm1 = x_ij * Y_ij_lm1;
+                        const double yY_ij_lm1 = y_ij * Y_ij_lm1;
+                        const double zY_ij_lm1 = z_ij * Y_ij_lm1;
+                        const double Y_grad_ij_x_lm1 = Y_grad(3*ij*num_lm+lm1);
+                        const double Y_grad_ij_y_lm1 = Y_grad((3*ij+1)*num_lm+lm1);
+                        const double Y_grad_ij_z_lm1 = Y_grad((3*ij+2)*num_lm+lm1);
+                        const double* H1_ij_lm2 = &H1(neigh_indices(ij),lm2,0);
+                        double* H1_adj_ij_lm2 = &H1_adj(neigh_indices(ij),lm2,0);
+                        const double* dPhi1r_i_lelm1lm2 = &dPhi1r(i,lelm1lm2,0);
+                        double t1, t2;
+                        Kokkos::parallel_reduce(
+                            Kokkos::ThreadVectorRange(team_member, num_channels),
+                            [=] (const int k, double& t1, double& t2) {
+                                t1 += R1_deriv_ij_lel1l2[k] * H1_ij_lm2[k] * dPhi1r_i_lelm1lm2[k]; 
+                                t2 += R1_ij_lel1l2[k] * H1_ij_lm2[k] * dPhi1r_i_lelm1lm2[k];
+                                Kokkos::atomic_add(// TODO: use scratch space?
+                                    H1_adj_ij_lm2+k,
+                                    R1_ij_lel1l2[k]  * Y_ij_lm1 * dPhi1r_i_lelm1lm2[k]);
+                            }, t1, t2);
+                        f_x += t1*xY_ij_lm1 + t2*Y_grad_ij_x_lm1;
+                        f_y += t1*yY_ij_lm1 + t2*Y_grad_ij_y_lm1;
+                        f_z += t1*zY_ij_lm1 + t2*Y_grad_ij_z_lm1;
+                    }, f_x, f_y, f_z);
+                    Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+                        node_forces(3*ij)   -= f_x;
+                        node_forces(3*ij+1) -= f_y;
+                        node_forces(3*ij+2) -= f_z;
+                    });
             }
         });
-    Kokkos::fence();
-
-    // Compute partial forces
-    Kokkos::parallel_for("Reverse Phi1r for dxyz",
-        Kokkos::TeamPolicy<>(total_num_neigh*3, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int ijw = team_member.league_rank();
-            const int ij = ijw / 3;
-            const int i = i_list(ij);
-            const double w_ij = xyz(ijw) / r(ij);
-            const double* R1_ij = &R1(ij,0);
-            const double* R1_deriv_ij = &R1_deriv(ij,0);
-            const double* Y_ij = &Y(ij*num_lm);
-            const double* Y_grad_ijw = &Y_grad(ijw*num_lm);
-            const double* H1_ij = &H1(neigh_indices(ij),0,0);
-            double f_ijw;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamVectorRange(team_member, num_lelm1lm2*num_channels),
-                [&] (const int lelm1lm2_k, double& f_ijw) {
-                    const int lelm1lm2 = lelm1lm2_k / num_channels;
-                    const int k = lelm1lm2_k % num_channels;
-                    const int lm1 = Phi1_lm1(lelm1lm2);
-                    const int lm2 = Phi1_lm2(lelm1lm2);
-                    const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-                    f_ijw += -dPhi1r(i,lelm1lm2,k) * H1_ij[lm2*num_channels+k] * (
-                        R1_deriv_ij[lel1l2*num_channels+k] * w_ij * Y_ij[lm1]
-                        + R1_ij[lel1l2*num_channels+k] * Y_grad_ijw[lm1]);
-                }, f_ijw);
-            Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
-                node_forces(ijw) += f_ijw;
-            });
-        });
-
-    // Compute dE/dH1 (named dH1)
-    Kokkos::parallel_for("Reverse Phi1r for dH1",
-        Kokkos::TeamPolicy<>(total_num_neigh, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int ij = team_member.league_rank();
-            const int i = i_list(ij);
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorRange(team_member, num_lelm1lm2*num_channels),
-                [&] (const int lelm1lm2_k) {
-                    const int lelm1lm2 = lelm1lm2_k / num_channels;
-                    const int k = lelm1lm2_k % num_channels;
-                    const int lm1 = Phi1_lm1(lelm1lm2);
-                    const int lm2 = Phi1_lm2(lelm1lm2);
-                    const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-                    Kokkos::atomic_add(
-                        &H1_adj(neigh_indices(ij),lm2,k),
-                        R1(ij,lel1l2*num_channels+k)  * Y(ij*num_lm+lm1) * dPhi1r(i,lelm1lm2,k));
-                });
-        });
-
     Kokkos::fence();
 }
 
