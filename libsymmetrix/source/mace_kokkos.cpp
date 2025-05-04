@@ -1056,6 +1056,7 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (num_nodes > M1.extent(0))
         Kokkos::realloc(M1, num_nodes, num_channels);
+    Kokkos::deep_copy(M1, 0.0);
     if (num_nodes > M1_poly_values.extent(0))
         Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels); 
 
