@@ -265,35 +265,44 @@ void MACEKokkos::reverse_Phi0(
         });
     Kokkos::fence();
 
-    // WARNING: Assumes node_forces have been initialized elsewhere
     Kokkos::parallel_for("Reverse Phi0",
-        Kokkos::TeamPolicy<>(total_num_neigh*3, Kokkos::AUTO, 32),
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int ij = team_member.league_rank() / 3;
-            const int w = team_member.league_rank() % 3;
-            const int i = i_list(ij);
-            // TODO: investigate further whether this parallelization is worth it
-            // TODO: make this a reduction
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_lm),
-                [&] (const int lm) {
-                    const int l = Kokkos::sqrt(lm);
-                    const double wY_ij_lm = xyz(3*ij+w) / r(ij) * Y(ij*num_lm+lm);
-                    const double Y_grad_ij_lm_w = Y_grad((3*ij+w)*num_lm+lm);
-                    double f;
-                    Kokkos::parallel_reduce(
-                        Kokkos::ThreadVectorRange(team_member, num_channels),
-                        [&] (const int k, double& sum) {
-                            sum += -Phi0_adj(i,lm,k) * H0_weights(neigh_types(ij),k) * (
-                                R0_deriv(ij,l*num_channels+k) * wY_ij_lm
-                                + R0(ij,l*num_channels+k) * Y_grad_ij_lm_w );
-                        },
-                        f);
-                    Kokkos::single(Kokkos::PerThread(team_member), [&]() {
-                        Kokkos::atomic_add(&node_forces(3*ij+w), f);
+            const int i = team_member.league_rank();
+            const int i0 = first_neigh(i);
+            for (int j=0; j<num_neigh(i); ++j) {
+                const int ij = i0 + j;
+                const double r_ij = r(ij);
+                const double x_ij = xyz(3*ij) / r_ij;
+                const double y_ij = xyz(3*ij+1) / r_ij;
+                const double z_ij = xyz(3*ij+2) / r_ij;
+                const double* Y_ij = &Y(ij*num_lm);
+                const double* Y_grad_ij = &Y_grad(3*ij*num_lm);
+                const double* H0_ij = &H0_weights(neigh_types(ij),0);
+                double f_x, f_y, f_z;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_lm),
+                    [&] (const int lm, double& f_x, double& f_y, double& f_z) {
+                        const int l = Kokkos::sqrt(lm);
+                        double t1, t2;
+                        Kokkos::parallel_reduce(
+                            Kokkos::ThreadVectorRange(team_member, num_channels),
+                            [&] (const int k, double& t1, double& t2) {
+                                t1 += R0_deriv(ij,l*num_channels+k) * H0_ij[k] * Phi0_adj(i,lm,k);
+                                t2 += R0(ij,l*num_channels+k) * H0_ij[k] * Phi0_adj(i,lm,k);
+                            }, t1, t2);
+                        f_x += t1*x_ij*Y_ij[lm] + t2*Y_grad_ij[lm];
+                        f_y += t1*y_ij*Y_ij[lm] + t2*Y_grad_ij[num_lm+lm];
+                        f_z += t1*z_ij*Y_ij[lm] + t2*Y_grad_ij[2*num_lm+lm];
+                    }, f_x, f_y, f_z);
+                    Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+                        node_forces(3*ij)   -= f_x;
+                        node_forces(3*ij+1) -= f_y;
+                        node_forces(3*ij+2) -= f_z;
                     });
-                });
+            }
         });
+
     Kokkos::fence();
 }
 
@@ -788,7 +797,7 @@ void MACEKokkos::reverse_Phi1(
                         double t1, t2;
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [=] (const int k, double& t1, double& t2) {
+                            [&] (const int k, double& t1, double& t2) {
                                 t1 += R1_deriv_ij_lel1l2[k] * H1_ij_lm2[k] * dPhi1r_i_lelm1lm2[k]; 
                                 t2 += R1_ij_lel1l2[k] * H1_ij_lm2[k] * dPhi1r_i_lelm1lm2[k];
                                 Kokkos::atomic_add(// TODO: use scratch space?
@@ -1127,27 +1136,14 @@ void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, 
     auto H2_weights_for_M1 = this->H2_weights_for_M1;
 
     Kokkos::parallel_for(
-        "Reverse H2 to H1_adj",
+        "Reverse H2",
         num_nodes*num_channels,
         KOKKOS_LAMBDA (const int ik) {
             const int i = ik / num_channels;
             const int k = ik % num_channels;
             for (int kp=0; kp<num_channels; ++kp) {
-                Kokkos::atomic_add(
-                    &H1_adj(i,0,kp),
-                    H2_weights_for_H1(node_types(i),kp*num_channels+k) * H2_adj(i,k));
-            }
-        });
-    Kokkos::parallel_for(
-        "Reverse H2 to M1_adj",
-        num_nodes*num_channels,
-        KOKKOS_LAMBDA (const int ik) {
-            const int i = ik / num_channels;
-            const int k = ik % num_channels;
-            for (int kp=0; kp<num_channels; ++kp) {
-                Kokkos::atomic_add(
-                    &M1_adj(i,kp),
-                    H2_weights_for_M1(kp*num_channels+k) * H2_adj(i,k));
+                H1_adj(i,0,k) += H2_weights_for_H1(node_types(i),k*num_channels+kp) * H2_adj(i,kp);
+                M1_adj(i,k) +=  H2_weights_for_M1(k*num_channels+kp) * H2_adj(i,kp);
             }
         });
     Kokkos::fence();
