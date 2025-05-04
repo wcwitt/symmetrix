@@ -1020,6 +1020,7 @@ void MACEKokkos::reverse_A1_scaled(
     Kokkos::fence();
 }
 
+#if 0
 void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     Kokkos::realloc(M1, num_nodes, num_channels);
@@ -1048,6 +1049,55 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
         });
     Kokkos::fence();
 }
+#endif
+
+//#if 0
+void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
+{
+    if (num_nodes > M1.extent(0))
+        Kokkos::realloc(M1, num_nodes, num_channels);
+    if (num_nodes > M1_poly_values.extent(0))
+        Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels); 
+
+    const auto A1 = this->A1;
+    const auto M1_monomials = this->M1_monomials;
+    const auto M1_weights = this->M1_weights;
+    const auto M1_poly_spec = this->M1_poly_spec;
+    const auto M1_poly_coeff = this->M1_poly_coeff;
+    const auto M1_poly_values = this->M1_poly_values;
+    const auto num_channels = this->num_channels;
+    const auto num_lm = this->num_lm;
+    auto M1 = this->M1;
+
+    Kokkos::parallel_for("Compute M1",
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank();
+            // initialize
+            Kokkos::parallel_for(
+                Kokkos::TeamVectorMDRange<
+                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
+                        team_member, num_lm, num_channels),
+                [&] (const int p, const int k) {
+                    M1_poly_values(i,p,k) = A1(i,p,k);
+                    Kokkos::atomic_add(&M1(i,k), M1_poly_coeff(node_types(i),p,k) * M1_poly_values(i,p,k));
+                });
+            team_member.team_barrier();
+            // forward pass
+            for (int p=0; p<M1_poly_spec.extent(0); ++p) {
+                const int p0 = M1_poly_spec(p,0);
+                const int p1 = M1_poly_spec(p,1);
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorRange(team_member, num_channels),
+                    [&] (const int k) {
+                        M1_poly_values(i,num_lm+p,k) = M1_poly_values(i,p0,k) * M1_poly_values(i,p1,k);
+                        M1(i,k) += M1_poly_coeff(node_types(i),num_lm+p,k) * M1_poly_values(i,num_lm+p,k);
+                    });
+            }
+        });
+    Kokkos::fence();
+}
+//#endif
 
 void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
@@ -1388,6 +1438,35 @@ void MACEKokkos::load_from_json(std::string filename)
         for (int j=0; j<M1_monomials[i].size(); ++j)
             h_M1_monomials(i,j) = M1_monomials[i][j];
     Kokkos::deep_copy(this->M1_monomials, h_M1_monomials);
+    // Begin recursive
+    auto P1 = std::vector<MultivariatePolynomial>();
+    for (int a=0; a<atomic_numbers.size(); ++a) {
+        for (int k=0; k<num_channels; ++k) {
+            P1.push_back(MultivariatePolynomial(
+                num_lm,
+                M1_weights[std::to_string(a)][std::to_string(k)],
+                M1_monomials));
+        }
+    }
+    // M1_poly_spec
+    Kokkos::realloc(M1_poly_spec, P1[0].edges.size(), 2);
+    auto h_M1_poly_spec = Kokkos::create_mirror_view(M1_poly_spec);
+    for (int p=0; p<P1[0].edges.size(); ++p) {
+        h_M1_poly_spec(p,0) = P1[0].edges[p][0];
+        h_M1_poly_spec(p,1) = P1[0].edges[p][1];
+    }
+    Kokkos::deep_copy(M1_poly_spec, h_M1_poly_spec);
+    // M1_poly_coeff
+    Kokkos::realloc(M1_poly_coeff, atomic_numbers.size(), num_lm+P1[0].edges.size(), num_channels);
+    auto h_M1_poly_coeff = Kokkos::create_mirror_view(M1_poly_coeff);
+    for (int a=0; a<atomic_numbers.size(); ++a) {
+        for (int p=0; p<num_lm+P1[0].edges.size(); ++p) {
+            for (int k=0; k<num_channels; ++k) {
+                h_M1_poly_coeff(a,p,k) = P1[a*num_channels+k].node_coefficients[p];
+            }
+        }
+    }
+    Kokkos::deep_copy(M1_poly_coeff, h_M1_poly_coeff);
 
     // H2
     auto H2_weights_for_H1_vec = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
