@@ -45,7 +45,6 @@ class Symmetrix(Calculator):
         ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
         mace_atomic_numbers = self.evaluator.atomic_numbers
         i_list, j_list, r, xyz = neighbor_list('ijdD', self.atoms, self.cutoff)
-        ## xyz = -xyz # TODO: why exactly is this necessary!?
         num_nodes = np.max(i_list) + 1
         node_types = [mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)]
         num_neigh = [sum(j_list == i) for i in range(num_nodes)]
