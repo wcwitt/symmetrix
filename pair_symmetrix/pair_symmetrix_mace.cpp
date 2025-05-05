@@ -316,7 +316,7 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
   mace->compute_H1(num_nodes);
 
   // create H1 vector (that will include ghost atom contributions)
-  H1.resize((atom->nlocal+atom->nghost)*mace->num_LM*mace->num_channels);
+  H1.resize((list->inum+atom->nghost)*mace->num_LM*mace->num_channels);
   // sort local H1 contributions by i (rather than ii)
   for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
