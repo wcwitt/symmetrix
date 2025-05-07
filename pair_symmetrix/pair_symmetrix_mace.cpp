@@ -176,9 +176,15 @@ void PairSymmetrixMACE::init_style()
   } else {
     // enforce the communication cutoff is more than twice the model cutoff
     const double comm_cutoff = comm->get_comm_cutoff();
+    if (comm->get_comm_cutoff() < (2*mace->r_cut + neighbor->skin)){
+      std::string cutoff_val = std::to_string((2.0 * mace->r_cut) + neighbor->skin);
+      char *args[2];
+      args[0] = (char *)"cutoff";
+      args[1] = const_cast<char *>(cutoff_val.c_str());
+      comm->modify_params(2, args);
+      if (comm->me == 0) error->warning(FLERR, "The communication cutoff has been set to {}", cutoff_val);
+    }
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
-    if (comm->get_comm_cutoff() < 2*mace->r_cut)
-      error->all(FLERR, "The communication cutoff must be at least twice the model cutoff for mode: {}", mode);
   }
 }
 
