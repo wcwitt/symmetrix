@@ -25,6 +25,7 @@ model = "mace-off-small"
 #model = "mace-mp-large"
 #model = "mace-mpa-medium"
 #model = "mace-mp-0b3-medium"
+#model = "mace-omat-0-medium"
 
 kokkos = False
 if kokkos:
@@ -51,6 +52,8 @@ elif model == "mace-mpa-medium":
     evaluator = MACE("mace-mpa-0-medium-1-8.json")
 elif model == "mace-mp-0b3-medium":
     evaluator = MACE("mace-mp-0b3-medium-1-8.json")
+elif model == "mace-omat-0-medium":
+    evaluator = MACE("mace-omat-0-medium-1-8.json")
 
 # prepare for tests
 atoms = ase.Atoms('OHH',
@@ -106,6 +109,8 @@ def test_R0():
         R0_sum = -39.38919552881708 
     elif model == "mace-mp-0b3-medium":
         R0_sum = 72.27732642745596
+    elif model == "mace-omat-0-medium":
+        R0_sum = -117.61030618445653
     assert sum(evaluator.R0) == pytest.approx(R0_sum, abs=1e-4)
 
     ### REVERSE
@@ -134,6 +139,8 @@ def test_Phi0():
         Phi0_sum = -38.7695302202777 
     elif model == "mace-mp-0b3-medium":
         Phi0_sum = -6.743969518581299
+    elif model == "mace-omat-0-medium":
+        Phi0_sum = -130.47143904720357
     assert sum(evaluator.Phi0) == pytest.approx(Phi0_sum, abs=1e-4)
 
     ### REVERSE
@@ -174,6 +181,8 @@ def test_A0():
         A0_sum = -7.991043151569456
     elif model == "mace-mp-0b3-medium":
         A0_sum = 10.329510160691235 
+    elif model == "mace-omat-0-medium":
+        A0_sum = -21.88004976955362
     evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_Y(xyz.flatten())
     evaluator.compute_Phi0(num_nodes, num_neigh, neigh_types)
@@ -218,6 +227,8 @@ def test_A0_scaled():
         A0_sum = -7.8593761523705385
     elif model == "mace-mp-0b3-medium":
         A0_sum = 9.440126671650006
+    elif model == "mace-omat-0-medium":
+        A0_sum = -20.379975414199357 
     evaluator.compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
     assert sum(evaluator.A0) == pytest.approx(A0_sum, abs=1e-4)
 
@@ -270,6 +281,8 @@ def test_M0():
         M0_sum = 1.2151448567024787
     elif model == "mace-mp-0b3-medium":
         M0_sum = -1.3625932385330521
+    elif model == "mace-omat-0-medium":
+        M0_sum = 3.6288569483470763
     evaluator.compute_M0(num_nodes, node_types)
     assert sum(evaluator.M0) == pytest.approx(M0_sum, abs=1e-4)
 
@@ -308,6 +321,8 @@ def test_H1():
         H1_sum = 0.41878240111859966
     elif model == "mace-mp-0b3-medium":
         H1_sum = -0.4491586552383757
+    elif model == "mace-omat-0-medium":
+        H1_sum = -3.9044110059623645
     evaluator.compute_M0(num_nodes, node_types)
     evaluator.compute_H1(num_nodes)
     assert sum(evaluator.H1) == pytest.approx(H1_sum, abs=1e-4)
@@ -347,6 +362,8 @@ def test_R1():
         R1_sum = 351.2336972694432
     elif model == "mace-mp-0b3-medium":
         R1_sum = 0.9441461477417903
+    elif model == "mace-omat-0-medium":
+        R1_sum = 146.80945233316243
     evaluator.compute_R1(num_nodes, node_types, num_neigh, neigh_types, r)
     assert sum(evaluator.R1) == pytest.approx(R1_sum, abs=1e-4)
 
@@ -373,6 +390,8 @@ def test_Phi1():
         Phi1_sum = 47.18438578544733 
     elif model == "mace-mp-0b3-medium":
         Phi1_sum = 12.53997938705195
+    elif model == "mace-omat-0-medium":
+        Phi1_sum = 25.127547764708503
     evaluator.compute_R1(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_Y(xyz.flatten())
     evaluator.compute_Phi1(num_nodes, num_neigh, j_list)
@@ -430,6 +449,8 @@ def test_A1():
         A1_sum = -0.9342584160946092
     elif model == "mace-mp-0b3-medium":
         A1_sum = 5.115661063015592
+    elif model == "mace-omat-0-medium":
+        A1_sum = 8.1824003580755
     evaluator.compute_A1(num_nodes)
     assert sum(evaluator.A1) == pytest.approx(A1_sum, abs=1e-4)
 
@@ -471,6 +492,8 @@ def test_A1_scaled():
         A1_sum = -0.7384077299498335 
     elif model == "mace-mp-0b3-medium":
         A1_sum = 5.1042645420231745
+    elif model == "mace-omat-0-medium":
+        A1_sum = 8.089969827469229
     evaluator.compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
     assert sum(evaluator.A1) == pytest.approx(A1_sum, abs=1e-4)
 
@@ -525,6 +548,8 @@ def test_M1():
         M1_sum = 0.8098763169906235
     elif model == "mace-mp-0b3-medium":
         M1_sum = 0.5069959963062927
+    elif model == "mace-omat-0-medium":
+        M1_sum = 0.2907507876488853
     evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_R1(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_Y(xyz.flatten())
@@ -574,6 +599,8 @@ def test_H2():
         H2_sum = -0.3818394630070888
     elif model == "mace-mp-0b3-medium":
         H2_sum = 0.6759698623990266
+    elif model == "mace-omat-0-medium":
+        H2_sum = -0.7507756851817147
     evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_R1(num_nodes, node_types, num_neigh, neigh_types, r)
     evaluator.compute_Y(xyz.flatten())
@@ -637,6 +664,8 @@ def test_readouts():
         readout = -5.089426502695993
     elif model == "mace-mp-0b3-medium":
         readout = -4.920488393882309
+    elif model == "mace-omat-0-medium":
+        readout = -5.356825090124245
     evaluator.compute_node_energies_forces(
         num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
     evaluator.node_energies = np.zeros(num_nodes)
@@ -693,6 +722,8 @@ def test_compute_node_energies_forces():
         exact_e = -5.089426502695993 
     elif model == "mace-mp-0b3-medium":
         exact_e = -4.920488393882309
+    elif model == "mace-omat-0-medium":
+        exact_e = -5.356825090124245
     assert e == pytest.approx(exact_e, rel=1e-4, abs=1e-6)
 
     ### REVERSE
