@@ -182,7 +182,7 @@ void PairSymmetrixMACE::init_style()
       args[0] = (char *)"cutoff";
       args[1] = const_cast<char *>(cutoff_val.c_str());
       comm->modify_params(2, args);
-      if (comm->me == 0) error->warning(FLERR, "The communication cutoff has been set to {}", cutoff_val);
+      if (comm->me == 0) error->warning(FLERR, "symmetrix/mace is setting the communication cutoff to {}", cutoff_val);
     }
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
   }
