@@ -337,8 +337,7 @@ for l in range(l_max+1):
     if not A1_scaled:
         w_linear /= model.interactions[1].avg_num_neighbors
     w_linear = np.reshape(w_linear, (num_eta[l], num_channels, num_channels))
-    for eta in range(num_eta[l]):
-        A1_weights.append(w_linear[eta,:,:].flatten().tolist())
+    A1_weights.append(w_linear.flatten().tolist())
 output["A1_weights"] = A1_weights
 
 ### ----- M1 -----
