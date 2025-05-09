@@ -16,7 +16,7 @@ if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition"])
+    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
 def test_h20(pair_style):
 
     # ----- setup -----
@@ -29,7 +29,7 @@ def test_h20(pair_style):
         boundary        p p p
         region          box block -10 10 -10 10 -10 10
         create_box      2 box
-    
+                          
         create_atoms 1 single  1.0  0.0  0.0 units box
         create_atoms 1 single  0.0  1.0  0.0 units box
         create_atoms 2 single  0.0 -2.0  0.0 units box
@@ -75,7 +75,7 @@ def test_h20(pair_style):
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition"])
+    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
 def test_h20_zbl(pair_style):
 
     # ----- setup -----
@@ -95,7 +95,7 @@ def test_h20_zbl(pair_style):
     
         mass            1 1.008
         mass            2 15.999
-    
+
         pair_style      {}
         pair_coeff      * * mace-mp-0b3-medium-1-8.json H O
 
