@@ -46,8 +46,8 @@ PairSymmetrixMACEKokkos<DeviceType>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
   one_coeff = 1;
   manybody_flag = 1;
   no_virial_fdotr_compute = 1;
-  comm_forward = 0;  // possibly changed in init_style
-  comm_reverse = 0;  // possibly changed in init_style
+  comm_forward = 0;  // possibly changed below
+  comm_reverse = 0;  // possibly changed below
 
   kokkosable = 1;
   reverse_comm_device = 1;
@@ -75,10 +75,10 @@ PairSymmetrixMACEKokkos<DeviceType>::~PairSymmetrixMACEKokkos()
 template<class DeviceType>
 void PairSymmetrixMACEKokkos<DeviceType>::compute(int eflag, int vflag)
 {
-  if (mode == "default") {
-    compute_default(eflag, vflag);
-  } else if (mode == "no_domain_decomposition") {
+  if (mode == "no_domain_decomposition") {
     compute_no_domain_decomposition(eflag, vflag);
+  } else if (mode == "mpi_message_passing") {
+    compute_mpi_message_passing(eflag, vflag);
   } else if (mode == "no_mpi_message_passing") {
     compute_no_mpi_message_passing(eflag, vflag);
   }
@@ -109,11 +109,11 @@ template<class DeviceType>
 void PairSymmetrixMACEKokkos<DeviceType>::settings(int narg, char **arg)
 {
   if (narg == 0) {
-    mode = "default";
+    mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
   } else if (narg == 1) {
     mode = std::string(arg[0]);
-    if (mode != "default" and mode != "no_domain_decomposition" and mode != "no_mpi_message_passing")
-        error->all(FLERR, "The command \'pair_style symmetrix/mace/kk {}\' is invalid", mode);
+    if (mode != "no_domain_decomposition" and mode != "mpi_message_passing" and mode != "no_mpi_message_passing")
+      error->all(FLERR, "The command \'pair_style symmetrix/mace/kk {}\' is invalid", mode);
   } else {
     error->all(FLERR, "Too many pair_style arguments for symmetrix/mace/kk");
   }
@@ -157,7 +157,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::coeff(int narg, char **arg)
   Kokkos::deep_copy(mace_types, h_mace_types);
 
   // set message size
-  if (mode == "default") {
+  if (mode == "mpi_message_passing") {
     comm_forward = mace->num_LM*mace->num_channels;
     comm_reverse = mace->num_LM*mace->num_channels;
   } else {
@@ -179,7 +179,7 @@ double PairSymmetrixMACEKokkos<DeviceType>::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
-  if (mode == "default") {
+  if (mode == "mpi_message_passing") {
     return mace->r_cut;
   } else {
     return 2*mace->r_cut;
@@ -196,31 +196,12 @@ void PairSymmetrixMACEKokkos<DeviceType>::init_style()
   if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map yes\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace/kk requires newton pair on");
 
-  // TODO! think through this ghost thing carefully
-
-//  if (mode == "default") {
-//    neighbor->add_request(this, NeighConst::REQ_FULL);
-//    comm_forward = mace->num_LM*mace->num_channels;
-//    comm_reverse = mace->num_LM*mace->num_channels;
-//  } else {
-//    neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
-//    comm_forward = 0;
-//    comm_reverse = 0; 
-//  }
-
-//  neighflag = lmp->kokkos->neighflag;
+  // TODO! review carefully. why no request for ghosts?
+  // neighflag = lmp->kokkos->neighflag;
   auto request = neighbor->add_request(this, NeighConst::REQ_FULL);
   request->set_kokkos_host(std::is_same_v<DeviceType,LMPHostType> &&
                            !std::is_same_v<DeviceType,LMPDeviceType>);
   request->set_kokkos_device(std::is_same_v<DeviceType,LMPDeviceType>);
-//  if (neighflag == FULL)
-//    error->all(FLERR,"Must use half neighbor list style with pair pace/kk");
-//
-//  auto request = neighbor->find_request(this);
-//  request->set_kokkos_host(std::is_same<DeviceType,LMPHostType>::value &&
-//                           !std::is_same<DeviceType,LMPDeviceType>::value);
-//  request->set_kokkos_device(std::is_same<DeviceType,LMPDeviceType>::value);
-
 }
 
 /* ---------------------------------------------------------------------- */
@@ -377,7 +358,222 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm_kokkos(
 /* ---------------------------------------------------------------------- */
 
 template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute_default(int eflag, int vflag)
+void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int eflag, int vflag)
+{
+  ev_init(eflag, vflag, 0);
+
+  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+     memoryKK->destroy_kokkos(k_eatom,eatom);
+     memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+  }
+
+  const double r_cut_squared = mace->r_cut*mace->r_cut;
+
+  NeighListKokkos<DeviceType>* k_list = static_cast<NeighListKokkos<DeviceType>*>(list);
+  auto d_numneigh = k_list->d_numneigh;
+  auto d_neighbors = k_list->d_neighbors;
+  auto d_ilist = k_list->d_ilist;
+
+  atomKK->sync(execution_space,X_MASK|F_MASK|TYPE_MASK|TAG_MASK);
+  auto x = atomKK->k_x.view<DeviceType>();
+  auto f = atomKK->k_f.view<DeviceType>();
+  auto tag = atomKK->k_tag.view<DeviceType>();
+  auto type = atomKK->k_type.view<DeviceType>();
+
+  auto map_style = atom->map_style;
+  auto k_map_array = atomKK->k_map_array;
+  auto k_map_hash = atomKK->k_map_hash;
+  k_map_array.template sync<DeviceType>();
+
+  // node_indices, node_types, and num_neigh
+  const int num_nodes = k_list->inum;
+  if (node_indices.size() < num_nodes) Kokkos::realloc(node_indices, num_nodes);
+  if (node_types.size() < num_nodes) Kokkos::realloc(node_types, num_nodes);
+  if (num_neigh.size() < num_nodes) Kokkos::realloc(num_neigh, num_nodes);
+  Kokkos::deep_copy(num_neigh, 0);
+  auto node_indices = Kokkos::subview(this->node_indices, Kokkos::make_pair(0,num_nodes));
+  auto node_types = Kokkos::subview(this->node_types, Kokkos::make_pair(0,num_nodes));
+  auto num_neigh = Kokkos::subview(this->num_neigh, Kokkos::make_pair(0,num_nodes));
+  auto mace_types = this->mace_types;
+  Kokkos::parallel_for("Set Node-Based Views",
+    Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
+    KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+      const int ii = team_member.league_rank();
+      const int i = d_ilist(ii);
+      node_indices(ii) = i;
+      node_types(ii) = mace_types(type(i)-1);
+      const double x_i = x(i,0);
+      const double y_i = x(i,1);
+      const double z_i = x(i,2);
+      Kokkos::parallel_reduce(
+        Kokkos::TeamThreadRange(team_member, d_numneigh(i)),
+        [&] (const int jj, int& num_neigh_ii) {
+          const int j = (d_neighbors(i,jj) & NEIGHMASK);
+          const double dx = x(j,0) - x_i;
+          const double dy = x(j,1) - y_i;
+          const double dz = x(j,2) - z_i;
+          const double r_squared = dx*dx + dy*dy + dz*dz;
+          if (r_squared < r_cut_squared) {
+            num_neigh_ii += 1;
+          }
+        }, num_neigh(ii));
+    });
+
+  // total number of edges
+  int neigh_list_size;
+  Kokkos::parallel_reduce("Count Neighbors",
+    num_nodes,
+    KOKKOS_LAMBDA (const int ii, int& neigh_list_size) {
+      neigh_list_size += num_neigh(ii);
+    }, neigh_list_size);
+
+  // first neighbor
+  if (first_neigh.size() < num_nodes) Kokkos::realloc(first_neigh, num_nodes);
+  auto first_neigh = Kokkos::subview(this->first_neigh, Kokkos::make_pair(0,num_nodes));
+  Kokkos::parallel_scan("Set First Neighbor",
+      num_nodes,
+      KOKKOS_LAMBDA (const int ii, int& first_neigh_ii, const bool final) {
+          if (final) first_neigh(ii) = first_neigh_ii;
+          first_neigh_ii += num_neigh(ii);
+      });
+
+  // neigh_indices, neigh_types, xyz, and r
+  if (neigh_indices.size() < neigh_list_size) Kokkos::realloc(neigh_indices, neigh_list_size);
+  if (neigh_types.size() < neigh_list_size) Kokkos::realloc(neigh_types, neigh_list_size);
+  if (xyz.size() < 3*neigh_list_size) Kokkos::realloc(xyz, 3*neigh_list_size);
+  if (r.size() < neigh_list_size) Kokkos::realloc(r, neigh_list_size);
+  auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,neigh_list_size));
+  auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,neigh_list_size));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*neigh_list_size));
+  auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,neigh_list_size));
+  Kokkos::parallel_for("Set Edge-Based Views",
+    num_nodes,
+    KOKKOS_LAMBDA (const int ii) {
+      const int i = d_ilist(ii);
+      const double x_i = x(i,0);
+      const double y_i = x(i,1);
+      const double z_i = x(i,2);
+      int ij = first_neigh(ii);
+      for (int jj=0; jj<d_numneigh(i); ++jj) {
+        const int j = (d_neighbors(i,jj) & NEIGHMASK);
+        const int j_local = AtomKokkos::map_kokkos<DeviceType>(tag(j),map_style,k_map_array,k_map_hash);
+        const double dx = x(j,0) - x_i;
+        const double dy = x(j,1) - y_i;
+        const double dz = x(j,2) - z_i;
+        const double r_squared = dx*dx + dy*dy + dz*dz;
+        if (r_squared < r_cut_squared) {
+          neigh_indices(ij) = j_local;
+          neigh_types(ij) = mace_types(type(j)-1);
+          xyz(3*ij) = dx;
+          xyz(3*ij+1) = dy;
+          xyz(3*ij+2) = dz;
+          r(ij) = std::sqrt(r_squared);
+          ij += 1;
+        }
+      }
+  });
+
+  mace->compute_node_energies_forces(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
+
+  if (eflag_global) {
+    auto node_energies = mace->node_energies;
+    double energy;
+    Kokkos::parallel_reduce("Energy Reduction",
+      num_nodes,
+      KOKKOS_LAMBDA (const int i, double& energy) {
+        energy += node_energies(i);
+      }, energy);
+    eng_vdwl += energy;
+  }
+
+  if (eflag_atom) {
+    auto d_eatom = k_eatom.template view<DeviceType>();
+    auto node_energies = mace->node_energies;
+    Kokkos::parallel_for("Extract Atomic Energies", num_nodes, KOKKOS_LAMBDA (const int ii) {
+        d_eatom(ii) += node_energies(ii);
+    });
+    k_eatom.modify<DeviceType>();
+  }
+
+  auto mace_node_forces = mace->node_forces;
+  Kokkos::parallel_for("Force Reduction",
+    Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
+    KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+      const int ii = team_member.league_rank();
+      const int i = node_indices(ii);
+      double f_x, f_y, f_z;
+      Kokkos::parallel_reduce(
+        Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+        [&] (const int jj, double& f_x, double& f_y, double& f_z) {
+          const int ij = first_neigh(ii) + jj;
+          const int j = neigh_indices(ij);
+          f_x += mace_node_forces(3*ij);
+          f_y += mace_node_forces(3*ij+1);
+          f_z += mace_node_forces(3*ij+2);
+          Kokkos::atomic_add(&f(j,0), mace_node_forces(3*ij));
+          Kokkos::atomic_add(&f(j,1), mace_node_forces(3*ij+1));
+          Kokkos::atomic_add(&f(j,2), mace_node_forces(3*ij+2));
+        }, f_x, f_y, f_z);
+        Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+          Kokkos::atomic_add(&f(i,0), -f_x);
+          Kokkos::atomic_add(&f(i,1), -f_y);
+          Kokkos::atomic_add(&f(i,2), -f_z);
+        });
+    });
+
+  if (vflag_global) {
+    Kokkos::View<double*,Kokkos::LayoutRight> v("v", 6);
+    Kokkos::deep_copy(v, 0.0);
+    Kokkos::parallel_for("Virial Reduction",
+      Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
+      KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+        const int ii = team_member.league_rank();
+        const int i = node_indices(ii);
+        double v_0, v_1, v_2, v_3, v_4, v_5;
+        Kokkos::parallel_reduce(
+          Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+          [&] (const int jj, double& v_0, double& v_1, double& v_2,
+                             double& v_3, double& v_4, double& v_5) {
+            const int ij = first_neigh(ii) + jj;
+            const double x = xyz(3*ij);
+            const double y = xyz(3*ij+1);
+            const double z = xyz(3*ij+2);
+            const double f_x = mace_node_forces(3*ij);
+            const double f_y = mace_node_forces(3*ij+1);
+            const double f_z = mace_node_forces(3*ij+2);
+            v_0 += x*f_x;
+            v_1 += y*f_y;
+            v_2 += z*f_z;
+            v_3 += 0.5*(x*f_y + y*f_x);
+            v_4 += 0.5*(x+f_z + z*f_x);
+            v_5 += 0.5*(y+f_z + z*f_y);
+          }, v_0, v_1, v_2, v_3, v_4, v_5);
+        Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+          Kokkos::atomic_add(&v(0), v_0);
+          Kokkos::atomic_add(&v(1), v_1);
+          Kokkos::atomic_add(&v(2), v_2);
+          Kokkos::atomic_add(&v(3), v_3);
+          Kokkos::atomic_add(&v(4), v_4);
+          Kokkos::atomic_add(&v(5), v_5);
+        });
+      });
+    auto h_v = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), v);
+    virial[0] += h_v(0);
+    virial[1] += h_v(1);
+    virial[2] += h_v(2);
+    virial[3] += h_v(3);
+    virial[4] += h_v(4);
+    virial[5] += h_v(5);
+  }
+
+  if (vflag_atom)
+    error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace/kk.");
+}
+
+/* ---------------------------------------------------------------------- */
+
+template<class DeviceType>
+void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag, 0);
 
@@ -642,220 +838,6 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_default(int eflag, int vflag)
     error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace/kk.");
 }
 
-/* ---------------------------------------------------------------------- */
-
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int eflag, int vflag)
-{
-  ev_init(eflag, vflag, 0);
-
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
-     memoryKK->destroy_kokkos(k_eatom,eatom);
-     memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
-  }
-
-  const double r_cut_squared = mace->r_cut*mace->r_cut;
-
-  NeighListKokkos<DeviceType>* k_list = static_cast<NeighListKokkos<DeviceType>*>(list);
-  auto d_numneigh = k_list->d_numneigh;
-  auto d_neighbors = k_list->d_neighbors;
-  auto d_ilist = k_list->d_ilist;
-
-  atomKK->sync(execution_space,X_MASK|F_MASK|TYPE_MASK|TAG_MASK);
-  auto x = atomKK->k_x.view<DeviceType>();
-  auto f = atomKK->k_f.view<DeviceType>();
-  auto tag = atomKK->k_tag.view<DeviceType>();
-  auto type = atomKK->k_type.view<DeviceType>();
-
-  auto map_style = atom->map_style;
-  auto k_map_array = atomKK->k_map_array;
-  auto k_map_hash = atomKK->k_map_hash;
-  k_map_array.template sync<DeviceType>();
-
-  // node_indices, node_types, and num_neigh
-  const int num_nodes = k_list->inum;
-  if (node_indices.size() < num_nodes) Kokkos::realloc(node_indices, num_nodes);
-  if (node_types.size() < num_nodes) Kokkos::realloc(node_types, num_nodes);
-  if (num_neigh.size() < num_nodes) Kokkos::realloc(num_neigh, num_nodes);
-  Kokkos::deep_copy(num_neigh, 0);
-  auto node_indices = Kokkos::subview(this->node_indices, Kokkos::make_pair(0,num_nodes));
-  auto node_types = Kokkos::subview(this->node_types, Kokkos::make_pair(0,num_nodes));
-  auto num_neigh = Kokkos::subview(this->num_neigh, Kokkos::make_pair(0,num_nodes));
-  auto mace_types = this->mace_types;
-  Kokkos::parallel_for("Set Node-Based Views",
-    Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
-    KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-      const int ii = team_member.league_rank();
-      const int i = d_ilist(ii);
-      node_indices(ii) = i;
-      node_types(ii) = mace_types(type(i)-1);
-      const double x_i = x(i,0);
-      const double y_i = x(i,1);
-      const double z_i = x(i,2);
-      Kokkos::parallel_reduce(
-        Kokkos::TeamThreadRange(team_member, d_numneigh(i)),
-        [&] (const int jj, int& num_neigh_ii) {
-          const int j = (d_neighbors(i,jj) & NEIGHMASK);
-          const double dx = x(j,0) - x_i;
-          const double dy = x(j,1) - y_i;
-          const double dz = x(j,2) - z_i;
-          const double r_squared = dx*dx + dy*dy + dz*dz;
-          if (r_squared < r_cut_squared) {
-            num_neigh_ii += 1;
-          }
-        }, num_neigh(ii));
-    });
-
-  // total number of edges
-  int neigh_list_size;
-  Kokkos::parallel_reduce("Count Neighbors",
-    num_nodes,
-    KOKKOS_LAMBDA (const int ii, int& neigh_list_size) {
-      neigh_list_size += num_neigh(ii);
-    }, neigh_list_size);
-
-  // first neighbor
-  if (first_neigh.size() < num_nodes) Kokkos::realloc(first_neigh, num_nodes);
-  auto first_neigh = Kokkos::subview(this->first_neigh, Kokkos::make_pair(0,num_nodes));
-  Kokkos::parallel_scan("Set First Neighbor",
-      num_nodes,
-      KOKKOS_LAMBDA (const int ii, int& first_neigh_ii, const bool final) {
-          if (final) first_neigh(ii) = first_neigh_ii;
-          first_neigh_ii += num_neigh(ii);
-      });
-
-  // neigh_indices, neigh_types, xyz, and r
-  if (neigh_indices.size() < neigh_list_size) Kokkos::realloc(neigh_indices, neigh_list_size);
-  if (neigh_types.size() < neigh_list_size) Kokkos::realloc(neigh_types, neigh_list_size);
-  if (xyz.size() < 3*neigh_list_size) Kokkos::realloc(xyz, 3*neigh_list_size);
-  if (r.size() < neigh_list_size) Kokkos::realloc(r, neigh_list_size);
-  auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,neigh_list_size));
-  auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,neigh_list_size));
-  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*neigh_list_size));
-  auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,neigh_list_size));
-  Kokkos::parallel_for("Set Edge-Based Views",
-    num_nodes,
-    KOKKOS_LAMBDA (const int ii) {
-      const int i = d_ilist(ii);
-      const double x_i = x(i,0);
-      const double y_i = x(i,1);
-      const double z_i = x(i,2);
-      int ij = first_neigh(ii);
-      for (int jj=0; jj<d_numneigh(i); ++jj) {
-        const int j = (d_neighbors(i,jj) & NEIGHMASK);
-        const int j_local = AtomKokkos::map_kokkos<DeviceType>(tag(j),map_style,k_map_array,k_map_hash);
-        const double dx = x(j,0) - x_i;
-        const double dy = x(j,1) - y_i;
-        const double dz = x(j,2) - z_i;
-        const double r_squared = dx*dx + dy*dy + dz*dz;
-        if (r_squared < r_cut_squared) {
-          neigh_indices(ij) = j_local;
-          neigh_types(ij) = mace_types(type(j)-1);
-          xyz(3*ij) = dx;
-          xyz(3*ij+1) = dy;
-          xyz(3*ij+2) = dz;
-          r(ij) = std::sqrt(r_squared);
-          ij += 1;
-        }
-      }
-  });
-
-  mace->compute_node_energies_forces(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
-
-  if (eflag_global) {
-    auto node_energies = mace->node_energies;
-    double energy;
-    Kokkos::parallel_reduce("Energy Reduction",
-      num_nodes,
-      KOKKOS_LAMBDA (const int i, double& energy) {
-        energy += node_energies(i);
-      }, energy);
-    eng_vdwl += energy;
-  }
-
-  if (eflag_atom) {
-    auto d_eatom = k_eatom.template view<DeviceType>();
-    auto node_energies = mace->node_energies;
-    Kokkos::parallel_for("Extract Atomic Energies", num_nodes, KOKKOS_LAMBDA (const int ii) {
-        d_eatom(ii) += node_energies(ii);
-    });
-    k_eatom.modify<DeviceType>();
-  }
-
-  auto mace_node_forces = mace->node_forces;
-  Kokkos::parallel_for("Force Reduction",
-    Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
-    KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-      const int ii = team_member.league_rank();
-      const int i = node_indices(ii);
-      double f_x, f_y, f_z;
-      Kokkos::parallel_reduce(
-        Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-        [&] (const int jj, double& f_x, double& f_y, double& f_z) {
-          const int ij = first_neigh(ii) + jj;
-          const int j = neigh_indices(ij);
-          f_x += mace_node_forces(3*ij);
-          f_y += mace_node_forces(3*ij+1);
-          f_z += mace_node_forces(3*ij+2);
-          Kokkos::atomic_add(&f(j,0), mace_node_forces(3*ij));
-          Kokkos::atomic_add(&f(j,1), mace_node_forces(3*ij+1));
-          Kokkos::atomic_add(&f(j,2), mace_node_forces(3*ij+2));
-        }, f_x, f_y, f_z);
-        Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
-          Kokkos::atomic_add(&f(i,0), -f_x);
-          Kokkos::atomic_add(&f(i,1), -f_y);
-          Kokkos::atomic_add(&f(i,2), -f_z);
-        });
-    });
-
-  if (vflag_global) {
-    Kokkos::View<double*,Kokkos::LayoutRight> v("v", 6);
-    Kokkos::deep_copy(v, 0.0);
-    Kokkos::parallel_for("Virial Reduction",
-      Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
-      KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-        const int ii = team_member.league_rank();
-        const int i = node_indices(ii);
-        double v_0, v_1, v_2, v_3, v_4, v_5;
-        Kokkos::parallel_reduce(
-          Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-          [&] (const int jj, double& v_0, double& v_1, double& v_2,
-                             double& v_3, double& v_4, double& v_5) {
-            const int ij = first_neigh(ii) + jj;
-            const double x = xyz(3*ij);
-            const double y = xyz(3*ij+1);
-            const double z = xyz(3*ij+2);
-            const double f_x = mace_node_forces(3*ij);
-            const double f_y = mace_node_forces(3*ij+1);
-            const double f_z = mace_node_forces(3*ij+2);
-            v_0 += x*f_x;
-            v_1 += y*f_y;
-            v_2 += z*f_z;
-            v_3 += 0.5*(x*f_y + y*f_x);
-            v_4 += 0.5*(x+f_z + z*f_x);
-            v_5 += 0.5*(y+f_z + z*f_y);
-          }, v_0, v_1, v_2, v_3, v_4, v_5);
-        Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
-          Kokkos::atomic_add(&v(0), v_0);
-          Kokkos::atomic_add(&v(1), v_1);
-          Kokkos::atomic_add(&v(2), v_2);
-          Kokkos::atomic_add(&v(3), v_3);
-          Kokkos::atomic_add(&v(4), v_4);
-          Kokkos::atomic_add(&v(5), v_5);
-        });
-      });
-    auto h_v = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), v);
-    virial[0] += h_v(0);
-    virial[1] += h_v(1);
-    virial[2] += h_v(2);
-    virial[3] += h_v(3);
-    virial[4] += h_v(4);
-    virial[5] += h_v(5);
-  }
-
-  if (vflag_atom)
-    error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace/kk.");
-}
 
 /* ---------------------------------------------------------------------- */
 

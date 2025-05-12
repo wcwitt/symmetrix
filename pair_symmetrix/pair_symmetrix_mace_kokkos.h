@@ -50,8 +50,8 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   int pack_reverse_comm_kokkos(int, int, DAT::tdual_xfloat_1d&) override;
   void unpack_reverse_comm(int, int *, double *) override;
   void unpack_reverse_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_xfloat_1d&) override;
-  void compute_default(int, int);
   void compute_no_domain_decomposition(int, int);
+  void compute_mpi_message_passing(int, int);
   void compute_no_mpi_message_passing(int, int);
 
  protected:
