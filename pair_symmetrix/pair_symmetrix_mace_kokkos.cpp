@@ -706,6 +706,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
       mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
 
   mace->compute_Y(xyz);
+
   mace->compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_Phi0(num_nodes, num_neigh, neigh_types);
   mace->compute_A0(num_nodes, node_types);
@@ -713,10 +714,9 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
   mace->compute_M0(num_nodes, node_types);
   mace->compute_H1(num_nodes);
 
-  // create H1 vector (that will include ghost atom contributions)
-  if (H1.extent(0) < k_list->inum+atom->nghost)// TODO: replace nghost with gnum?
+  // sort H1 contributions by i (rather than ii)
+  if (H1.extent(0) < k_list->inum+atom->nghost)
     Kokkos::realloc(H1, (k_list->inum+atom->nghost), mace->num_LM, mace->num_channels);
-  // sort local H1 contributions by i (rather than ii)
   auto num_LM = mace->num_LM;
   auto num_channels = mace->num_channels;
   auto mace_H1 = mace->H1;
