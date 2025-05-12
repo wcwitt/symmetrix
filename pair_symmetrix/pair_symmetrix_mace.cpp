@@ -62,10 +62,10 @@ PairSymmetrixMACE::~PairSymmetrixMACE()
 
 void PairSymmetrixMACE::compute(int eflag, int vflag)
 {
-  if (mode == "default") {
-    compute_default(eflag, vflag);
-  } else if (mode == "no_domain_decomposition") {
+  if (mode == "no_domain_decomposition") {
     compute_no_domain_decomposition(eflag, vflag);
+  } else if (mode == "mpi_message_passing") {
+    compute_mpi_message_passing(eflag, vflag);
   } else if (mode == "no_mpi_message_passing") {
     compute_no_mpi_message_passing(eflag, vflag);
   }
@@ -94,10 +94,10 @@ void PairSymmetrixMACE::allocate()
 void PairSymmetrixMACE::settings(int narg, char **arg)
 {
   if (narg == 0) {
-    mode = "default";
+    mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
   } else if (narg == 1) {
     mode = std::string(arg[0]);
-    if (mode != "default" and mode != "no_domain_decomposition" and mode != "no_mpi_message_passing")
+    if (mode != "no_domain_decomposition" and mode != "mpi_message_passing" and mode != "no_mpi_message_passing")
         error->all(FLERR, "The command \'pair_style symmetrix/mace {}\' is invalid", mode);
   } else {
     error->all(FLERR, "Too many pair_style arguments for symmetrix/mace");
@@ -138,7 +138,7 @@ void PairSymmetrixMACE::coeff(int narg, char **arg)
   }
 
   // set message size
-  if (mode == "default") {
+  if (mode == "mpi_message_passing") {
     comm_forward = mace->num_LM*mace->num_channels;
     comm_reverse = mace->num_LM*mace->num_channels;
   } else {
@@ -171,7 +171,7 @@ void PairSymmetrixMACE::init_style()
   if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace requires \'atom_modify map yes\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace requires newton pair on");
 
-  if (mode == "default") {
+  if (mode == "mpi_message_passing") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
   } else {
     // enforce the communication cutoff is more than twice the model cutoff
@@ -238,7 +238,128 @@ void PairSymmetrixMACE::unpack_reverse_comm(int n, int *list, double *buf)
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::compute_default(int eflag, int vflag)
+void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
+{
+  ev_init(eflag, vflag);
+  const double r_cut_squared = mace->r_cut*mace->r_cut;
+
+  // count neighbors
+  int neigh_list_size = 0;
+  for (int ii=0; ii<list->inum; ++ii) {
+    const int i = list->ilist[ii];
+    const double x_i = atom->x[i][0];
+    const double y_i = atom->x[i][1];
+    const double z_i = atom->x[i][2];
+    int* jlist = list->firstneigh[i];
+    for (int jj=0; jj<list->numneigh[i]; jj++) {
+      const int j = (jlist[jj] & NEIGHMASK);
+      const double dx = atom->x[j][0] - x_i;
+      const double dy = atom->x[j][1] - y_i;
+      const double dz = atom->x[j][2] - z_i;
+      const double r_squared = dx*dx + dy*dy + dz*dz;
+      if (r_squared < r_cut_squared)
+        neigh_list_size += 1;
+    }
+  }
+
+  // resize neighbor list variables
+  num_nodes = list->inum;
+  node_indices.resize(neigh_list_size);
+  node_types.resize(list->inum);
+  num_neigh.resize(num_nodes);
+  neigh_indices.resize(neigh_list_size);
+  neigh_types.resize(neigh_list_size);
+  xyz.resize(3*neigh_list_size);
+  r.resize(neigh_list_size);
+
+  // fill neighbor list variables
+  int ij = 0;
+  for (int ii=0; ii<list->inum; ii++) {
+    const int i = list->ilist[ii];
+    node_indices[ii] = i;
+    node_types[ii] = mace_types[atom->type[i]-1];
+    const double x_i = atom->x[i][0];
+    const double y_i = atom->x[i][1];
+    const double z_i = atom->x[i][2];
+    int* jlist = list->firstneigh[i];
+    num_neigh[ii] = 0;
+    for (int jj=0; jj<list->numneigh[i]; jj++) {
+      const int j = (jlist[jj] & NEIGHMASK);
+      const double dx = atom->x[j][0] - x_i;
+      const double dy = atom->x[j][1] - y_i;
+      const double dz = atom->x[j][2] - z_i;
+      const double r_squared = dx*dx + dy*dy + dz*dz;
+      if (r_squared < r_cut_squared) {
+        num_neigh[ii] += 1;
+        neigh_indices[ij] = atom->map(atom->tag[j]);  // mapped to local
+        neigh_types[ij] = mace_types[atom->type[j]-1];
+        xyz[3*ij] = dx;
+        xyz[3*ij+1] = dy;
+        xyz[3*ij+2] = dz;
+        r[ij] = std::sqrt(r_squared);
+        ij += 1;
+      }
+    }
+  }
+
+  mace->compute_node_energies_forces(
+    num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
+  double energy = 0.0;
+  for (const auto e : mace->node_energies)
+    energy += e;
+
+  if (eflag_global)
+    eng_vdwl += energy;
+
+  if (eflag_atom) {
+    for (int ii=0; ii<num_nodes; ++ii) {
+      eatom[ii] = mace->node_energies[ii];
+    }
+  }
+
+  ij = 0;
+  for (int ii=0; ii<num_nodes; ++ii) {
+    const int i = node_indices[ii];
+    for (int jj=0; jj<num_neigh[ii]; ++jj) {
+      const int j = neigh_indices[ij];
+      atom->f[i][0] -= mace->node_forces[3*ij];
+      atom->f[i][1] -= mace->node_forces[3*ij+1];
+      atom->f[i][2] -= mace->node_forces[3*ij+2];
+      atom->f[j][0] += mace->node_forces[3*ij];
+      atom->f[j][1] += mace->node_forces[3*ij+1];
+      atom->f[j][2] += mace->node_forces[3*ij+2];
+      ij += 1;
+    }
+  }
+
+  if (vflag_global) {
+    ij = 0;
+    for (int ii=0; ii<num_nodes; ++ii) {
+      for (int jj=0; jj<num_neigh[ii]; ++jj) {
+        const double x = xyz[3*ij];
+        const double y = xyz[3*ij+1];
+        const double z = xyz[3*ij+2];
+        const double f_x = mace->node_forces[3*ij];
+        const double f_y = mace->node_forces[3*ij+1];
+        const double f_z = mace->node_forces[3*ij+2];
+        virial[0] += x*f_x;
+        virial[1] += y*f_y;
+        virial[2] += z*f_z;
+        virial[3] += 0.5*(x*f_y + y*f_x);
+        virial[4] += 0.5*(x+f_z + z*f_x);
+        virial[5] += 0.5*(y+f_z + z*f_y);
+        ij += 1;
+      }
+    }
+  }
+
+  if (vflag_atom)
+    error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace.");
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
   const double r_cut_squared = mace->r_cut*mace->r_cut;
@@ -411,125 +532,6 @@ void PairSymmetrixMACE::compute_default(int eflag, int vflag)
 }
 
 /* ---------------------------------------------------------------------- */
-
-void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
-{
-  ev_init(eflag, vflag);
-  const double r_cut_squared = mace->r_cut*mace->r_cut;
-
-  // count neighbors
-  int neigh_list_size = 0;
-  for (int ii=0; ii<list->inum; ++ii) {
-    const int i = list->ilist[ii];
-    const double x_i = atom->x[i][0];
-    const double y_i = atom->x[i][1];
-    const double z_i = atom->x[i][2];
-    int* jlist = list->firstneigh[i];
-    for (int jj=0; jj<list->numneigh[i]; jj++) {
-      const int j = (jlist[jj] & NEIGHMASK);
-      const double dx = atom->x[j][0] - x_i;
-      const double dy = atom->x[j][1] - y_i;
-      const double dz = atom->x[j][2] - z_i;
-      const double r_squared = dx*dx + dy*dy + dz*dz;
-      if (r_squared < r_cut_squared)
-        neigh_list_size += 1;
-    }
-  }
-
-  // resize neighbor list variables
-  num_nodes = list->inum;
-  node_indices.resize(neigh_list_size);
-  node_types.resize(list->inum);
-  num_neigh.resize(num_nodes);
-  neigh_indices.resize(neigh_list_size);
-  neigh_types.resize(neigh_list_size);
-  xyz.resize(3*neigh_list_size);
-  r.resize(neigh_list_size);
-
-  // fill neighbor list variables
-  int ij = 0;
-  for (int ii=0; ii<list->inum; ii++) {
-    const int i = list->ilist[ii];
-    node_indices[ii] = i;
-    node_types[ii] = mace_types[atom->type[i]-1];
-    const double x_i = atom->x[i][0];
-    const double y_i = atom->x[i][1];
-    const double z_i = atom->x[i][2];
-    int* jlist = list->firstneigh[i];
-    num_neigh[ii] = 0;
-    for (int jj=0; jj<list->numneigh[i]; jj++) {
-      const int j = (jlist[jj] & NEIGHMASK);
-      const double dx = atom->x[j][0] - x_i;
-      const double dy = atom->x[j][1] - y_i;
-      const double dz = atom->x[j][2] - z_i;
-      const double r_squared = dx*dx + dy*dy + dz*dz;
-      if (r_squared < r_cut_squared) {
-        num_neigh[ii] += 1;
-        neigh_indices[ij] = atom->map(atom->tag[j]);  // mapped to local
-        neigh_types[ij] = mace_types[atom->type[j]-1];
-        xyz[3*ij] = dx;
-        xyz[3*ij+1] = dy;
-        xyz[3*ij+2] = dz;
-        r[ij] = std::sqrt(r_squared);
-        ij += 1;
-      }
-    }
-  }
-
-  mace->compute_node_energies_forces(
-    num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
-  double energy = 0.0;
-  for (const auto e : mace->node_energies)
-    energy += e;
-
-  if (eflag_global)
-    eng_vdwl += energy;
-
-  if (eflag_atom) {
-    for (int ii=0; ii<num_nodes; ++ii) {
-      eatom[ii] = mace->node_energies[ii];
-    }
-  }
-
-  ij = 0;
-  for (int ii=0; ii<num_nodes; ++ii) {
-    const int i = node_indices[ii];
-    for (int jj=0; jj<num_neigh[ii]; ++jj) {
-      const int j = neigh_indices[ij];
-      atom->f[i][0] -= mace->node_forces[3*ij];
-      atom->f[i][1] -= mace->node_forces[3*ij+1];
-      atom->f[i][2] -= mace->node_forces[3*ij+2];
-      atom->f[j][0] += mace->node_forces[3*ij];
-      atom->f[j][1] += mace->node_forces[3*ij+1];
-      atom->f[j][2] += mace->node_forces[3*ij+2];
-      ij += 1;
-    }
-  }
-
-  if (vflag_global) {
-    ij = 0;
-    for (int ii=0; ii<num_nodes; ++ii) {
-      for (int jj=0; jj<num_neigh[ii]; ++jj) {
-        const double x = xyz[3*ij];
-        const double y = xyz[3*ij+1];
-        const double z = xyz[3*ij+2];
-        const double f_x = mace->node_forces[3*ij];
-        const double f_y = mace->node_forces[3*ij+1];
-        const double f_z = mace->node_forces[3*ij+2];
-        virial[0] += x*f_x;
-        virial[1] += y*f_y;
-        virial[2] += z*f_z;
-        virial[3] += 0.5*(x*f_y + y*f_x);
-        virial[4] += 0.5*(x+f_z + z*f_x);
-        virial[5] += 0.5*(y+f_z + z*f_y);
-        ij += 1;
-      }
-    }
-  }
-
-  if (vflag_atom)
-    error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace.");
-}
 
 void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 {

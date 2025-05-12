@@ -42,8 +42,8 @@ class PairSymmetrixMACE : public Pair {
   int pack_reverse_comm(int, int, double *) override;
   void unpack_reverse_comm(int, int *, double *) override;
 
-  void compute_default(int, int);
   void compute_no_domain_decomposition(int, int);
+  void compute_mpi_message_passing(int, int);
   void compute_no_mpi_message_passing(int, int);
 
  protected:
