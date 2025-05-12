@@ -196,12 +196,27 @@ void PairSymmetrixMACEKokkos<DeviceType>::init_style()
   if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map yes\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace/kk requires newton pair on");
 
-  // TODO! review carefully. why no request for ghosts?
-  // neighflag = lmp->kokkos->neighflag;
-  auto request = neighbor->add_request(this, NeighConst::REQ_FULL);
-  request->set_kokkos_host(std::is_same_v<DeviceType,LMPHostType> &&
-                           !std::is_same_v<DeviceType,LMPDeviceType>);
-  request->set_kokkos_device(std::is_same_v<DeviceType,LMPDeviceType>);
+  if (mode == "mpi_message_passing") {
+    auto request = neighbor->add_request(this, NeighConst::REQ_FULL);
+    request->set_kokkos_host(std::is_same_v<DeviceType,LMPHostType> &&
+                             !std::is_same_v<DeviceType,LMPDeviceType>);
+    request->set_kokkos_device(std::is_same_v<DeviceType,LMPDeviceType>);
+  } else {
+    // enforce the communication cutoff is more than twice the model cutoff
+    const double comm_cutoff = comm->get_comm_cutoff();
+    if (comm->get_comm_cutoff() < (2*mace->r_cut + neighbor->skin)){
+      std::string cutoff_val = std::to_string((2.0 * mace->r_cut) + neighbor->skin);
+      char *args[2];
+      args[0] = (char *)"cutoff";
+      args[1] = const_cast<char *>(cutoff_val.c_str());
+      comm->modify_params(2, args);
+      if (comm->me == 0) error->warning(FLERR, "symmetrix/mace/kk is setting the communication cutoff to {}", cutoff_val);
+    }
+    auto request = neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
+    request->set_kokkos_host(std::is_same_v<DeviceType,LMPHostType> &&
+                             !std::is_same_v<DeviceType,LMPDeviceType>);
+    request->set_kokkos_device(std::is_same_v<DeviceType,LMPDeviceType>);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
