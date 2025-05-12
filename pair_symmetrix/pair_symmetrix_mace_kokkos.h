@@ -52,7 +52,7 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   void unpack_reverse_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_xfloat_1d&) override;
   void compute_default(int, int);
   void compute_no_domain_decomposition(int, int);
-  //void compute_no_mpi_message_passing(int, int);
+  void compute_no_mpi_message_passing(int, int);
 
  protected:
   std::string mode;
@@ -61,7 +61,6 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   Kokkos::View<double***,Kokkos::LayoutRight> H1, H1_adj;
 
   // neighbor list variables
-  int num_nodes;
   Kokkos::View<int*> node_indices;
   Kokkos::View<int*> node_types;
   Kokkos::View<int*> num_neigh;
@@ -83,6 +82,9 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
                        "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og"};
 
   virtual void allocate();
+
+ private:
+  DAT::tdual_efloat_1d k_eatom;
 
 };
 }    // namespace LAMMPS_NS

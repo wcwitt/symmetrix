@@ -21,6 +21,7 @@ def test_h20(pair_style):
 
     # ----- setup -----
     L = lammps(cmdargs=["-screen", "none"])
+    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
     L.commands_string("""
         clear
         units           metal
@@ -80,6 +81,7 @@ def test_h20_zbl(pair_style):
 
     # ----- setup -----
     L = lammps(cmdargs=["-screen", "none"])
+    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
     L.commands_string("""
         clear
         units           metal
