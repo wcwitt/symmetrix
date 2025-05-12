@@ -423,18 +423,18 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
     }
   }
 
-  // TODO: probably best to manage this within individual routines
   mace->node_energies.resize(num_nodes);
   std::fill(mace->node_energies.begin(), mace->node_energies.end(), 0.0);
   mace->node_forces.resize(xyz.size());
   std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
 
-  // evaluate mace
   if (mace->has_zbl)
       mace->zbl.compute_ZBL(
           num_nodes, node_types, num_neigh, neigh_types,
           mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
+
   mace->compute_Y(xyz);
+
   mace->compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_Phi0(num_nodes, num_neigh, neigh_types);
   mace->compute_A0(num_nodes, node_types);
@@ -442,9 +442,8 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
   mace->compute_M0(num_nodes, node_types);
   mace->compute_H1(num_nodes);
 
-  // create H1 vector (that will include ghost atom contributions)
+  // sort H1 contributions by i (rather than ii)
   H1.resize((list->inum+atom->nghost)*mace->num_LM*mace->num_channels);
-  // sort local H1 contributions by i (rather than ii)
   for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     for (int k=0; k<mace->num_LM*mace->num_channels; ++k) {
@@ -452,7 +451,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
     }
   }
   comm->forward_comm(this);
-  mace->H1 = H1;// TODO: return to this
+  mace->H1 = H1;
 
   mace->compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_Phi1(num_nodes, num_neigh, neigh_indices);
