@@ -1153,7 +1153,6 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
 
 /* ---------------------------------------------------------------------- */
 
-// TODO: double check this is all correct
 namespace LAMMPS_NS {
 template class PairSymmetrixMACEKokkos<LMPDeviceType>;
 #ifdef LMP_KOKKOS_GPU
