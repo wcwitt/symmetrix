@@ -967,8 +967,8 @@ void MACEKokkos::compute_A1(int num_nodes)
 {
     // The core matrix multiplication is:
     //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
-    Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
-    Kokkos::deep_copy(A1, 0.0);
+    if (A1.extent(0) < num_nodes)
+        Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
 
     const auto l_max = this->l_max;
     const auto num_channels = this->num_channels;
@@ -978,25 +978,27 @@ void MACEKokkos::compute_A1(int num_nodes)
     auto A1 = this->A1;
 
     Kokkos::parallel_for("Compute A1",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
+        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
+            const int i = team_member.league_rank() / (l_max+1);
+            const int l = team_member.league_rank() % (l_max+1);
             int lme = 0;
-            for (int l=0; l<=l_max; ++l) {
-                int num_eta = 0;
-                for (int j=0; j<Phi1_l.size(); ++j)
-                    num_eta += (Phi1_l(j) == l);
-                auto Phi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-                    &Phi1(i,lme,0), 2*l+1, num_eta*num_channels);
-                auto A1_il = Kokkos::subview(A1, i, Kokkos::make_pair(l*l,l*(l+2)+1), Kokkos::ALL);
-                KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                        KokkosBatched::Trans::NoTranspose,
-                                        KokkosBatched::Trans::NoTranspose,
-                                        KokkosBatched::Algo::Gemm::Blocked>
-                    ::invoke(team_member, 1.0, Phi1_il, A1_weights(l), 0.0, A1_il);
-                lme += (2*l+1)*num_eta;
+            int num_eta = 0;
+            for (int p=0; p<Phi1_l.size(); ++p) {
+                const int ll = Phi1_l(p);
+                if (ll < l)
+                    lme += 2*ll+1;
+                if (ll == l)
+                    num_eta += 1;
             }
-
+            auto Phi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+                &Phi1(i,lme,0), 2*l+1, num_eta*num_channels);
+            auto A1_il = Kokkos::subview(A1, i, Kokkos::make_pair(l*l,l*(l+2)+1), Kokkos::ALL);
+            KokkosBatched::TeamVectorGemm<Kokkos::TeamPolicy<>::member_type,
+                                          KokkosBatched::Trans::NoTranspose,
+                                          KokkosBatched::Trans::NoTranspose,
+                                          KokkosBatched::Algo::Gemm::Unblocked>
+                ::invoke(team_member, 1.0, Phi1_il, A1_weights(l), 0.0, A1_il);
         });
     Kokkos::fence();
 }
