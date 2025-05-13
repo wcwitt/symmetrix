@@ -201,8 +201,8 @@ void MACEKokkos::compute_Phi0(
     auto H0_weights = this->H0_weights;
     auto Phi0 = this->Phi0;
 
-    Kokkos::parallel_for("ComputePhi0",
-        Kokkos::TeamPolicy<>(num_nodes*num_lm, 1, 32),
+    Kokkos::parallel_for("Compute Phi0",
+        Kokkos::TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank() / num_lm;
             const int lm = team_member.league_rank() % num_lm;
@@ -211,7 +211,7 @@ void MACEKokkos::compute_Phi0(
                 const int ij = first_neigh(i) + j;
                 const double Y_ij_lm = Y(ij*num_lm+lm);
                 Kokkos::parallel_for(
-                    Kokkos::ThreadVectorRange(team_member, num_channels),
+                    Kokkos::TeamVectorRange(team_member, num_channels),
                     [=] (const int k) {
                         Phi0(i,lm,k) += R0(ij,l*num_channels+k)*Y_ij_lm*H0_weights(neigh_types(ij),k);
                     });
