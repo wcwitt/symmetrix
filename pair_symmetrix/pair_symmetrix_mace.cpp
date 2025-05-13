@@ -25,6 +25,7 @@
 #include "neighbor.h"
 
 #include <algorithm>
+#include <numeric>
 
 using namespace LAMMPS_NS;
 
@@ -536,12 +537,16 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
-  const int num_local_nodes = list->inum;
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 
-  // determine neighbor list size (local atoms only)
-  std::set<int> ghost_neigh_indices_set;
-  int local_neigh_list_size = 0;
+  // locate ghosts within r_cut of locals
+  const int num_local_nodes = list->inum;
+  std::vector<bool> is_local(list->inum+list->gnum, false);
+  for (int ii=0; ii<num_local_nodes; ++ii) {
+    const int i = list->ilist[ii];
+    is_local[i] = true;
+  }
+  std::vector<bool> is_ghost(list->inum+list->gnum, false);
   for (int ii=0; ii<num_local_nodes; ++ii) {
     const int i = list->ilist[ii];
     const double x_i = atom->x[i][0];
@@ -554,69 +559,26 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
       const double dy = atom->x[j][1] - y_i;
       const double dz = atom->x[j][2] - z_i;
       const double r_squared = dx*dx + dy*dy + dz*dz;
-      if (r_squared < r_cut_squared) {
-        local_neigh_list_size += 1;
-        // check to see if j lies outside ilist
-        for (int iii=0; iii<num_local_nodes; iii++) {
-          if (list->ilist[iii] == j) break;
-          if (iii == num_local_nodes-1){
-            ghost_neigh_indices_set.insert(j);
-          }
-        }
-      }
+      if (r_squared<r_cut_squared and not is_local[j])
+        is_ghost[j] = true;
     }
   }
-  
-  const int num_ghost_nodes = ghost_neigh_indices_set.size();
-  const auto ghost_neigh_indices = std::vector<int>(
-    ghost_neigh_indices_set.begin(), ghost_neigh_indices_set.end());
 
-  // determine neighbor list size (ghost atoms)
-  int ghost_neigh_list_size = 0;
-  for (auto i : ghost_neigh_indices) {
-    const double x_i = atom->x[i][0];
-    const double y_i = atom->x[i][1];
-    const double z_i = atom->x[i][2];
-    int* jlist = list->firstneigh[i];
-    for (int jj=0; jj<list->numneigh[i]; jj++) {
-      const int j = (jlist[jj] & NEIGHMASK);
-      const double dx = atom->x[j][0] - x_i;
-      const double dy = atom->x[j][1] - y_i;
-      const double dz = atom->x[j][2] - z_i;
-      const double r_squared = dx*dx + dy*dy + dz*dz;
-      if (r_squared < r_cut_squared)
-        ghost_neigh_list_size += 1;
-    }
-  }
-  
-  // prepare neighbor list
-  std::vector<int> num_neighbors(num_local_nodes+num_ghost_nodes, 0);
+  // collect indices of ghosts within r_cut of locals
+  const int num_ghost_nodes = std::reduce(is_ghost.begin(), is_ghost.end(), 0);
+  std::vector<int> ghost_indices;
+  ghost_indices.reserve(num_ghost_nodes);
+  for (int i=0; i<num_local_nodes+num_ghost_nodes; ++i)
+    if (is_ghost[i])
+      ghost_indices.push_back(i);
+
+  // populate node_indices, node_types, and num_neigh
+  auto node_indices = std::vector<int>(num_local_nodes+num_ghost_nodes);
   auto node_types = std::vector<int>(num_local_nodes+num_ghost_nodes);
-  auto neigh_types = std::vector<int>(local_neigh_list_size+ghost_neigh_list_size);
-  auto neigh_node_indices = std::vector<int>(local_neigh_list_size);
-  auto xyz = std::vector<double>(3*(local_neigh_list_size+ghost_neigh_list_size));
-  auto r = std::vector<double>(local_neigh_list_size+ghost_neigh_list_size);
-  auto i_list = std::vector<int>(local_neigh_list_size+ghost_neigh_list_size);
-  auto j_list = std::vector<int>(local_neigh_list_size+ghost_neigh_list_size);
-
-  auto ii_to_i = [this, &ghost_neigh_indices](const int ii) {
-    return  (ii < list->inum) ? list->ilist[ii]
-                              : ghost_neigh_indices[ii-list->inum];
-  };
-
-  auto i_to_ii = [num_local_nodes, num_ghost_nodes, ii_to_i] (const int i) {
-    // TODO: improve this
-    for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
-      if (ii_to_i(ii) == i)
-        return ii;
-    }
-    //std::cout << "ERROR ERROR ERROR IN:  i_to_ii" << std::endl;
-    return -1;
-  };
-
-  int ij = 0;
+  auto num_neigh = std::vector<int>(num_local_nodes+num_ghost_nodes, 0);
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ii++) {
-    const int i = ii_to_i(ii);
+    const int i = (ii<num_local_nodes) ? list->ilist[ii] : ghost_indices[ii-num_local_nodes];
+    node_indices[ii] = i;
     node_types[ii] = mace_types[atom->type[i]-1];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -628,22 +590,47 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
       const double dy = atom->x[j][1] - y_i;
       const double dz = atom->x[j][2] - z_i;
       const double r_squared = dx*dx + dy*dy + dz*dz;
+      if (r_squared < r_cut_squared)
+        num_neigh[ii] += 1;
+    }
+  }
+
+  // count edges
+  int num_edges = 0;
+  for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii)
+    num_edges += num_neigh[ii];
+
+  // populate neigh_indices, neigh_types, xyz, and r
+  auto neigh_indices = std::vector<int>(num_edges);
+  auto neigh_types = std::vector<int>(num_edges);
+  auto xyz = std::vector<double>(3*num_edges);
+  auto r = std::vector<double>(num_edges);
+  int ij = 0;
+  for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
+    const int i = node_indices[ii];
+    const double x_i = atom->x[i][0];
+    const double y_i = atom->x[i][1];
+    const double z_i = atom->x[i][2];
+    int* jlist = list->firstneigh[i];
+    for (int jj=0; jj<list->numneigh[i]; jj++) {
+      const int j = (jlist[jj] & NEIGHMASK);
+      const double dx = atom->x[j][0] - x_i;
+      const double dy = atom->x[j][1] - y_i;
+      const double dz = atom->x[j][2] - z_i;
+      const double r_squared = dx*dx + dy*dy + dz*dz;
       if (r_squared < r_cut_squared) {
-        num_neighbors[ii] += 1;
+        neigh_indices[ij] = j;
+        neigh_types[ij] = mace_types[atom->type[j]-1];
         xyz[3*ij] = dx;
         xyz[3*ij+1] = dy;
         xyz[3*ij+2] = dz;
         r[ij] = std::sqrt(r_squared);
-        neigh_types[ij] = mace_types[atom->type[j]-1];
-        i_list[ij] = i;
-        j_list[ij] = j;
-        if (ii < num_local_nodes) {
-          neigh_node_indices[ij] = i_to_ii(j);
-        }
         ij += 1;
       }
     }
   }
+
+  // ----- begin mace evaluation -----
 
   mace->node_energies.resize(num_local_nodes);
   std::fill(mace->node_energies.begin(), mace->node_energies.end(), 0.0);
@@ -651,23 +638,23 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
 
   if (mace->has_zbl)
-      mace->zbl.compute_ZBL(
-          num_local_nodes, node_types, num_neighbors, neigh_types,
-          mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
+    mace->zbl.compute_ZBL(
+     num_local_nodes, node_types, num_neigh, neigh_types,
+     mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
 
   mace->compute_Y(xyz);
 
-  mace->compute_R0(num_local_nodes+num_ghost_nodes, node_types, num_neighbors, neigh_types, r);
-  mace->compute_Phi0(num_local_nodes+num_ghost_nodes, num_neighbors, neigh_types);
+  mace->compute_R0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
+  mace->compute_Phi0(num_local_nodes+num_ghost_nodes, num_neigh, neigh_types);
   mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neighbors, neigh_types, r);
+  mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M0(num_local_nodes+num_ghost_nodes, node_types);
   mace->compute_H1(num_local_nodes+num_ghost_nodes);
 
-  mace->compute_R1(num_local_nodes+num_ghost_nodes, node_types, num_neighbors, neigh_types, r);
-  mace->compute_Phi1(num_local_nodes, num_neighbors, neigh_node_indices);
+  mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
+  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_indices);
   mace->compute_A1(num_local_nodes);
-  mace->compute_A1_scaled(num_local_nodes, node_types, num_neighbors, neigh_types, r);
+  mace->compute_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M1(num_local_nodes, node_types);
   mace->compute_H2(num_local_nodes, node_types);
 
@@ -675,55 +662,60 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   
   mace->reverse_H2(num_local_nodes, node_types, false);
   mace->reverse_M1(num_local_nodes, node_types);
-  mace->reverse_A1_scaled(num_local_nodes, node_types, num_neighbors, neigh_types, xyz, r, false);
+  mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_local_nodes);
-  mace->reverse_Phi1(num_local_nodes, num_neighbors, neigh_node_indices, xyz, r, false, false);
+  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_indices, xyz, r, false, false);
 
   mace->reverse_H1(num_local_nodes+num_ghost_nodes);
   mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neighbors, neigh_types, xyz, r);
+  mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->reverse_Phi0(num_local_nodes+num_ghost_nodes, num_neighbors, neigh_types, xyz, r);
+  mace->reverse_Phi0(num_local_nodes+num_ghost_nodes, num_neigh, neigh_types, xyz, r);
 
-  // ----- END SymmetrixMACE -----
+  // ----- end mace evaluation -----
 
-  if (eflag_global) {
-    for (int i=0; i<num_local_nodes; ++i) {
-        eng_vdwl += mace->node_energies[i];
+  if (eflag_global)
+    for (int ii=0; ii<num_local_nodes; ++ii)
+      eng_vdwl += mace->node_energies[ii];
+
+  if (eflag_atom)
+    for (int ii=0; ii<num_local_nodes; ++ii)
+      eatom[ii] = mace->node_energies[ii];
+
+  ij = 0;
+  for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
+    const int i = node_indices[ii];
+    for (int jj=0; jj<num_neigh[ii]; ++jj) {
+      const int j = neigh_indices[ij];
+      atom->f[i][0] -= mace->node_forces[3*ij];
+      atom->f[i][1] -= mace->node_forces[3*ij+1];
+      atom->f[i][2] -= mace->node_forces[3*ij+2];
+      atom->f[j][0] += mace->node_forces[3*ij];
+      atom->f[j][1] += mace->node_forces[3*ij+1];
+      atom->f[j][2] += mace->node_forces[3*ij+2];
+      ij += 1;
     }
-  }
-
-  for (int ij=0; ij<i_list.size(); ++ij) {
-    const int i = i_list[ij];
-    const int j = j_list[ij];
-    atom->f[i][0] -= mace->node_forces[3*ij];
-    atom->f[i][1] -= mace->node_forces[3*ij+1];
-    atom->f[i][2] -= mace->node_forces[3*ij+2];
-    atom->f[j][0] += mace->node_forces[3*ij];
-    atom->f[j][1] += mace->node_forces[3*ij+1];
-    atom->f[j][2] += mace->node_forces[3*ij+2];
   }
 
   if (vflag_global) {
-   for (int ij=0; ij<i_list.size(); ++ij) {
-      const double x = xyz[3*ij];
-      const double y = xyz[3*ij+1];
-      const double z = xyz[3*ij+2];
-      const double f_x = mace->node_forces[3*ij];
-      const double f_y = mace->node_forces[3*ij+1];
-      const double f_z = mace->node_forces[3*ij+2];
-      virial[0] += x*f_x;
-      virial[1] += y*f_y;
-      virial[2] += z*f_z;
-      virial[3] += 0.5*(x*f_y + y*f_x);
-      virial[4] += 0.5*(x+f_z + z*f_x);
-      virial[5] += 0.5*(y+f_z + z*f_y);
-    }
-  }
-
-  if (eflag_atom) {
-    for (int ii=0; ii<num_local_nodes; ++ii) {
-      eatom[ii] = mace->node_energies[ii];
+    ij = 0;
+    for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
+      const int i = node_indices[ii];
+      for (int jj=0; jj<num_neigh[ii]; ++jj) {
+        const double x = xyz[3*ij];
+        const double y = xyz[3*ij+1];
+        const double z = xyz[3*ij+2];
+        const double f_x = mace->node_forces[3*ij];
+        const double f_y = mace->node_forces[3*ij+1];
+        const double f_z = mace->node_forces[3*ij+2];
+        virial[0] += x*f_x;
+        virial[1] += y*f_y;
+        virial[2] += z*f_z;
+        virial[3] += 0.5*(x*f_y + y*f_x);
+        virial[4] += 0.5*(x+f_z + z*f_x);
+        virial[5] += 0.5*(y+f_z + z*f_y);
+        ij += 1;
+      }
     }
   }
 
