@@ -238,11 +238,6 @@ void MACEKokkos::reverse_Phi0(
     auto Phi0_adj = this->Phi0_adj;
     auto node_forces = this->node_forces;
 
-    int total_num_neigh;
-    Kokkos::parallel_reduce("total_num_neigh", num_nodes, KOKKOS_LAMBDA (const int i, int& sum) {
-        sum += num_neigh(i);
-    }, total_num_neigh);
-    Kokkos::fence();
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
@@ -251,17 +246,6 @@ void MACEKokkos::reverse_Phi0(
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
-        });
-    Kokkos::fence();
-    Kokkos::View<int*> i_list("i_list", total_num_neigh);
-    Kokkos::parallel_for("ij lists",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i) {
-            int ij = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                i_list(ij) = i;
-                ij += 1;
-            }
         });
     Kokkos::fence();
 
