@@ -52,15 +52,17 @@ class PairSymmetrixMACE : public Pair {
   std::vector<int> mace_types;
   std::vector<double> H1, H1_adj;
 
-  // neighbor list variables
-  int num_nodes;
   std::vector<int> node_indices;
   std::vector<int> node_types;
   std::vector<int> num_neigh;
-  std::vector<int> neigh_types;
   std::vector<int> neigh_indices;
+  std::vector<int> neigh_types;
   std::vector<double> xyz;
   std::vector<double> r;
+
+  std::vector<bool> is_local;
+  std::vector<bool> is_ghost;
+  std::vector<int> ghost_indices;
 
   const std::array<std::string,118> periodic_table =
     { "H", "He",
