@@ -876,18 +876,18 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
   auto f = atomKK->k_f.view<DeviceType>();
   auto type = atomKK->k_type.view<DeviceType>();
 
-  const int num_local_nodes = list->inum;
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 
-  // identify one-hop ghosts
+  // locate one-hop ghost atoms
+  const int num_local_nodes = list->inum;
   auto local_bitset = Kokkos::Bitset(list->inum+list->gnum);
-  auto ghost_bitset = Kokkos::Bitset(list->inum+list->gnum);
   Kokkos::parallel_for("fill local_bitset",
     num_local_nodes,
     KOKKOS_LAMBDA (const int ii) {
       const int i = d_ilist(ii);
       local_bitset.set(i);
     });
+  auto ghost_bitset = Kokkos::Bitset(list->inum+list->gnum);
   Kokkos::parallel_for("fill ghost_bitset",
     Kokkos::TeamPolicy<>(num_local_nodes, Kokkos::AUTO),
     KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
@@ -905,9 +905,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
           const double dy = x(j,1) - y_i;
           const double dz = x(j,2) - z_i;
           const double r_squared = dx*dx + dy*dy + dz*dz;
-          if (r_squared < r_cut_squared) {
-            if (not local_bitset.test(j)) ghost_bitset.set(j);
-          }
+          if (r_squared<r_cut_squared and not local_bitset.test(j))
+            ghost_bitset.set(j);
         });
     });
 
@@ -952,19 +951,18 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
           const double dy = x(j,1) - y_i;
           const double dz = x(j,2) - z_i;
           const double r_squared = dx*dx + dy*dy + dz*dz;
-          if (r_squared < r_cut_squared) {
+          if (r_squared < r_cut_squared)
             num_neigh_ii += 1;
-          }
         }, num_neigh(ii));
     });
 
-  // total number of edges
-  int neigh_list_size;
+  // count edges
+  int num_edges;
   Kokkos::parallel_reduce("count neighbors",
     num_local_nodes+num_ghost_nodes,
-    KOKKOS_LAMBDA (const int ii, int& neigh_list_size) {
-      neigh_list_size += num_neigh(ii);
-    }, neigh_list_size);
+    KOKKOS_LAMBDA (const int ii, int& num_edges) {
+      num_edges += num_neigh(ii);
+    }, num_edges);
 
   // first neighbor
   if (first_neigh.size() < num_local_nodes+num_ghost_nodes)
@@ -978,18 +976,18 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
     });
 
   // neigh_indices, neigh_types, xyz, and r
-  if (neigh_indices.size() < neigh_list_size)
-    Kokkos::realloc(neigh_indices, neigh_list_size);
-  if (neigh_types.size() < neigh_list_size)
-    Kokkos::realloc(neigh_types, neigh_list_size);
-  if (xyz.size() < 3*neigh_list_size)
-    Kokkos::realloc(xyz, 3*neigh_list_size);
-  if (r.size() < neigh_list_size)
-    Kokkos::realloc(r, neigh_list_size);
-  auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,neigh_list_size));
-  auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,neigh_list_size));
-  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*neigh_list_size));
-  auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,neigh_list_size));
+  if (neigh_indices.size() < num_edges)
+    Kokkos::realloc(neigh_indices, num_edges);
+  if (neigh_types.size() < num_edges)
+    Kokkos::realloc(neigh_types, num_edges);
+  if (xyz.size() < 3*num_edges)
+    Kokkos::realloc(xyz, 3*num_edges);
+  if (r.size() < num_edges)
+    Kokkos::realloc(r, num_edges);
+  auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,num_edges));
+  auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,num_edges));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*num_edges));
+  auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,num_edges));
   Kokkos::parallel_for("set edge-based views",
     num_local_nodes+num_ghost_nodes,
     KOKKOS_LAMBDA (const int ii) {
@@ -1019,8 +1017,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
   if (mace->node_energies.size() < num_local_nodes)
     Kokkos::realloc(mace->node_energies, num_local_nodes);
   Kokkos::deep_copy(mace->node_energies, 0.0);
-  if (mace->node_forces.size() < 3*neigh_list_size)
-    Kokkos::realloc(mace->node_forces, 3*neigh_list_size);
+  if (mace->node_forces.size() < 3*num_edges)
+    Kokkos::realloc(mace->node_forces, 3*num_edges);
   Kokkos::deep_copy(mace->node_forces, 0.0);
 
   if (mace->has_zbl)
