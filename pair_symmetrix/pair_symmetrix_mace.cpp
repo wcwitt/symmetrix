@@ -644,6 +644,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
     }
   }
 
+  // populate neigh_ii_indices
   neigh_ii_indices.resize(num_local_edges);
   for (int ij=0; ij<num_local_edges; ++ij) {
     const int j = neigh_indices[ij];
