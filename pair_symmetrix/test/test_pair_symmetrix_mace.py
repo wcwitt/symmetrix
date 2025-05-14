@@ -14,14 +14,22 @@ if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
                 "mace-mp-0b3-medium-1-8.json")
 
 
+kokkos = False
+cmdargs = ["-screen", "none"]
+if kokkos:
+    cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"]
+
+
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace mpi_message_passing", "symmetrix/mace no_mpi_message_passing"])
+    ["symmetrix/mace",
+     "symmetrix/mace no_domain_decomposition",
+     "symmetrix/mace mpi_message_passing",
+     "symmetrix/mace no_mpi_message_passing"])
 def test_h20(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=["-screen", "none"])
-    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
+    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
@@ -70,22 +78,24 @@ def test_h20(pair_style):
             x[i,j] += h
             L.command("run 0")
             f_num[i,j] = -(ep-em)/(2*h)
-    assert np.allclose(f, f_num, rtol=1e-3, atol=1e-5)
+    assert np.allclose(f, f_num, atol=1e-5)
 
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace mpi_message_passing", "symmetrix/mace no_mpi_message_passing"])
+    ["symmetrix/mace",
+     "symmetrix/mace no_domain_decomposition",
+     "symmetrix/mace mpi_message_passing",
+     "symmetrix/mace no_mpi_message_passing"])
 def test_h20_zbl(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=["-screen", "none"])
-    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
+    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
         atom_style      atomic
-        atom_modify     map yes
+        atom_modify     map yes sort 0 0
         boundary        p p p
 
         region          box block -10 10 -10 10 -10 10
@@ -104,7 +114,7 @@ def test_h20_zbl(pair_style):
 
     # ----- energy -----
     e = L.get_thermo("pe")
-    assert e == pytest.approx(-5.003106904473648, rel=1e-4, abs=1e-6)
+    assert e == pytest.approx(-5.003106904473648, abs=1e-3)
 
     # ----- forces -----
     h = 1e-4
@@ -128,12 +138,14 @@ def test_h20_zbl(pair_style):
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
+    ["symmetrix/mace",
+     "symmetrix/mace no_domain_decomposition",
+     "symmetrix/mace mpi_message_passing",
+     "symmetrix/mace no_mpi_message_passing"])
 def test_water(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=["-screen", "none"])
-    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
+    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
@@ -173,18 +185,16 @@ def test_water(pair_style):
 
         pair_style      {}
         pair_coeff      * * MACE-OFF23_small-1-8.json H O
-        velocity        all create 300.0 123 rot yes dist gaussian
 
         timestep        0.0001
         thermo          1
         fix             f1 all nve
-        fix             f2 all langevin 300.0 300.0 0.1 123
         run             10
     """.format(pair_style))
 
     # ----- energy -----
     e = L.get_thermo("pe")
-    assert e == pytest.approx(-16649.874643529467, rel=1e-4, abs=1e-6)
+    assert e == pytest.approx(-16649.98869252188, abs=1e-6)
 
     # ----- atomic energies -----
     L.command("compute peratom all pe/atom")

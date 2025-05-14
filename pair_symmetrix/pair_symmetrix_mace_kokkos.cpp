@@ -461,6 +461,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int ef
   auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,num_edges));
   auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*num_edges));
   auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,num_edges));
+  // TODO: better parallelization?
   Kokkos::parallel_for("PairSymmetrixMACEKokkos::set_edge_based_views",
     num_nodes,
     KOKKOS_LAMBDA (const int ii) {
