@@ -16,7 +16,7 @@ if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
+    ["symmetrix/mace", "symmetrix/mace mpi_message_passing", "symmetrix/mace no_mpi_message_passing"])
 def test_h20(pair_style):
 
     # ----- setup -----
@@ -28,13 +28,12 @@ def test_h20(pair_style):
         atom_style      atomic
         atom_modify     map yes sort 0 0
         boundary        p p p
+
         region          box block -10 10 -10 10 -10 10
         create_box      2 box
-                          
-        create_atoms 1 single  1.0  0.0  0.0 units box
-        create_atoms 1 single  0.0  1.0  0.0 units box
-        create_atoms 2 single  0.0 -2.0  0.0 units box
-    
+        create_atoms    1 single  1.0  0.0  0.0 units box
+        create_atoms    1 single  0.0  1.0  0.0 units box
+        create_atoms    2 single  0.0 -2.0  0.0 units box
         mass            1 1.008
         mass            2 15.999
     
@@ -76,7 +75,7 @@ def test_h20(pair_style):
 
 @pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
+    ["symmetrix/mace", "symmetrix/mace mpi_message_passing", "symmetrix/mace no_mpi_message_passing"])
 def test_h20_zbl(pair_style):
 
     # ----- setup -----
@@ -86,15 +85,14 @@ def test_h20_zbl(pair_style):
         clear
         units           metal
         atom_style      atomic
-        atom_modify     map yes sort 0 0
+        atom_modify     map yes
         boundary        p p p
+
         region          box block -10 10 -10 10 -10 10
         create_box      2 box
-    
-        create_atoms 1 single  0.5  0.0  0.0 units box
-        create_atoms 1 single  0.0  0.5  0.0 units box
-        create_atoms 2 single  0.0 -0.5  0.0 units box
-    
+        create_atoms    1 single  0.5  0.0  0.0 units box
+        create_atoms    1 single  0.0  0.5  0.0 units box
+        create_atoms    2 single  0.0 -0.5  0.0 units box
         mass            1 1.008
         mass            2 15.999
 
@@ -126,3 +124,70 @@ def test_h20_zbl(pair_style):
             L.command("run 0")
             f_num[i,j] = -(ep-em)/(2*h)
     assert np.allclose(f, f_num, rtol=1e-4, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "pair_style",
+    ["symmetrix/mace", "symmetrix/mace no_domain_decomposition", "symmetrix/mace no_mpi_message_passing"])
+def test_water(pair_style):
+
+    # ----- setup -----
+    L = lammps(cmdargs=["-screen", "none"])
+    #L = lammps(cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"])
+    L.commands_string("""
+        clear
+        units           metal
+        boundary        p p p
+        atom_style      atomic
+        atom_modify     map yes
+        newton          on
+
+        region          box block 0.0 6.2085633514918648 0.0 6.2085633514918648 0.0 6.2085633514918648
+        create_box      2 box
+        create_atoms    2 single  1  1  1  units box
+        create_atoms    1 single  2  1  1  units box
+        create_atoms    1 single  1  2  1  units box
+        create_atoms    2 single  4  1  1  units box
+        create_atoms    1 single  5  1  1  units box
+        create_atoms    1 single  4  2  1  units box
+        create_atoms    2 single  1  4  1  units box
+        create_atoms    1 single  2  4  1  units box
+        create_atoms    1 single  1  5  1  units box
+        create_atoms    2 single  1  1  4  units box
+        create_atoms    1 single  2  1  4  units box
+        create_atoms    1 single  1  2  4  units box
+        create_atoms    2 single  4  4  1  units box
+        create_atoms    1 single  5  4  1  units box
+        create_atoms    1 single  4  5  1  units box
+        create_atoms    2 single  4  1  4  units box
+        create_atoms    1 single  5  1  4  units box
+        create_atoms    1 single  4  2  4  units box
+        create_atoms    2 single  1  4  4  units box
+        create_atoms    1 single  2  4  4  units box
+        create_atoms    1 single  1  5  4  units box
+        create_atoms    2 single  4  4  4  units box
+        create_atoms    1 single  5  4  4  units box
+        create_atoms    1 single  4  5  4  units box
+        mass            1 1.0079999997406976 # H
+        mass            2 15.998999995884349 # O
+
+        pair_style      {}
+        pair_coeff      * * MACE-OFF23_small-1-8.json H O
+        velocity        all create 300.0 123 rot yes dist gaussian
+
+        timestep        0.0001
+        thermo          1
+        fix             f1 all nve
+        fix             f2 all langevin 300.0 300.0 0.1 123
+        run             10
+    """.format(pair_style))
+
+    # ----- energy -----
+    e = L.get_thermo("pe")
+    assert e == pytest.approx(-16649.874643529467, rel=1e-4, abs=1e-6)
+
+    # ----- atomic energies -----
+    L.command("compute peratom all pe/atom")
+    L.command("run 0")
+    pe_atom = L.extract_compute("peratom", 1, 1)
+    assert e == pytest.approx(sum([pe_atom[i] for i in range(24)]))
