@@ -578,7 +578,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   // collect indices of ghosts within r_cut of locals
   ghost_indices.resize(num_ghost_nodes);
   int i = 0;
-  for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii)
+  for (int ii=0; ii<list->inum+list->gnum; ++ii)
     if (is_ghost[ii])
       ghost_indices[i++] = ii;
 
@@ -607,15 +607,18 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   }
 
   // count edges
-  int num_edges = 0;
-  for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii)
-    num_edges += num_neigh[ii];
+  int num_local_edges = 0;
+  for (int ii=0; ii<num_local_nodes; ++ii)
+    num_local_edges += num_neigh[ii];
+  int num_ghost_edges = 0;
+  for (int ii=num_local_nodes; ii<num_local_nodes+num_ghost_nodes; ++ii)
+    num_ghost_edges += num_neigh[ii];
 
   // populate neigh_indices, neigh_types, xyz, and r
-  neigh_indices.resize(num_edges);
-  neigh_types.resize(num_edges);
-  xyz.resize(3*num_edges);
-  r.resize(num_edges);
+  neigh_indices.resize(num_local_edges+num_ghost_edges);
+  neigh_types.resize(num_local_edges+num_ghost_edges);
+  xyz.resize(3*(num_local_edges+num_ghost_edges));
+  r.resize(num_local_edges+num_ghost_edges);
   int ij = 0;
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
     const int i = node_indices[ii];
@@ -637,6 +640,17 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
         xyz[3*ij+2] = dz;
         r[ij] = std::sqrt(r_squared);
         ij += 1;
+      }
+    }
+  }
+
+  neigh_ii_indices.resize(num_local_edges);
+  for (int ij=0; ij<num_local_edges; ++ij) {
+    const int j = neigh_indices[ij];
+    for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
+      if (node_indices[ii] == j) {
+        neigh_ii_indices[ij] = ii;
+        break;
       }
     }
   }
@@ -663,7 +677,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   mace->compute_H1(num_local_nodes+num_ghost_nodes);
 
   mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_indices);
+  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_ii_indices);
   mace->compute_A1(num_local_nodes);
   mace->compute_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M1(num_local_nodes, node_types);
@@ -675,7 +689,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_local_nodes);
-  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_indices, xyz, r, false, false);
+  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_ii_indices, xyz, r, false, false);
 
   mace->reverse_H1(num_local_nodes+num_ghost_nodes);
   mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);

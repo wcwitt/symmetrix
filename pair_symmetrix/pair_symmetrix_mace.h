@@ -56,6 +56,7 @@ class PairSymmetrixMACE : public Pair {
   std::vector<int> node_types;
   std::vector<int> num_neigh;
   std::vector<int> neigh_indices;
+  std::vector<int> neigh_ii_indices;
   std::vector<int> neigh_types;
   std::vector<double> xyz;
   std::vector<double> r;
