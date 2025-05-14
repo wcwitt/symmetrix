@@ -309,7 +309,7 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
   mace->compute_node_energies_forces(
     num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
 
-  // ----- begin mace evaluation -----
+  // ----- end mace evaluation -----
 
   if (eflag_global) {
     for (int ii=0; ii<num_nodes; ++ii)

@@ -67,6 +67,7 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   Kokkos::View<int*> first_neigh;
   Kokkos::View<int*> neigh_types;
   Kokkos::View<int*> neigh_indices;
+  Kokkos::View<int*> neigh_ii_indices;
   Kokkos::View<double*> xyz;
   Kokkos::View<double*> r;
 
