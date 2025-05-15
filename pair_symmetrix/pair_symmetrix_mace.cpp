@@ -360,8 +360,8 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
         virial[1] += y*f_y;
         virial[2] += z*f_z;
         virial[3] += 0.5*(x*f_y + y*f_x);
-        virial[4] += 0.5*(x+f_z + z*f_x);
-        virial[5] += 0.5*(y+f_z + z*f_y);
+        virial[4] += 0.5*(x*f_z + z*f_x);
+        virial[5] += 0.5*(y*f_z + z*f_y);
         ij += 1;
       }
     }
@@ -537,8 +537,8 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
         virial[1] += y*f_y;
         virial[2] += z*f_z;
         virial[3] += 0.5*(x*f_y + y*f_x);
-        virial[4] += 0.5*(x+f_z + z*f_x);
-        virial[5] += 0.5*(y+f_z + z*f_y);
+        virial[4] += 0.5*(x*f_z + z*f_x);
+        virial[5] += 0.5*(y*f_z + z*f_y);
         ij += 1;
       }
     }
@@ -740,8 +740,8 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
         virial[1] += y*f_y;
         virial[2] += z*f_z;
         virial[3] += 0.5*(x*f_y + y*f_x);
-        virial[4] += 0.5*(x+f_z + z*f_x);
-        virial[5] += 0.5*(y+f_z + z*f_y);
+        virial[4] += 0.5*(x*f_z + z*f_x);
+        virial[5] += 0.5*(y*f_z + z*f_y);
         ij += 1;
       }
     }

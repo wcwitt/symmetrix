@@ -561,8 +561,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int ef
             v_1 += y*f_y;
             v_2 += z*f_z;
             v_3 += 0.5*(x*f_y + y*f_x);
-            v_4 += 0.5*(x+f_z + z*f_x);
-            v_5 += 0.5*(y+f_z + z*f_y);
+            v_4 += 0.5*(x*f_z + z*f_x);
+            v_5 += 0.5*(y*f_z + z*f_y);
           }, v_0, v_1, v_2, v_3, v_4, v_5);
         Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
           Kokkos::atomic_add(&v(0), v_0);
@@ -829,8 +829,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
             v_1 += y*f_y;
             v_2 += z*f_z;
             v_3 += 0.5*(x*f_y + y*f_x);
-            v_4 += 0.5*(x+f_z + z*f_x);
-            v_5 += 0.5*(y+f_z + z*f_y);
+            v_4 += 0.5*(x*f_z + z*f_x);
+            v_5 += 0.5*(y*f_z + z*f_y);
           }, v_0, v_1, v_2, v_3, v_4, v_5);
         Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
           Kokkos::atomic_add(&v(0), v_0);
@@ -1159,8 +1159,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
             v_1 += y*f_y;
             v_2 += z*f_z;
             v_3 += 0.5*(x*f_y + y*f_x);
-            v_4 += 0.5*(x+f_z + z*f_x);
-            v_5 += 0.5*(y+f_z + z*f_y);
+            v_4 += 0.5*(x*f_z + z*f_x);
+            v_5 += 0.5*(y*f_z + z*f_y);
           }, v_0, v_1, v_2, v_3, v_4, v_5);
         Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
           Kokkos::atomic_add(&v(0), v_0);
