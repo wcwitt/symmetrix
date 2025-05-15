@@ -20,6 +20,8 @@ PairStyle(symmetrix/mace,PairSymmetrixMACE);
 #ifndef LMP_PAIR_SYMMETRIX_MACE_H
 #define LMP_PAIR_SYMMETRIX_MACE_H
 
+#include <unordered_map>
+
 #include "pair.h"
 
 #include "mace.hpp"
@@ -42,25 +44,32 @@ class PairSymmetrixMACE : public Pair {
   int pack_reverse_comm(int, int, double *) override;
   void unpack_reverse_comm(int, int *, double *) override;
 
-  void compute_default(int, int);
   void compute_no_domain_decomposition(int, int);
+  void compute_mpi_message_passing(int, int);
   void compute_no_mpi_message_passing(int, int);
 
  protected:
   std::string mode;
-  std::unique_ptr<MACE> mace;
-  std::vector<int> mace_types;
+
   std::vector<double> H1, H1_adj;
 
-  // neighbor list variables
-  int num_nodes;
-  std::vector<int> node_indices;
+  // symmetrix evaluator and inputs
+  std::unique_ptr<MACE> mace;
   std::vector<int> node_types;
   std::vector<int> num_neigh;
-  std::vector<int> neigh_types;
   std::vector<int> neigh_indices;
+  std::vector<int> neigh_types;
   std::vector<double> xyz;
   std::vector<double> r;
+
+  // auxiliary info used to prepare neigh list and extract results
+  std::vector<int> mace_types;
+  std::vector<int> node_i;
+  std::vector<int> neigh_j;
+  std::vector<bool> is_local;
+  std::vector<bool> is_ghost;
+  std::vector<int> ghost_indices;
+  std::unordered_map<int,int> ii_from_i;
 
   const std::array<std::string,118> periodic_table =
     { "H", "He",
