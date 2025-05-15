@@ -183,7 +183,7 @@ void PairSymmetrixMACE::init_style()
       args[0] = (char *)"cutoff";
       args[1] = const_cast<char *>(cutoff_val.c_str());
       comm->modify_params(2, args);
-      if (comm->me == 0) error->warning(FLERR, "symmetrix/mace is setting the communication cutoff to {}", cutoff_val);
+      if (comm->me == 0) utils::logmesg(lmp, "symmetrix/mace is setting the communication cutoff to {}", cutoff_val);
     }
     neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
   }
@@ -264,21 +264,29 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
     }
   }
 
-  // resize neighbor list variables
+  // resize vectors
   const int num_nodes = list->inum;
-  node_indices.resize(num_edges);
   node_types.resize(list->inum);
   num_neigh.resize(num_nodes);
   neigh_indices.resize(num_edges);
   neigh_types.resize(num_edges);
   xyz.resize(3*num_edges);
   r.resize(num_edges);
+  node_i.resize(num_nodes);
+  neigh_j.resize(num_edges);
+
+  // update ii_from_i
+  ii_from_i.clear();
+  for (int ii=0; ii<list->inum; ++ii) {
+    const int i = list->ilist[ii];
+    ii_from_i[i] = ii;
+  }
 
   // populate neighbor list variables
   int ij = 0;
   for (int ii=0; ii<list->inum; ii++) {
     const int i = list->ilist[ii];
-    node_indices[ii] = i;
+    node_i[ii] = i;
     node_types[ii] = mace_types[atom->type[i]-1];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -293,7 +301,9 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
       const double r_squared = dx*dx + dy*dy + dz*dz;
       if (r_squared < r_cut_squared) {
         num_neigh[ii] += 1;
-        neigh_indices[ij] = atom->map(atom->tag[j]);  // mapped to local
+        const int j_local = atom->map(atom->tag[j]);
+        neigh_j[ij] = j_local;
+        neigh_indices[ij] = ii_from_i[j_local];
         neigh_types[ij] = mace_types[atom->type[j]-1];
         xyz[3*ij] = dx;
         xyz[3*ij+1] = dy;
@@ -323,9 +333,9 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {
-    const int i = node_indices[ii];
+    const int i = node_i[ii];
     for (int jj=0; jj<num_neigh[ii]; ++jj) {
-      const int j = neigh_indices[ij];
+      const int j = neigh_j[ij];
       atom->f[i][0] -= mace->node_forces[3*ij];
       atom->f[i][1] -= mace->node_forces[3*ij+1];
       atom->f[i][2] -= mace->node_forces[3*ij+2];
@@ -388,21 +398,22 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
     }
   }
 
-  // resize neighbor list variables
+  // resize vectors
   const int num_nodes = list->inum;
-  node_indices.resize(num_nodes);
   node_types.resize(num_nodes);
   num_neigh.resize(num_nodes);
   neigh_indices.resize(num_edges);
   neigh_types.resize(num_edges);
   xyz.resize(3*num_edges);
   r.resize(num_edges);
+  node_i.resize(num_nodes);
+  neigh_j.resize(num_edges);
 
   // populate neighbor list variables
   int ij = 0;
   for (int ii=0; ii<list->inum; ii++) {
     const int i = list->ilist[ii];
-    node_indices[ii] = i;
+    node_i[ii] = i;
     node_types[ii] = mace_types[atom->type[i]-1];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -417,7 +428,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
       const double r_squared = dx*dx + dy*dy + dz*dz;
       if (r_squared < r_cut_squared) {
         num_neigh[ii] += 1;
-        neigh_indices[ij] = j;
+        neigh_j[ij] = j;
         neigh_types[ij] = mace_types[atom->type[j]-1];
         xyz[3*ij] = dx;
         xyz[3*ij+1] = dy;
@@ -449,8 +460,8 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
   mace->compute_M0(num_nodes, node_types);
   mace->compute_H1(num_nodes);
 
-  // sort H1 by i (rather than ii)
-  H1.resize((list->inum+atom->nghost)*mace->num_LM*mace->num_channels);
+  // sort local H1 contributions by i (rather than ii)
+  H1.resize((atom->nlocal+atom->nghost)*mace->num_LM*mace->num_channels);
   for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     for (int k=0; k<mace->num_LM*mace->num_channels; ++k) {
@@ -461,7 +472,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
   mace->H1 = H1;
 
   mace->compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_nodes, num_neigh, neigh_indices);
+  mace->compute_Phi1(num_nodes, num_neigh, neigh_j);
   mace->compute_A1(num_nodes);
   mace->compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M1(num_nodes, node_types);
@@ -473,7 +484,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
   mace->reverse_M1(num_nodes, node_types);
   mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_nodes);
-  mace->reverse_Phi1(num_nodes, num_neigh, neigh_indices, xyz, r, false, false);
+  mace->reverse_Phi1(num_nodes, num_neigh, neigh_j, xyz, r, false, false);
 
   H1_adj = mace->H1_adj;
   comm->reverse_comm(this);
@@ -499,9 +510,9 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 
   ij = 0;
   for (int ii=0; ii<num_nodes; ++ii) {
-    const int i = node_indices[ii];
+    const int i = node_i[ii];
     for (int jj=0; jj<num_neigh[ii]; ++jj) {
-      const int j = neigh_indices[ij];
+      const int j = neigh_j[ij];
       atom->f[i][0] -= mace->node_forces[3*ij];
       atom->f[i][1] -= mace->node_forces[3*ij+1];
       atom->f[i][2] -= mace->node_forces[3*ij+2];
@@ -546,13 +557,13 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 
   // locate ghosts within r_cut of locals
-  is_local.resize(list->inum+list->gnum);
+  is_local.resize(atom->nlocal+atom->nghost);
   std::fill(is_local.begin(), is_local.end(), false);
   for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
     is_local[i] = true;
   }
-  is_ghost.resize(list->inum+list->gnum);
+  is_ghost.resize(atom->nlocal+atom->nghost);
   std::fill(is_ghost.begin(), is_ghost.end(), false);
   for (int ii=0; ii<list->inum; ++ii) {
     const int i = list->ilist[ii];
@@ -578,18 +589,20 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   // collect indices of ghosts within r_cut of locals
   ghost_indices.resize(num_ghost_nodes);
   int i = 0;
-  for (int ii=0; ii<list->inum+list->gnum; ++ii)
+  for (int ii=0; ii<atom->nlocal+atom->nghost; ++ii)
     if (is_ghost[ii])
       ghost_indices[i++] = ii;
 
   // populate node_indices, node_types, and num_neigh
-  node_indices.resize(num_local_nodes+num_ghost_nodes);
+  node_i.resize(num_local_nodes+num_ghost_nodes);
   node_types.resize(num_local_nodes+num_ghost_nodes);
   num_neigh.resize(num_local_nodes+num_ghost_nodes);
   std::fill(num_neigh.begin(), num_neigh.end(), 0);
+  ii_from_i.clear();
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ii++) {
     const int i = (ii<num_local_nodes) ? list->ilist[ii] : ghost_indices[ii-num_local_nodes];
-    node_indices[ii] = i;
+    node_i[ii] = i;
+    ii_from_i[i] = ii;
     node_types[ii] = mace_types[atom->type[i]-1];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
@@ -615,13 +628,14 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
     num_ghost_edges += num_neigh[ii];
 
   // populate neigh_indices, neigh_types, xyz, and r
+  neigh_j.resize(num_local_edges+num_ghost_edges);
   neigh_indices.resize(num_local_edges+num_ghost_edges);
   neigh_types.resize(num_local_edges+num_ghost_edges);
   xyz.resize(3*(num_local_edges+num_ghost_edges));
   r.resize(num_local_edges+num_ghost_edges);
   int ij = 0;
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
-    const int i = node_indices[ii];
+    const int i = node_i[ii];
     const double x_i = atom->x[i][0];
     const double y_i = atom->x[i][1];
     const double z_i = atom->x[i][2];
@@ -633,25 +647,14 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
       const double dz = atom->x[j][2] - z_i;
       const double r_squared = dx*dx + dy*dy + dz*dz;
       if (r_squared < r_cut_squared) {
-        neigh_indices[ij] = j;
+        neigh_j[ij] = j;
+        neigh_indices[ij] = ii_from_i[j];
         neigh_types[ij] = mace_types[atom->type[j]-1];
         xyz[3*ij] = dx;
         xyz[3*ij+1] = dy;
         xyz[3*ij+2] = dz;
         r[ij] = std::sqrt(r_squared);
         ij += 1;
-      }
-    }
-  }
-
-  // populate neigh_ii_indices
-  neigh_ii_indices.resize(num_local_edges);
-  for (int ij=0; ij<num_local_edges; ++ij) {
-    const int j = neigh_indices[ij];
-    for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
-      if (node_indices[ii] == j) {
-        neigh_ii_indices[ij] = ii;
-        break;
       }
     }
   }
@@ -678,7 +681,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   mace->compute_H1(num_local_nodes+num_ghost_nodes);
 
   mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_ii_indices);
+  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_indices);
   mace->compute_A1(num_local_nodes);
   mace->compute_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M1(num_local_nodes, node_types);
@@ -690,7 +693,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_local_nodes);
-  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_ii_indices, xyz, r, false, false);
+  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_indices, xyz, r, false, false);
 
   mace->reverse_H1(num_local_nodes+num_ghost_nodes);
   mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
@@ -710,9 +713,9 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 
   ij = 0;
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
-    const int i = node_indices[ii];
+    const int i = node_i[ii];
     for (int jj=0; jj<num_neigh[ii]; ++jj) {
-      const int j = neigh_indices[ij];
+      const int j = neigh_j[ij];
       atom->f[i][0] -= mace->node_forces[3*ij];
       atom->f[i][1] -= mace->node_forces[3*ij+1];
       atom->f[i][2] -= mace->node_forces[3*ij+2];

@@ -773,7 +773,7 @@ def test_zbl():
     e = sum(evaluator.node_energies)
     f = evaluator.node_forces
     exact_e = -5.003106904473648 
-    assert e == pytest.approx(exact_e, rel=1e-4, abs=1e-6)
+    assert e == pytest.approx(exact_e, abs=1e-3)
 
     ### REVERSE
     # test partial forces

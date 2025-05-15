@@ -63,9 +63,8 @@ def test_h20(pair_style):
 
     # ----- forces -----
     h = 1e-4
-    x = L.numpy.extract_atom("x")
-    # TODO: why does this array have the wrong size
-    f = L.numpy.extract_atom("f")[:3,:]
+    x = L.numpy.extract_atom("x", nelem=3, dim=3)
+    f = L.numpy.extract_atom("f", nelem=3, dim=3)
     f_num = np.zeros([3,3])
     for i in range(0,3):
         for j in range(0,3):
@@ -118,9 +117,8 @@ def test_h20_zbl(pair_style):
 
     # ----- forces -----
     h = 1e-4
-    x = L.numpy.extract_atom("x")
-    # TODO: why does this array have the wrong size
-    f = L.numpy.extract_atom("f")[:3,:]
+    x = L.numpy.extract_atom("x", nelem=3, dim=3)
+    f = L.numpy.extract_atom("f", nelem=3, dim=3)
     f_num = np.zeros([3,3])
     for i in range(0,3):
         for j in range(0,3):
