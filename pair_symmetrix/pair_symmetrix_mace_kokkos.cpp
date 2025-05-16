@@ -179,11 +179,7 @@ double PairSymmetrixMACEKokkos<DeviceType>::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
-  if (mode == "mpi_message_passing") {
-    return mace->r_cut;
-  } else {
-    return 2*mace->r_cut;
-  }
+  return mace->r_cut;
 }
 
 /* ----------------------------------------------------------------------
@@ -204,7 +200,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::init_style()
   } else {
     // enforce the communication cutoff is more than twice the model cutoff
     const double comm_cutoff = comm->get_comm_cutoff();
-    if (comm->get_comm_cutoff() < (2*mace->r_cut + neighbor->skin)){
+    if (comm->get_comm_cutoff() < (2*mace->r_cut + neighbor->skin)) {
       std::string cutoff_val = std::to_string((2.0 * mace->r_cut) + neighbor->skin);
       char *args[2];
       args[0] = (char *)"cutoff";
