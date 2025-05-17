@@ -67,24 +67,19 @@ void compute_Y(Kokkos::View<const double*> xyz);
 // H0
 Kokkos::View<double**,Kokkos::LayoutRight> H0_weights;
 
-// Phi0
-Kokkos::View<double***,Kokkos::LayoutRight> Phi0, Phi0_adj;
-void compute_Phi0(const int num_nodes,
-                  Kokkos::View<const int*> num_neigh,
-                  Kokkos::View<const int*> neigh_types);
-void reverse_Phi0(const int num_nodes,
-                  Kokkos::View<const int*> num_neigh,
-                  Kokkos::View<const int*> neigh_types,
-                  Kokkos::View<const double*> xyz,
-                  Kokkos::View<const double*> r);
-
 // A0
 Kokkos::View<double***,Kokkos::LayoutRight> A0, A0_adj;
 Kokkos::View<double****,Kokkos::LayoutRight> A0_weights;
 void compute_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types);
+                Kokkos::View<const int*> node_types,
+                Kokkos::View<const int*> num_neigh,
+                Kokkos::View<const int*> neigh_types);
 void reverse_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types);
+                Kokkos::View<const int*> node_types,
+                Kokkos::View<const int*> num_neigh,
+                Kokkos::View<const int*> neigh_types,
+                Kokkos::View<const double*> xyz,
+                Kokkos::View<const double*> r);
 
 // A0 rescaling
 bool A0_scaled;

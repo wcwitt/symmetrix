@@ -12,6 +12,16 @@
 #include "tools_kokkos.hpp"
 #include "mace_kokkos.hpp"
 
+using Kokkos::ALL;
+using Kokkos::LayoutRight;
+using Kokkos::make_pair;
+using Kokkos::MemoryUnmanaged;
+using Kokkos::parallel_for;
+using Kokkos::PerTeam;
+using Kokkos::subview;
+using Kokkos::TeamPolicy;
+using Kokkos::View;
+
 MACEKokkos::MACEKokkos(std::string filename)
 {
     load_from_json(filename);
@@ -40,8 +50,7 @@ void MACEKokkos::compute_node_energies_forces(
     compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
     compute_Y(xyz);
 
-    compute_Phi0(num_nodes, num_neigh, neigh_types);
-    compute_A0(num_nodes, node_types);
+    compute_A0(num_nodes, node_types, num_neigh, neigh_types);
     compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
     compute_M0(num_nodes, node_types);
     compute_H1(num_nodes);
@@ -63,8 +72,7 @@ void MACEKokkos::compute_node_energies_forces(
     reverse_H1(num_nodes);
     reverse_M0(num_nodes, node_types);
     reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-    reverse_A0(num_nodes, node_types);
-    reverse_Phi0(num_nodes, num_neigh, neigh_types, xyz, r);
+    reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
 void MACEKokkos::compute_R0(
@@ -175,14 +183,14 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_Phi0(
+void MACEKokkos::compute_A0(
     const int num_nodes,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types)
+    View<const int*> node_types,
+    View<const int*> num_neigh,
+    View<const int*> neigh_types)
 {
-    if (Phi0.extent(0) != num_nodes)
-        Kokkos::realloc(Phi0, num_nodes, num_lm, num_channels);
-    Kokkos::deep_copy(Phi0, 0.0);
+    if (A0.extent(0) != num_nodes)
+        Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("Compute first_neigh",
@@ -193,41 +201,66 @@ void MACEKokkos::compute_Phi0(
             update += num_neigh(i);
         });
 
-    // local references to class members accessed in the parallel region
     auto num_lm = this->num_lm;
     auto num_channels = this->num_channels;
     auto R0 = this->R0;
     auto Y = this->Y;
     auto H0_weights = this->H0_weights;
-    auto Phi0 = this->Phi0;
+    auto A0_weights = this->A0_weights;
+    auto A0 = this->A0;
 
-    Kokkos::parallel_for("Compute Phi0",
-        Kokkos::TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+    parallel_for("Compute A0",
+        TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32)
+             .set_scratch_size(0, PerTeam(num_channels*sizeof(double))),
+        KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank() / num_lm;
             const int lm = team_member.league_rank() % num_lm;
-            const int l = Kokkos::sqrt(lm);
+            const int l = sqrt(lm);
+            auto A0_ilm = subview(A0, i, make_pair(lm,lm+1), ALL);
+            // compute tensor product
+            auto Phi0_ilm = View<double**,LayoutRight,MemoryUnmanaged>(
+                team_member.team_scratch(0), 1, num_channels);
+            parallel_for(
+                TeamVectorRange(team_member, num_channels),
+                [=] (const int k) {
+                    Phi0_ilm(0,k) = 0.0;
+                });
             for (int j=0; j<num_neigh(i); ++j) {
                 const int ij = first_neigh(i) + j;
                 const double Y_ij_lm = Y(ij*num_lm+lm);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
+                parallel_for(
+                    TeamVectorRange(team_member, num_channels),
                     [=] (const int k) {
-                        Phi0(i,lm,k) += R0(ij,l*num_channels+k)*Y_ij_lm*H0_weights(neigh_types(ij),k);
+                        Phi0_ilm(0,k) += R0(ij,l*num_channels+k)*Y_ij_lm*H0_weights(neigh_types(ij),k);
                     });
             }
+            team_member.team_barrier();
+            // mix channels
+            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
+            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
+                                    KokkosBatched::Trans::NoTranspose,
+                                    KokkosBatched::Trans::NoTranspose,
+                                    KokkosBatched::Algo::Gemm::Blocked>
+                ::invoke(team_member, 1.0, Phi0_ilm, W_il, 0.0, A0_ilm);
         });
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_Phi0(
+void MACEKokkos::reverse_A0(
     const int num_nodes,
+    Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
-    // local references to class members accessed in the parallel region
+    // TODO: continue fusing
+
+    auto Phi0_adj = Kokkos::View<double***,LayoutRight>("Phi0_adj",num_nodes,num_lm,num_channels);
+
+    auto A0_adj = this->A0_adj;
+    auto A0_weights = this->A0_weights;
+    auto l_max = this->l_max;
     auto num_lm = this->num_lm;
     auto num_channels = this->num_channels;
     auto R0 = this->R0;
@@ -235,7 +268,6 @@ void MACEKokkos::reverse_Phi0(
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
     auto H0_weights = this->H0_weights;
-    auto Phi0_adj = this->Phi0_adj;
     auto node_forces = this->node_forces;
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
@@ -246,6 +278,22 @@ void MACEKokkos::reverse_Phi0(
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
+        });
+    Kokkos::fence();
+
+    Kokkos::parallel_for("Reverse A0",
+        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank() / (l_max+1);
+            const int l = team_member.league_rank() % (l_max+1);
+            auto A0_adj_il = Kokkos::subview(A0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
+            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
+            auto Phi0_adj_il = Kokkos::subview(Phi0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
+            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
+                                    KokkosBatched::Trans::NoTranspose,
+                                    KokkosBatched::Trans::Transpose,
+                                    KokkosBatched::Algo::Gemm::Blocked>
+                ::invoke(team_member, 1.0, A0_adj_il, W_il, 0.0, Phi0_adj_il);
         });
     Kokkos::fence();
 
@@ -287,67 +335,6 @@ void MACEKokkos::reverse_Phi0(
             }
         });
 
-    Kokkos::fence();
-}
-
-
-void MACEKokkos::compute_A0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    if (A0.extent(0) != num_nodes)
-        Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
-
-    // local references to class members accessed in the parallel region
-    auto l_max = this->l_max;
-    auto Phi0 = this->Phi0;
-    auto A0_weights = this->A0_weights;
-    auto A0 = this->A0;
-
-    Kokkos::parallel_for("Compute A0",
-        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (l_max+1);
-            const int l = team_member.league_rank() % (l_max+1);
-            auto Phi0_il = Kokkos::subview(Phi0, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
-            auto A0_il = Kokkos::subview(A0, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, Phi0_il, W_il, 0.0, A0_il);
-        });
-    Kokkos::fence();
-}
-
-void MACEKokkos::reverse_A0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    if (Phi0_adj.extent(0) != num_nodes)
-        Kokkos::realloc(Phi0_adj, num_nodes, num_lm, num_channels);
-
-    // local references to class members accessed in the parallel region
-    auto l_max = this->l_max;
-    auto A0_adj = this->A0_adj;
-    auto A0_weights = this->A0_weights;
-    auto Phi0_adj = this->Phi0_adj;
-
-    Kokkos::parallel_for("Reverse A0",
-        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (l_max+1);
-            const int l = team_member.league_rank() % (l_max+1);
-            auto A0_adj_il = Kokkos::subview(A0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
-            auto Phi0_adj_il = Kokkos::subview(Phi0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::Transpose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, A0_adj_il, W_il, 0.0, Phi0_adj_il);
-        });
     Kokkos::fence();
 }
 
