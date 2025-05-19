@@ -225,6 +225,7 @@ void MACEKokkos::compute_A0(
                 [=] (const int k) {
                     Phi0_ilm(0,k) = 0.0;
                 });
+            team_member.team_barrier();
             for (int j=0; j<num_neigh(i); ++j) {
                 const int ij = first_neigh(i) + j;
                 const double Y_ij_lm = Y(ij*num_lm+lm);
@@ -646,6 +647,8 @@ void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
                 Kokkos::parallel_for(
                     Kokkos::TeamVectorRange(team_member, num_channels),
                     [&] (const int k) {
+                        // TODO: use scratch space
+                        // TODO: parallelize over p0 and p1
                         M0_poly_adjoints(LM)(i,p0,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p1,k);
                         M0_poly_adjoints(LM)(i,p1,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p0,k);
                     });
@@ -786,6 +789,7 @@ void MACEKokkos::compute_Phi1(
             const int lm2 = Phi1_lm2(lelm1lm2);
             const int lel1l2 = Phi1_lel1l2(lelm1lm2);
             // initialize scratch for Phi1r_i_lelm1lm2
+            // TODO: use unmanaged view syntax
             double* Phi1r_i_lelm1lm2 = (double*) team_member.team_shmem().get_shmem(num_channels*sizeof(double));
             Kokkos::parallel_for(
                 Kokkos::TeamVectorRange(team_member, num_channels),
