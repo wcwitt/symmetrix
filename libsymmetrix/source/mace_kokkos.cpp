@@ -20,6 +20,7 @@ using Kokkos::parallel_for;
 using Kokkos::PerTeam;
 using Kokkos::subview;
 using Kokkos::TeamPolicy;
+using Kokkos::TeamVectorRange;
 using Kokkos::TeamVectorMDRange;
 using Kokkos::View;
 
@@ -232,8 +233,7 @@ void MACEKokkos::compute_A0(
         KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank() / num_lm;
             const int lm = team_member.league_rank() % num_lm;
-            const int l = sqrt(lm);
-            auto A0_ilm = subview(A0, i, make_pair(lm,lm+1), ALL);
+            const int l = Kokkos::sqrt(lm);
             // compute tensor product
             auto Phi0_ilm = View<double**,LayoutRight,MemoryUnmanaged>(
                 team_member.team_scratch(0), 1, num_channels);
@@ -254,11 +254,12 @@ void MACEKokkos::compute_A0(
             }
             team_member.team_barrier();
             // mix channels
+            auto A0_ilm = subview(A0, i, make_pair(lm,lm+1), ALL);
             auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
+            KokkosBatched::TeamVectorGemm<Kokkos::TeamPolicy<>::member_type,
+                                          KokkosBatched::Trans::NoTranspose,
+                                          KokkosBatched::Trans::NoTranspose,
+                                          KokkosBatched::Algo::Gemm::Unblocked>
                 ::invoke(team_member, 1.0, Phi0_ilm, W_il, 0.0, A0_ilm);
         });
     Kokkos::fence();
@@ -552,9 +553,8 @@ void MACEKokkos::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
             const int LM = team_member.league_rank() % num_LM;
             // initialize
             Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, num_lm, num_channels),
+                Kokkos::TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
+                    team_member, num_lm, num_channels),
                 [&] (const int lm, const int k) {
                     M0_poly_values(LM)(i,lm,k) = A0(i,lm,k);
                     Kokkos::atomic_add(&M0(i,LM,k), M0_poly_coeff(LM)(node_types(i),lm,k) * M0_poly_values(LM)(i,lm,k));
@@ -663,7 +663,6 @@ void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
                     Kokkos::TeamVectorRange(team_member, num_channels),
                     [&] (const int k) {
                         // TODO: use scratch space
-                        // TODO: parallelize over p0 and p1
                         M0_poly_adjoints(LM)(i,p0,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p1,k);
                         M0_poly_adjoints(LM)(i,p1,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p0,k);
                     });
