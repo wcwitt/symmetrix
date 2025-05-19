@@ -20,6 +20,7 @@ using Kokkos::parallel_for;
 using Kokkos::PerTeam;
 using Kokkos::subview;
 using Kokkos::TeamPolicy;
+using Kokkos::TeamVectorMDRange;
 using Kokkos::View;
 
 MACEKokkos::MACEKokkos(std::string filename)
@@ -88,6 +89,23 @@ void MACEKokkos::compute_R0(
     }
     radial_0.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, R0, R0_deriv);
     Kokkos::fence();
+    const int l_max = this->l_max;
+    const int num_channels = this->num_channels;
+    auto H0_weights = this->H0_weights;
+    auto R0 = this->R0;
+    auto R0_deriv = this->R0_deriv;
+    parallel_for("Compute R0 H0",
+        TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
+            const int ij = team_member.league_rank();
+            parallel_for(
+                TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
+                        team_member, l_max+1, num_channels),
+                [=] (const int l, const int k) {
+                    R0(ij,l*num_channels+k) *= H0_weights(neigh_types(ij),k);
+                    R0_deriv(ij,l*num_channels+k) *= H0_weights(neigh_types(ij),k);
+                });
+        });
 }
 
 void MACEKokkos::compute_R1(
@@ -205,7 +223,6 @@ void MACEKokkos::compute_A0(
     auto num_channels = this->num_channels;
     auto R0 = this->R0;
     auto Y = this->Y;
-    auto H0_weights = this->H0_weights;
     auto A0_weights = this->A0_weights;
     auto A0 = this->A0;
 
@@ -232,7 +249,7 @@ void MACEKokkos::compute_A0(
                 parallel_for(
                     TeamVectorRange(team_member, num_channels),
                     [=] (const int k) {
-                        Phi0_ilm(0,k) += R0(ij,l*num_channels+k)*Y_ij_lm*H0_weights(neigh_types(ij),k);
+                        Phi0_ilm(0,k) += R0(ij,l*num_channels+k)*Y_ij_lm;
                     });
             }
             team_member.team_barrier();
@@ -268,7 +285,6 @@ void MACEKokkos::reverse_A0(
     auto R0_deriv = this->R0_deriv;
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
-    auto H0_weights = this->H0_weights;
     auto node_forces = this->node_forces;
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
@@ -311,7 +327,6 @@ void MACEKokkos::reverse_A0(
                 const double z_ij = xyz(3*ij+2) / r_ij;
                 const double* Y_ij = &Y(ij*num_lm);
                 const double* Y_grad_ij = &Y_grad(3*ij*num_lm);
-                const double* H0_ij = &H0_weights(neigh_types(ij),0);
                 double f_x, f_y, f_z;
                 Kokkos::parallel_reduce(
                     Kokkos::TeamThreadRange(team_member, num_lm),
@@ -321,8 +336,8 @@ void MACEKokkos::reverse_A0(
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
                             [&] (const int k, double& t1, double& t2) {
-                                t1 += R0_deriv(ij,l*num_channels+k) * H0_ij[k] * Phi0_adj(i,lm,k);
-                                t2 += R0(ij,l*num_channels+k) * H0_ij[k] * Phi0_adj(i,lm,k);
+                                t1 += R0_deriv(ij,l*num_channels+k) * Phi0_adj(i,lm,k);
+                                t2 += R0(ij,l*num_channels+k) * Phi0_adj(i,lm,k);
                             }, t1, t2);
                         f_x += t1*x_ij*Y_ij[lm] + t2*Y_grad_ij[lm];
                         f_y += t1*y_ij*Y_ij[lm] + t2*Y_grad_ij[num_lm+lm];
