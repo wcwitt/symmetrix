@@ -149,22 +149,6 @@ void MACEKokkos::compute_R0(
                 });
         });
     Kokkos::fence();
-
-    auto H0_weights = this->H0_weights;
-    //auto R0 = this->R0;
-    //auto R0_deriv = this->R0_deriv;
-    parallel_for("Compute R0 H0",
-        TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
-            const int ij = team_member.league_rank();
-            parallel_for(
-                TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, l_max+1, num_channels),
-                [=] (const int l, const int k) {
-                    R0(ij,l*num_channels+k) *= H0_weights(neigh_types(ij),k);
-                    R0_deriv(ij,l*num_channels+k) *= H0_weights(neigh_types(ij),k);
-                });
-        });
 }
 
 void MACEKokkos::compute_R1(
@@ -1565,6 +1549,17 @@ void MACEKokkos::load_from_json(std::string filename)
                                         + 3*spl_values[lk][i+1] - spl_h*spl_derivs[lk][i+1]) / (spl_h*spl_h);
                     h_c(ab,i,3,lk) = (2*spl_values[lk][i] + spl_h*spl_derivs[lk][i]
                                         - 2*spl_values[lk][i+1] + spl_h*spl_derivs[lk][i+1]) / (spl_h*spl_h*spl_h);
+                }
+            }
+            // add H0_weights
+            auto H0_weights = file["H0_weights"].get<std::vector<double>>();
+            for (int i=0; i<spl_values_0[0][0].size()-1; ++i) {
+                for (int lk=0; lk<(l_max+1)*num_channels; ++lk) {
+                    const int k = lk % num_channels;
+                    h_c(ab,i,0,lk) *= H0_weights[b*num_channels+k];
+                    h_c(ab,i,1,lk) *= H0_weights[b*num_channels+k]; 
+                    h_c(ab,i,2,lk) *= H0_weights[b*num_channels+k]; 
+                    h_c(ab,i,3,lk) *= H0_weights[b*num_channels+k]; 
                 }
             }
         }
