@@ -88,13 +88,71 @@ void MACEKokkos::compute_R0(
         Kokkos::realloc(R0, r.size(), (l_max+1)*num_channels);
         Kokkos::realloc(R0_deriv, r.size(), (l_max+1)*num_channels);
     }
-    radial_0.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, R0, R0_deriv);
+
+    // TODO: shouldn't need all this
+    // Build i_list
+    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
+    Kokkos::parallel_scan("first_neigh",
+        num_nodes,
+        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
+            const int num_neigh_i = num_neigh(i); 
+            if (final)
+                first_neigh(i) = update;
+            update += num_neigh_i;
+        });
     Kokkos::fence();
+    Kokkos::View<int*> i_list("i_list", r.size());
+    Kokkos::parallel_for("ij lists",
+        num_nodes,
+        KOKKOS_LAMBDA (const int i) {
+            int ij = first_neigh(i);
+            for (int j=0; j<num_neigh(i); ++j) {
+                i_list(ij) = i;
+                ij += 1;
+            }
+        });
+    Kokkos::fence();
+
     const int l_max = this->l_max;
     const int num_channels = this->num_channels;
-    auto H0_weights = this->H0_weights;
+    const auto num_types = atomic_numbers.size();
+    const auto h = R0_spline_h;
+    const auto c = R0_spline_coefficients;
     auto R0 = this->R0;
     auto R0_deriv = this->R0_deriv;
+
+    Kokkos::parallel_for(
+        "Compute R0",
+        Kokkos::TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int ij = team_member.league_rank();
+            const int type_i = node_types(i_list(ij));
+            const int type_j = neigh_types(ij);
+            const int type_ij = type_i*num_types+type_j;
+            // compute x, x^2, x^3
+            const int n = static_cast<int>(r(ij)/h); // TODO: bounds checking?
+            const double x = r(ij) - h*n;
+            const double xx = x*x;
+            const double xxx = xx*x;
+            const double two_x = 2*x;
+            const double three_xx = 3*xx;
+            // compute function values
+            Kokkos::parallel_for(
+                Kokkos::TeamVectorRange(team_member, (l_max+1)*num_channels),
+                [&] (const int lk) {
+                    const double c0 = c(type_ij,n,0,lk);
+                    const double c1 = c(type_ij,n,1,lk); 
+                    const double c2 = c(type_ij,n,2,lk); 
+                    const double c3 = c(type_ij,n,3,lk); 
+                    R0(ij,lk) = c0 + c1*x + c2*xx + c3*xxx;
+                    R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
+                });
+        });
+    Kokkos::fence();
+
+    auto H0_weights = this->H0_weights;
+    //auto R0 = this->R0;
+    //auto R0_deriv = this->R0_deriv;
     parallel_for("Compute R0 H0",
         TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
@@ -1486,11 +1544,36 @@ void MACEKokkos::load_from_json(std::string filename)
             file["zbl_covalent_radii"].get<std::vector<double>>(),
             file["zbl_p"].get<int>());
 
-    // Radial splines
+    // R0
     const double spl_h = file["radial_spline_h"];
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
-    radial_0 = RadialFunctionSetKokkos(spl_h, spl_values_0, spl_derivs_0);
+    auto c = Kokkos::View<double****,Kokkos::LayoutRight>(
+        "c", atomic_numbers.size()*atomic_numbers.size(), spl_values_0[0][0].size()-1, 4, (l_max+1)*num_channels);
+    auto h_c = Kokkos::create_mirror_view(c);
+    for (int a=0; a<atomic_numbers.size(); ++a) {
+        for (int b=0; b<atomic_numbers.size(); ++b) {
+            const int ab = a*atomic_numbers.size()+b;
+            const int ab_unordered = std::min(a,b)*(2*atomic_numbers.size()-std::min(a,b)-1)/2 + std::abs(a-b);
+            auto spl_values = spl_values_0[ab_unordered];
+            auto spl_derivs = spl_derivs_0[ab_unordered];
+            for (int i=0; i<spl_values_0[0][0].size()-1; ++i) {
+                for (int lk=0; lk<(l_max+1)*num_channels; ++lk) {
+                    h_c(ab,i,0,lk) = spl_values[lk][i];
+                    h_c(ab,i,1,lk) = spl_derivs[lk][i];
+                    h_c(ab,i,2,lk) = (-3*spl_values[lk][i] -2*spl_h*spl_derivs[lk][i]
+                                        + 3*spl_values[lk][i+1] - spl_h*spl_derivs[lk][i+1]) / (spl_h*spl_h);
+                    h_c(ab,i,3,lk) = (2*spl_values[lk][i] + spl_h*spl_derivs[lk][i]
+                                        - 2*spl_values[lk][i+1] + spl_h*spl_derivs[lk][i+1]) / (spl_h*spl_h*spl_h);
+                }
+            }
+        }
+    }
+    Kokkos::deep_copy(c, h_c);
+    R0_spline_h = spl_h;
+    R0_spline_coefficients = c;
+
+    // R1
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
     radial_1 = RadialFunctionSetKokkos(spl_h, spl_values_1, spl_derivs_1);
