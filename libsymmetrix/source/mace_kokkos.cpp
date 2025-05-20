@@ -252,6 +252,7 @@ void MACEKokkos::compute_A0(
 {
     if (A0.extent(0) != num_nodes)
         Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
+    Kokkos::deep_copy(A0, 0.0);
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("Compute first_neigh",
@@ -262,11 +263,10 @@ void MACEKokkos::compute_A0(
             update += num_neigh(i);
         });
 
-    auto num_lm = this->num_lm;
-    auto num_channels = this->num_channels;
-    auto R0 = this->R0;
-    auto Y = this->Y;
-    auto A0_weights = this->A0_weights;
+    const int num_lm = this->num_lm;
+    const int num_channels = this->num_channels;
+    const auto R0 = this->R0;
+    const auto Y = this->Y;
     auto A0 = this->A0;
 
     parallel_for("Compute A0",
@@ -276,34 +276,17 @@ void MACEKokkos::compute_A0(
             const int i = team_member.league_rank() / num_lm;
             const int lm = team_member.league_rank() % num_lm;
             const int l = Kokkos::sqrt(lm);
-            // compute tensor product
-            auto Phi0_ilm = View<double**,LayoutRight,MemoryUnmanaged>(
-                team_member.team_scratch(0), 1, num_channels);
-            parallel_for(
-                TeamVectorRange(team_member, num_channels),
-                [=] (const int k) {
-                    Phi0_ilm(0,k) = 0.0;
-                });
-            team_member.team_barrier();
             for (int j=0; j<num_neigh(i); ++j) {
                 const int ij = first_neigh(i) + j;
                 const double Y_ij_lm = Y(ij*num_lm+lm);
                 parallel_for(
                     TeamVectorRange(team_member, num_channels),
                     [=] (const int k) {
-                        Phi0_ilm(0,k) += R0(ij,l*num_channels+k)*Y_ij_lm;
+                        A0(i,lm,k) += R0(ij,l*num_channels+k) * Y_ij_lm;
                     });
             }
-            team_member.team_barrier();
-            // mix channels
-            auto A0_ilm = subview(A0, i, make_pair(lm,lm+1), ALL);
-            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
-            KokkosBatched::TeamVectorGemm<Kokkos::TeamPolicy<>::member_type,
-                                          KokkosBatched::Trans::NoTranspose,
-                                          KokkosBatched::Trans::NoTranspose,
-                                          KokkosBatched::Algo::Gemm::Unblocked>
-                ::invoke(team_member, 1.0, Phi0_ilm, W_il, 0.0, A0_ilm);
         });
+
     Kokkos::fence();
 }
 
@@ -315,12 +298,7 @@ void MACEKokkos::reverse_A0(
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
-    // TODO: continue fusing
-
-    auto Phi0_adj = Kokkos::View<double***,LayoutRight>("Phi0_adj",num_nodes,num_lm,num_channels);
-
     auto A0_adj = this->A0_adj;
-    auto A0_weights = this->A0_weights;
     auto l_max = this->l_max;
     auto num_lm = this->num_lm;
     auto num_channels = this->num_channels;
@@ -342,22 +320,6 @@ void MACEKokkos::reverse_A0(
     Kokkos::fence();
 
     Kokkos::parallel_for("Reverse A0",
-        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (l_max+1);
-            const int l = team_member.league_rank() % (l_max+1);
-            auto A0_adj_il = Kokkos::subview(A0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(A0_weights, node_types(i), l, Kokkos::ALL, Kokkos::ALL);
-            auto Phi0_adj_il = Kokkos::subview(Phi0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::Transpose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, A0_adj_il, W_il, 0.0, Phi0_adj_il);
-        });
-    Kokkos::fence();
-
-    Kokkos::parallel_for("Reverse Phi0",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
@@ -379,8 +341,8 @@ void MACEKokkos::reverse_A0(
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
                             [&] (const int k, double& t1, double& t2) {
-                                t1 += R0_deriv(ij,l*num_channels+k) * Phi0_adj(i,lm,k);
-                                t2 += R0(ij,l*num_channels+k) * Phi0_adj(i,lm,k);
+                                t1 += R0_deriv(ij,l*num_channels+k) * A0_adj(i,lm,k);
+                                t2 += R0(ij,l*num_channels+k) * A0_adj(i,lm,k);
                             }, t1, t2);
                         f_x += t1*x_ij*Y_ij[lm] + t2*Y_grad_ij[lm];
                         f_y += t1*y_ij*Y_ij[lm] + t2*Y_grad_ij[num_lm+lm];
@@ -393,7 +355,6 @@ void MACEKokkos::reverse_A0(
                     });
             }
         });
-
     Kokkos::fence();
 }
 
@@ -1562,6 +1523,28 @@ void MACEKokkos::load_from_json(std::string filename)
                     h_c(ab,i,3,lk) *= H0_weights[b*num_channels+k]; 
                 }
             }
+            // add A0_weights
+            auto A0_weights = file["A0_weights"].get<std::vector<std::vector<std::vector<double>>>>();
+            for (int i=0; i<spl_values_0[0][0].size()-1; ++i) {
+                for (int l=0; l<=l_max; ++l) {
+                    auto c0 = std::vector<double>(&h_c(ab,i,0,l*num_channels), &h_c(ab,i,0,l*num_channels)+num_channels);
+                    auto c1 = std::vector<double>(&h_c(ab,i,1,l*num_channels), &h_c(ab,i,1,l*num_channels)+num_channels);
+                    auto c2 = std::vector<double>(&h_c(ab,i,2,l*num_channels), &h_c(ab,i,2,l*num_channels)+num_channels);
+                    auto c3 = std::vector<double>(&h_c(ab,i,3,l*num_channels), &h_c(ab,i,3,l*num_channels)+num_channels);
+                    for (int k=0; k<num_channels; ++k) {
+                        h_c(ab,i,0,l*num_channels+k) = 0.0;
+                        h_c(ab,i,1,l*num_channels+k) = 0.0;
+                        h_c(ab,i,2,l*num_channels+k) = 0.0;
+                        h_c(ab,i,3,l*num_channels+k) = 0.0;
+                        for (int kp=0; kp<num_channels; ++kp) {
+                            h_c(ab,i,0,l*num_channels+k) += A0_weights[a][l][kp*num_channels+k]*c0[kp];
+                            h_c(ab,i,1,l*num_channels+k) += A0_weights[a][l][kp*num_channels+k]*c1[kp];
+                            h_c(ab,i,2,l*num_channels+k) += A0_weights[a][l][kp*num_channels+k]*c2[kp];
+                            h_c(ab,i,3,l*num_channels+k) += A0_weights[a][l][kp*num_channels+k]*c3[kp];
+                        }
+                    }
+                }
+            }
         }
     }
     Kokkos::deep_copy(c, h_c);
@@ -1572,25 +1555,6 @@ void MACEKokkos::load_from_json(std::string filename)
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
     radial_1 = RadialFunctionSetKokkos(spl_h, spl_values_1, spl_derivs_1);
-
-    // H0 weights
-    set_kokkos_view(
-        H0_weights,
-        file["H0_weights"].get<std::vector<double>>(),
-        atomic_numbers.size(),
-        num_channels);
-
-    // A0 weights
-    A0_weights = Kokkos::View<double****,Kokkos::LayoutRight>(
-        "A0_weights", atomic_numbers.size(), l_max+1, num_channels, num_channels);
-    auto h_A0_weights = Kokkos::create_mirror_view(A0_weights);
-    auto A0_weights_vec = file["A0_weights"].get<std::vector<std::vector<std::vector<double>>>>();
-    for (int i=0; i<atomic_numbers.size(); ++i)
-        for (int l=0; l<=l_max; ++l)
-            for (int k1=0; k1<num_channels; ++k1)
-                for (int k2=0; k2<num_channels; ++k2)
-                    h_A0_weights(i,l,k1,k2) = A0_weights_vec[i][l][k1*num_channels+k2];
-    Kokkos::deep_copy(A0_weights,h_A0_weights);
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();

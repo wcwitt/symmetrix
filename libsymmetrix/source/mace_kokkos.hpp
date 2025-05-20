@@ -65,12 +65,8 @@ void compute_R1(const int num_nodes,
 Kokkos::View<double*> Y, Y_grad;// TODO: make multidimensional
 void compute_Y(Kokkos::View<const double*> xyz);
 
-// H0
-Kokkos::View<double**,Kokkos::LayoutRight> H0_weights;
-
 // A0
 Kokkos::View<double***,Kokkos::LayoutRight> A0, A0_adj;
-Kokkos::View<double****,Kokkos::LayoutRight> A0_weights;
 void compute_A0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,
