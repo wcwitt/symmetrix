@@ -23,3 +23,7 @@ The default license for this project is the [MIT License](./LICENSE).
 The `pair_symmetrix` subdirectory, which enables integration with LAMMPS,
 is licensed under the [GNU General Public License (GPLv2)](pair_symmetrix/LICENSE)
 to maintain consistency with LAMMPS.
+
+### Acknowledgements
+
+An early phase of this project, leading to the Kokkos-based MACE implementation, was supported by the Schmidt Sciences Virtual Institute for Scientific Software (VISS). This engagment involved key contributions from Dave Brownell and Ketan Bhardwaj of the Center for Scientific and Software Engineering at Georgia Tech.
