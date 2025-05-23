@@ -299,7 +299,6 @@ void MACEKokkos::reverse_A0(
     Kokkos::View<const double*> r)
 {
     auto A0_adj = this->A0_adj;
-    auto l_max = this->l_max;
     auto num_lm = this->num_lm;
     auto num_channels = this->num_channels;
     auto R0 = this->R0;
@@ -805,13 +804,12 @@ void MACEKokkos::compute_Phi1(
             const int lm1 = Phi1_lm1(lelm1lm2);
             const int lm2 = Phi1_lm2(lelm1lm2);
             const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-            // initialize scratch for Phi1r_i_lelm1lm2
-            // TODO: use unmanaged view syntax
-            double* Phi1r_i_lelm1lm2 = (double*) team_member.team_shmem().get_shmem(num_channels*sizeof(double));
+            // initialize Phi1r_i_lelm1lm2 in scratch space
+            auto Phi1r_i_lelm1lm2 = Kokkos::View<double*>(team_member.team_scratch(0), num_channels);
             Kokkos::parallel_for(
                 Kokkos::TeamVectorRange(team_member, num_channels),
                 [=] (const int k) {
-                    Phi1r_i_lelm1lm2[k] = 0.0;
+                    Phi1r_i_lelm1lm2(k) = 0.0;
                 });
             team_member.team_barrier();
             // compute Phi1r_i_lelm1lm2
@@ -823,7 +821,7 @@ void MACEKokkos::compute_Phi1(
                 Kokkos::parallel_for(
                     Kokkos::TeamVectorRange(team_member, num_channels),
                     [=] (const int k) {
-                        Phi1r_i_lelm1lm2[k] += R1_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k];
+                        Phi1r_i_lelm1lm2(k) += R1_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k];
                     });
             }
             team_member.team_barrier();
@@ -831,7 +829,7 @@ void MACEKokkos::compute_Phi1(
             Kokkos::parallel_for(
                 Kokkos::TeamVectorRange(team_member, num_channels),
                 [=] (const int k) {
-                    Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2[k];
+                    Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
                 });
         });
     Kokkos::fence();
