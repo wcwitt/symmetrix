@@ -1410,7 +1410,6 @@ void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, 
 
 double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
 {
-    //Kokkos::realloc(node_energies, num_nodes);
     Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
     // Warning: Although it doesn't appear necessary to set H1_adj to zero,
     //          it matters when the number of nodes associated with H1 is greater than num_nodes.
@@ -1439,7 +1438,7 @@ double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*
     });
     Kokkos::fence();
     // second readout
-    Kokkos::View<double*,Kokkos::LayoutRight> readout_2_output("readout_2_output", node_energies.size());
+    Kokkos::View<double*,Kokkos::LayoutRight> readout_2_output("readout_2_output", num_nodes);
     readout_2.evaluate_gradient(H2, readout_2_output, H2_adj);
     Kokkos::parallel_for("Compute Readouts 2", num_nodes, KOKKOS_LAMBDA (const int i) {
         node_energies(i) += readout_2_output(i);
