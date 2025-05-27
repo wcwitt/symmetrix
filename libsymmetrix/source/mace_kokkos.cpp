@@ -793,7 +793,7 @@ void MACEKokkos::compute_Phi1(
     Kokkos::fence();
 #endif
 
-//#if 0
+#if 0
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
              .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(double))),
@@ -831,6 +831,81 @@ void MACEKokkos::compute_Phi1(
                 [=] (const int k) {
                     Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
                 });
+        });
+    Kokkos::fence();
+#endif
+
+//#if 0
+    Kokkos::parallel_for("Compute Phi1r",
+        Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, Kokkos::AUTO),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank() / num_lelm1lm2;
+            const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
+            const int i0 = first_neigh(i);
+            const int lm1 = Phi1_lm1(lelm1lm2);
+            const int lm2 = Phi1_lm2(lelm1lm2);
+            const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+            for (int j=0; j<num_neigh(i); ++j) {
+                const int ij = i0 + j;
+                const double Y_ij_lm1 = Y(ij*num_lm+lm1);
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorRange(team_member, num_channels),
+                    [=] (const int k) {
+                        Phi1r(i,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * Y_ij_lm1 * H1(neigh_indices(ij),lm2,k);
+                    });
+            }
+        });
+    Kokkos::fence();
+//#endif
+
+#if 0
+    Kokkos::parallel_for("Compute Phi1r",
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank();
+            const int i0 = first_neigh(i);
+            for (int j=0; j<num_neigh(i); ++j) {
+                const int ij = i0 + j;
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
+                        team_member, num_lelm1lm2, num_channels),
+                    [=] (const int lelm1lm2, const int k) {
+                        const int lm1 = Phi1_lm1(lelm1lm2);
+                        const int lm2 = Phi1_lm2(lelm1lm2);
+                        const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+                        const double Y_ij_lm1 = Y(ij*num_lm+lm1);
+                        Phi1r(i,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * Y_ij_lm1 * H1(neigh_indices(ij),lm2,k);
+                    });
+            }
+        });
+    Kokkos::fence();
+#endif
+
+//#if 0
+    const int num_blocks = 2;
+    Kokkos::realloc(Phi1r_extended, num_nodes, num_blocks, num_lelm1lm2, num_channels);
+    Kokkos::deep_copy(Phi1r_extended, 0.0);
+    auto Phi1r_extended = this->Phi1r_extended;
+    Kokkos::parallel_for("Compute Phi1r_extended",
+        Kokkos::TeamPolicy<>(num_nodes*num_blocks, Kokkos::AUTO, 32),
+        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank() / num_blocks;
+            const int b = team_member.league_rank() % num_blocks;
+            const int i0 = first_neigh(i);
+            const int block_size = Kokkos::ceil(num_neigh(i)/num_blocks);
+            for (int j=b*block_size; j<Kokkos::min((b+1)*block_size,num_neigh(i)); ++j) {
+                const int ij = i0 + j;
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
+                        team_member, num_lelm1lm2, num_channels),
+                    [=] (const int lelm1lm2, const int k) {
+                        const int lm1 = Phi1_lm1(lelm1lm2);
+                        const int lm2 = Phi1_lm2(lelm1lm2);
+                        const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+                        const double Y_ij_lm1 = Y(ij*num_lm+lm1);
+                        Phi1r_extended(i,b,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * Y_ij_lm1 * H1(neigh_indices(ij),lm2,k);
+                    });
+            }
         });
     Kokkos::fence();
 //#endif
