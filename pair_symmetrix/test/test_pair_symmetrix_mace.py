@@ -186,16 +186,48 @@ def test_water(pair_style):
 
         timestep        0.0001
         thermo          1
+        thermo_style    custom step pe pxx pyy pzz pxy pxz pyz density
+        thermo_modify   format int %8d
+        thermo_modify   format float %14.6f
+        compute         peratom all pe/atom
         fix             f1 all nve
-        run             10
+        run             0
     """.format(pair_style))
 
-    # ----- energy -----
+    # ----- test energy, atomic energies, stress -----
     e = L.get_thermo("pe")
-    assert e == pytest.approx(-16649.98869252188, abs=1e-6)
+    eatom = np.ctypeslib.as_array(L.extract_compute("peratom",1,1), shape=(24,))
+    pxx = L.get_thermo("pxx")
+    pyy = L.get_thermo("pyy")
+    pzz = L.get_thermo("pzz")
+    pxy = L.get_thermo("pxy")
+    pxz = L.get_thermo("pxz")
+    pyz = L.get_thermo("pyz")
+    assert e == pytest.approx(-16649.784441, abs=1e-6)
+    assert e == pytest.approx(sum(eatom), abs=1e-6)
+    assert pxx == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert pyy == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert pzz == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
+    assert pxy == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
+    assert pxz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert pyz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
 
-    # ----- atomic energies -----
-    L.command("compute peratom all pe/atom")
-    L.command("run 0")
-    pe_atom = L.extract_compute("peratom", 1, 1)
-    assert e == pytest.approx(sum([pe_atom[i] for i in range(24)]))
+
+    # ----- run 10 steps, test again -----
+    L.command("run 10")
+    e = L.get_thermo("pe")
+    eatom = np.ctypeslib.as_array(L.extract_compute("peratom",1,1), shape=(24,))
+    pxx = L.get_thermo("pxx")
+    pyy = L.get_thermo("pyy")
+    pzz = L.get_thermo("pzz")
+    pxy = L.get_thermo("pxy")
+    pxz = L.get_thermo("pxz")
+    pyz = L.get_thermo("pyz")
+    assert e == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
+    assert e == pytest.approx(sum(eatom), abs=1e-6)
+    assert pxx == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert pyy == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert pzz == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
+    assert pxy == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
+    assert pxz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert pyz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
