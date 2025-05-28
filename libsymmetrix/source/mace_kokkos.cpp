@@ -262,6 +262,7 @@ void MACEKokkos::compute_A0(
                 first_neigh(i) = update;
             update += num_neigh(i);
         });
+    Kokkos::fence();
 
     const int num_lm = this->num_lm;
     const int num_channels = this->num_channels;
