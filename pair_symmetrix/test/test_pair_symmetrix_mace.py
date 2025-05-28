@@ -194,40 +194,119 @@ def test_water(pair_style):
         run             0
     """.format(pair_style))
 
-    # ----- test energy, atomic energies, stress -----
-    e = L.get_thermo("pe")
-    eatom = np.ctypeslib.as_array(L.extract_compute("peratom",1,1), shape=(24,))
-    pxx = L.get_thermo("pxx")
-    pyy = L.get_thermo("pyy")
-    pzz = L.get_thermo("pzz")
-    pxy = L.get_thermo("pxy")
-    pxz = L.get_thermo("pxz")
-    pyz = L.get_thermo("pyz")
-    assert e == pytest.approx(-16649.784441, abs=1e-6)
-    assert e == pytest.approx(sum(eatom), abs=1e-6)
-    assert pxx == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert pyy == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert pzz == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
-    assert pxy == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
-    assert pxz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert pyz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-
+    # ----- test energy and stress -----
+    assert L.get_thermo("pe") == pytest.approx(-16649.784441, abs=1e-6)
+    assert L.get_thermo("pxx") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pyy") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pzz") == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pxy") == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
 
     # ----- run 10 steps, test again -----
     L.command("run 10")
-    e = L.get_thermo("pe")
-    eatom = np.ctypeslib.as_array(L.extract_compute("peratom",1,1), shape=(24,))
-    pxx = L.get_thermo("pxx")
-    pyy = L.get_thermo("pyy")
-    pzz = L.get_thermo("pzz")
-    pxy = L.get_thermo("pxy")
-    pxz = L.get_thermo("pxz")
-    pyz = L.get_thermo("pyz")
-    assert e == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
-    assert e == pytest.approx(sum(eatom), abs=1e-6)
-    assert pxx == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert pyy == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert pzz == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
-    assert pxy == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
-    assert pxz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert pyz == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pe") == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
+    assert L.get_thermo("pxx") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pyy") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pzz") == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pxy") == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+
+
+if not os.path.exists("mace-mp-0b3-medium-hea.json"):
+    urlretrieve("https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
+                "mace-mp-0b3-medium-hea.json")
+
+@pytest.mark.parametrize(
+    "pair_style",
+    ["symmetrix/mace",
+     "symmetrix/mace no_domain_decomposition",
+     "symmetrix/mace mpi_message_passing",
+     "symmetrix/mace no_mpi_message_passing"])
+def test_hea(pair_style):
+
+    # ----- setup -----
+    L = lammps(cmdargs=cmdargs)
+    L.commands_string("""
+        clear
+        units           metal
+        boundary        p p p
+        atom_style      atomic
+        atom_modify     map yes
+        newton          on
+
+        region          box block 0.0 21.121368258654233 0.0 4.2242736517308463 0.0 4.2242736517308463
+        create_box      20 box
+        create_atoms     6  single                   0                   0                   0  units box
+        create_atoms    12  single                   0  2.1121368258654232  2.1121368258654232  units box
+        create_atoms     8  single  2.1121368258654232                   0  2.1121368258654232  units box
+        create_atoms    15  single  2.1121368258654232  2.1121368258654232                   0  units box
+        create_atoms    16  single  4.2242736517308463                   0                   0  units box
+        create_atoms    10  single  4.2242736517308463  2.1121368258654232  2.1121368258654232  units box
+        create_atoms     9  single  6.3364104775962691                   0  2.1121368258654232  units box
+        create_atoms    11  single  6.3364104775962691  2.1121368258654232                   0  units box
+        create_atoms     1  single  8.4485473034616927                   0                   0  units box
+        create_atoms    20  single  8.4485473034616927  2.1121368258654232  2.1121368258654232  units box
+        create_atoms     2  single  10.560684129327116                   0  2.1121368258654232  units box
+        create_atoms     7  single  10.560684129327116  2.1121368258654232                   0  units box
+        create_atoms    13  single  12.672820955192538                   0                   0  units box
+        create_atoms     4  single  12.672820955192538  2.1121368258654232  2.1121368258654232  units box
+        create_atoms    18  single  14.784957781057962                   0  2.1121368258654232  units box
+        create_atoms     3  single  14.784957781057962  2.1121368258654232                   0  units box
+        create_atoms    14  single  16.897094606923385                   0                   0  units box
+        create_atoms     5  single  16.897094606923385  2.1121368258654232  2.1121368258654232  units box
+        create_atoms    17  single  19.009231432788809                   0  2.1121368258654232  units box
+        create_atoms    19  single  19.009231432788809  2.1121368258654232                   0  units box
+        mass             1  107.86819997225152 # Ag
+        mass             2  26.981538493059151 # Al
+        mass             3  208.98039994624096 # Bi
+        mass             4  112.41399997108213 # Cd
+        mass             5  58.933193984839768 # Co
+        mass             6  51.996099986624294 # Cr
+        mass             7  63.545999983653154 # Cu
+        mass             8  55.844999985634189 # Fe
+        mass             9  72.629999981316345 # Ge
+        mass            10  24.304999993747675 # Mg
+        mass            11  54.938043985867495 # Mn
+        mass            12  95.949999975317411 # Mo
+        mass            13  92.906369976100365 # Nb
+        mass            14  58.693399984901454 # Ni
+        mass            15  207.19999994669897 # Pb
+        mass            16  121.75999996867793 # Sb
+        mass            17  28.084999992775295 # Si
+        mass            18  118.70999996946252 # Sn
+        mass            19  183.83999995270821 # W
+        mass            20  65.379999983181364 # Zn
+
+        pair_style      {}
+        pair_coeff      * * mace-mp-0b3-medium-hea.json Ag Al Bi Cd Co Cr Cu Fe Ge Mg Mn Mo Nb Ni Pb Sb Si Sn W Zn
+
+        timestep        0.0001
+        thermo          1
+        thermo_style    custom step pe pxx pyy pzz pxy pxz pyz density
+        thermo_modify   format int %8d
+        thermo_modify   format float %14.6f
+        compute         peratom all pe/atom
+        fix             f1 all nve
+        run             0
+    """.format(pair_style))
+
+    # ----- test energy and stress -----
+    assert L.get_thermo("pe") == pytest.approx(-105.640759, abs=1e-3)
+    assert L.get_thermo("pxx") == pytest.approx(-85885.592975, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pyy") == pytest.approx(-75802.712836, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pzz") == pytest.approx(-93772.295673, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+
+    # ----- run 10 steps, test again -----
+    L.command("run 10")
+    assert L.get_thermo("pe") == pytest.approx(-105.642334, abs=1e-3)  # note lower tolerance
+    assert L.get_thermo("pxx")  == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pyy")  == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pzz")  == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pxy")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pxz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert L.get_thermo("pyz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
