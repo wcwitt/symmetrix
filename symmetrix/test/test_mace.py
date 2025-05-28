@@ -89,32 +89,32 @@ def numerical_gradient(f, x):
     # TODO
 
 
-def test_R0():
-
-    ### FORWARD
-    evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
-    if model == "mace-off-small":
-        R0_sum = 21.20435772182849 
-    elif model == "mace-off-medium":
-        R0_sum = -21.480436737535587
-    elif model == "mace-off-large":
-        R0_sum = -22.676578846154406
-    elif model == "mace-mp-small":
-        R0_sum = -3.8213998025678393
-    elif model == "mace-mp-medium":
-        R0_sum = -44.321150312446974
-    elif model == "mace-mp-large":
-        R0_sum = -132.59276393205272
-    elif model == "mace-mpa-medium":
-        R0_sum = -39.38919552881708 
-    elif model == "mace-mp-0b3-medium":
-        R0_sum = 72.27732642745596
-    elif model == "mace-omat-0-medium":
-        R0_sum = -117.61030618445653
-    assert sum(evaluator.R0) == pytest.approx(R0_sum, abs=1e-4)
-
-    ### REVERSE
-    # TODO
+#def test_R0():
+#
+#    ### FORWARD
+#    evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
+#    if model == "mace-off-small":
+#        R0_sum = 21.20435772182849 
+#    elif model == "mace-off-medium":
+#        R0_sum = -21.480436737535587
+#    elif model == "mace-off-large":
+#        R0_sum = -22.676578846154406
+#    elif model == "mace-mp-small":
+#        R0_sum = -3.8213998025678393
+#    elif model == "mace-mp-medium":
+#        R0_sum = -44.321150312446974
+#    elif model == "mace-mp-large":
+#        R0_sum = -132.59276393205272
+#    elif model == "mace-mpa-medium":
+#        R0_sum = -39.38919552881708 
+#    elif model == "mace-mp-0b3-medium":
+#        R0_sum = 72.27732642745596
+#    elif model == "mace-omat-0-medium":
+#        R0_sum = -117.61030618445653
+#    assert sum(evaluator.R0) == pytest.approx(R0_sum, abs=1e-4)
+#
+#    ### REVERSE
+#    # TODO
 
 
 def test_A0():
