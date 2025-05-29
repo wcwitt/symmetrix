@@ -11,11 +11,14 @@ import os
 from scipy.interpolate import CubicSpline
 import sys
 import json
+from pathlib import Path
 
-model_name = sys.argv[1][:-6]
-model = torch.load(model_name+".model",
-                   map_location=torch.device('cpu'),
-                   weights_only=False)
+model_name = Path(sys.argv[1]).stem
+model = torch.load(
+    model_name+".model",
+    map_location=torch.device('cpu'),
+    weights_only=False
+).to(torch.float64)
 
 # global setting
 num_spl_points = 200
