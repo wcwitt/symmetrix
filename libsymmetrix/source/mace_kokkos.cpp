@@ -366,6 +366,7 @@ void MACEKokkos::compute_A0_scaled(
     Kokkos::View<const double*> r)
 {
     if (not A0_scaled) return;
+
     // compute A0 splines
     if (r.size() > A0_spline_values.extent(0)) {
         Kokkos::realloc(A0_spline_values, r.size(), 1);
@@ -421,12 +422,6 @@ void MACEKokkos::reverse_A0_scaled(
     Kokkos::View<const double*> r)
 {
     if (not A0_scaled) return;
-    // compute A0 splines
-    if (r.size() > A0_spline_values.extent(0)) {
-        Kokkos::realloc(A0_spline_values, r.size(), 1);
-        Kokkos::realloc(A0_spline_derivs, r.size(), 1);
-    }
-    A0_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A0_spline_values, A0_spline_derivs);
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("Compute first_neigh",
@@ -437,7 +432,7 @@ void MACEKokkos::reverse_A0_scaled(
             update += num_neigh(i);
         });
 
-    // update the deriviates
+    // update the derivatives
     // Warning: Assumes node_forces have been initialized elsewhere
     const auto A0 = this->A0;
     const auto A0_adj = this->A0_adj;
@@ -1059,6 +1054,14 @@ void MACEKokkos::compute_A1_scaled(
 {
     if (not A1_scaled) return;
 
+    // compute A1 splines
+    if (A1_spline_values.extent(0) < r.size()) {
+        Kokkos::realloc(A1_spline_values, r.size(), 1);
+        Kokkos::realloc(A1_spline_derivs, r.size(), 1);
+    }
+    A1_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A1_spline_values, A1_spline_derivs);
+
+    // compute first_neigh
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
     Kokkos::parallel_scan("Compute first_neigh",
         num_nodes,
@@ -1068,12 +1071,10 @@ void MACEKokkos::compute_A1_scaled(
             update += num_neigh(i);
         });
 
-    // compute A1 splines
-    auto A1_spline_values = Kokkos::View<double**,Kokkos::LayoutRight>("A1_spline_values", r.size(), 1);
-    auto A1_spline_derivs = Kokkos::View<double**,Kokkos::LayoutRight>("A1_spline_derivs", r.size(), 1);
-    A1_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A1_spline_values, A1_spline_derivs);
     // perform the scaling
     auto A1 = this->A1;
+    auto A1_spline_values = this->A1_spline_values;
+    auto A1_spline_derivs = this->A1_spline_derivs;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
     Kokkos::parallel_for(
@@ -1120,14 +1121,12 @@ void MACEKokkos::reverse_A1_scaled(
             update += num_neigh(i);
         });
 
-    // compute A1 splines
-    auto A1_spline_values = Kokkos::View<double**,Kokkos::LayoutRight>("A1_spline_values", r.size(), 1);
-    auto A1_spline_derivs = Kokkos::View<double**,Kokkos::LayoutRight>("A1_spline_derivs", r.size(), 1);
-    A1_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A1_spline_values, A1_spline_derivs);
-    // update the deriviates
+    // update the derivatives
     // Warning: Assumes node_forces have been initialized elsewhere
     const auto A1 = this->A1;
     const auto A1_adj = this->A1_adj;
+    const auto A1_spline_values = this->A1_spline_values;
+    const auto A1_spline_derivs = this->A1_spline_derivs;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
     auto node_forces = this->node_forces;

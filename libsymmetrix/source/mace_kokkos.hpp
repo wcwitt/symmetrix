@@ -124,10 +124,8 @@ Kokkos::View<double***,Kokkos::LayoutRight> Phi1, dPhi1;
 void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
 void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
-
 // TODO for testing of Phi1 strategies
 Kokkos::View<int*> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
-
 
 // A1
 Kokkos::View<double***,Kokkos::LayoutRight> A1, A1_adj;
@@ -138,6 +136,8 @@ void reverse_A1(int num_nodes);
 // A1 rescaling
 bool A1_scaled;
 RadialFunctionSetKokkos A1_splines;
+Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_values;
+Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_derivs;
 void compute_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
