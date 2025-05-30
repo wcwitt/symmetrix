@@ -17,8 +17,6 @@ void bind_mace(py::module_ &m)
         .def_readwrite("H0_weights", &MACE::H0_weights)
         .def_readwrite("R0", &MACE::R0)
         .def_readwrite("R1", &MACE::R1)
-        .def_readwrite("Phi0", &MACE::Phi0)
-        .def_readwrite("Phi0_adj", &MACE::Phi0_adj)
         .def_readwrite("A0", &MACE::A0)
         .def_readwrite("A0_adj", &MACE::A0_adj)
         .def_readwrite("M0", &MACE::M0)
@@ -82,37 +80,31 @@ void bind_mace(py::module_ &m)
             [](MACE& self, py::array_t<double> xyz) {
                 self.compute_Y(std::span<const double>(xyz.data(), xyz.size()));
             })
-        .def("compute_Phi0",
-            [](MACE& self, const int num_nodes, py::array_t<int> num_neigh, py::array_t<int> neigh_types) {
-                self.compute_Phi0(num_nodes,
-                                  std::span<const int>(num_neigh.data(), num_neigh.size()),
-                                  std::span<const int>(neigh_types.data(), neigh_types.size()));
+        .def("compute_A0",
+            [](MACE& self,
+                    const int num_nodes,
+                    py::array_t<int> node_types,
+                    py::array_t<int> num_neigh,
+                    py::array_t<int> neigh_types) {
+                self.compute_A0(
+                    num_nodes,
+                    std::span<const int>(node_types.data(), node_types.size()),
+                    std::span<const int>(num_neigh.data(), num_neigh.size()),
+                    std::span<const int>(neigh_types.data(), neigh_types.size()));
             })
-        .def("reverse_Phi0",
+        .def("reverse_A0",
             [](MACE& self, const int num_nodes,
+                           py::array_t<int> node_types,
                            py::array_t<int> num_neigh,
                            py::array_t<int> neigh_types,
                            py::array_t<double> xyz,
                            py::array_t<double> r) {
-                self.reverse_Phi0(num_nodes,
-                                  std::span<const int>(num_neigh.data(), num_neigh.size()),
-                                  std::span<const int>(neigh_types.data(), neigh_types.size()),
-                                  std::span<const double>(xyz.data(), xyz.size()),
-                                  std::span<const double>(r.data(), r.size()));
-            })
-        .def("compute_A0",
-            [](MACE& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types) {
-                self.compute_A0(
-                    num_nodes,
-                    std::span<const int>(node_types.data(), node_types.size()));
-            })
-        .def("reverse_A0",
-            [](MACE& self, const int num_nodes,
-                           py::array_t<int> node_types) {
                 self.reverse_A0(num_nodes, 
-                                std::span<const int>(node_types.data(), node_types.size()));
+                                std::span<const int>(node_types.data(), node_types.size()),
+                                std::span<const int>(num_neigh.data(), num_neigh.size()),
+                                std::span<const int>(neigh_types.data(), neigh_types.size()),
+                                std::span<const double>(xyz.data(), xyz.size()),
+                                std::span<const double>(r.data(), r.size()));
             })
         .def("compute_A0_scaled",
             [](MACE& self,

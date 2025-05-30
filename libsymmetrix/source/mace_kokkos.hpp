@@ -43,7 +43,8 @@ bool has_zbl;
 ZBLKokkos zbl;
 
 // R0
-RadialFunctionSetKokkos radial_0;
+double R0_spline_h;
+Kokkos::View<const double****,Kokkos::LayoutRight> R0_spline_coefficients;
 Kokkos::View<double**,Kokkos::LayoutRight> R0, R0_deriv;
 void compute_R0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
@@ -64,27 +65,18 @@ void compute_R1(const int num_nodes,
 Kokkos::View<double*> Y, Y_grad;// TODO: make multidimensional
 void compute_Y(Kokkos::View<const double*> xyz);
 
-// H0
-Kokkos::View<double**,Kokkos::LayoutRight> H0_weights;
-
-// Phi0
-Kokkos::View<double***,Kokkos::LayoutRight> Phi0, Phi0_adj;
-void compute_Phi0(const int num_nodes,
-                  Kokkos::View<const int*> num_neigh,
-                  Kokkos::View<const int*> neigh_types);
-void reverse_Phi0(const int num_nodes,
-                  Kokkos::View<const int*> num_neigh,
-                  Kokkos::View<const int*> neigh_types,
-                  Kokkos::View<const double*> xyz,
-                  Kokkos::View<const double*> r);
-
 // A0
 Kokkos::View<double***,Kokkos::LayoutRight> A0, A0_adj;
-Kokkos::View<double****,Kokkos::LayoutRight> A0_weights;
 void compute_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types);
+                Kokkos::View<const int*> node_types,
+                Kokkos::View<const int*> num_neigh,
+                Kokkos::View<const int*> neigh_types);
 void reverse_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types);
+                Kokkos::View<const int*> node_types,
+                Kokkos::View<const int*> num_neigh,
+                Kokkos::View<const int*> neigh_types,
+                Kokkos::View<const double*> xyz,
+                Kokkos::View<const double*> r);
 
 // A0 rescaling
 bool A0_scaled;
@@ -132,10 +124,8 @@ Kokkos::View<double***,Kokkos::LayoutRight> Phi1, dPhi1;
 void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
 void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
-
 // TODO for testing of Phi1 strategies
 Kokkos::View<int*> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
-
 
 // A1
 Kokkos::View<double***,Kokkos::LayoutRight> A1, A1_adj;
@@ -146,6 +136,8 @@ void reverse_A1(int num_nodes);
 // A1 rescaling
 bool A1_scaled;
 RadialFunctionSetKokkos A1_splines;
+Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_values;
+Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_derivs;
 void compute_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,

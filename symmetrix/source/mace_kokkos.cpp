@@ -105,47 +105,6 @@ void bind_mace_kokkos(py::module_ &m)
                 self.compute_Y(
                     create_kokkos_view("xyz", xyz));
             })
-        // Phi0
-        .def_property("Phi0",
-            [] (MACEKokkos& self) {
-                return view2vector(self.Phi0);
-            },
-            [] (MACEKokkos& self, py::array_t<double> Phi0) {
-                const int num_nodes = Phi0.size()/(self.num_lm*self.num_channels);
-                set_kokkos_view(self.Phi0, Phi0, num_nodes, self.num_lm, self.num_channels);
-            })
-        .def_property("Phi0_adj",
-            [] (MACEKokkos& self) {
-                return view2vector(self.Phi0_adj);
-            },
-            [] (MACEKokkos& self, py::array_t<double> Phi0_adj) {
-                const int num_nodes = Phi0_adj.size()/(self.num_lm*self.num_channels);
-                set_kokkos_view(self.Phi0_adj, Phi0_adj, num_nodes, self.num_lm, self.num_channels);
-            })
-        .def("compute_Phi0",
-            [] (MACEKokkos& self,
-                    const int num_nodes,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types) {
-                self.compute_Phi0(
-                    num_nodes,
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types));
-            })
-        .def("reverse_Phi0",
-            [] (MACEKokkos& self,
-                    const int num_nodes,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> xyz,
-                    py::array_t<double> r) {
-                self.reverse_Phi0(
-                    num_nodes, 
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("xyz", xyz),
-                    create_kokkos_view("r", r));
-            })
         // A0
         .def_property("A0",
             [] (MACEKokkos& self) {
@@ -166,18 +125,30 @@ void bind_mace_kokkos(py::module_ &m)
         .def("compute_A0",
             [] (MACEKokkos& self,
                     int num_nodes,
-                    py::array_t<int> node_types) {
+                    py::array_t<int> node_types,
+                    py::array_t<int> num_neigh,
+                    py::array_t<int> neigh_types) {
                 self.compute_A0(
                     num_nodes,
-                    create_kokkos_view("node_types", node_types));
+                    create_kokkos_view("node_types", node_types),
+                    create_kokkos_view("num_neigh", num_neigh),
+                    create_kokkos_view("neigh_types", neigh_types));
             })
         .def("reverse_A0",
             [] (MACEKokkos& self,
                     int num_nodes,
-                    py::array_t<int> node_types) {
+                    py::array_t<int> node_types,
+                    py::array_t<int> num_neigh,
+                    py::array_t<int> neigh_types,
+                    py::array_t<double> xyz,
+                    py::array_t<double> r) {
                 self.reverse_A0(
                     num_nodes,
-                    create_kokkos_view("node_types", node_types));
+                    create_kokkos_view("node_types", node_types),
+                    create_kokkos_view("num_neigh", num_neigh),
+                    create_kokkos_view("neigh_types", neigh_types),
+                    create_kokkos_view("xyz", xyz),
+                    create_kokkos_view("r", r));
             })
         .def("compute_A0_scaled",
             [](MACEKokkos& self,
