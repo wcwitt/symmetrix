@@ -38,9 +38,11 @@ void MACEKokkos::compute_node_energies_forces(
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
-    Kokkos::realloc(node_energies, num_nodes);
+    if (node_energies.size() < num_nodes)
+        Kokkos::realloc(node_energies, num_nodes);
+    if (node_forces.size() < xyz.size())
+        Kokkos::realloc(node_forces, xyz.size());
     Kokkos::deep_copy(node_energies, 0.0);
-    Kokkos::realloc(node_forces, xyz.size());
     Kokkos::deep_copy(node_forces, 0.0);
 
     if (has_zbl)
