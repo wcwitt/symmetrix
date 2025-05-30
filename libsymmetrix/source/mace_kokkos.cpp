@@ -173,8 +173,10 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
 #ifndef SYMMETRIX_SPHERICART_CUDA
 
     const int num = xyz.extent(0) / 3;
-    Kokkos::realloc(Y, num*num_lm);
-    Kokkos::realloc(Y_grad, 3*num*num_lm);
+    if (Y.size() < num*num_lm) {
+        Kokkos::realloc(Y, num*num_lm);
+        Kokkos::realloc(Y_grad, 3*num*num_lm);
+    }
 
     const auto num_lm = this->num_lm;
     auto Y = this->Y;
@@ -683,7 +685,8 @@ void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 void MACEKokkos::compute_H1(
     const int num_nodes)
 {
-    Kokkos::realloc(H1, M0.extent(0), M0.extent(1), M0.extent(2));
+    if (H1.extent(0) < M0.extent(0))
+        Kokkos::realloc(H1, M0.extent(0), M0.extent(1), M0.extent(2));
 
     auto L_max = this->L_max;
     auto H1 = this->H1;
@@ -710,7 +713,8 @@ void MACEKokkos::compute_H1(
 void MACEKokkos::reverse_H1(
     const int num_nodes)
 {
-    Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
+    if (M0_adj.extent(0) < M0.extent(0))
+        Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
 
     auto L_max = this->L_max;
     auto M0_adj = this->M0_adj;
@@ -740,9 +744,11 @@ void MACEKokkos::compute_Phi1(
     Kokkos::View<const int*> neigh_indices)
 {
     // Compute Phi1_lelm1lm2 (named Phi1r)
-    Kokkos::realloc(Phi1r, num_nodes, num_lelm1lm2, num_channels);
+    if (Phi1r.extent(0) < num_nodes)
+        Kokkos::realloc(Phi1r, num_nodes, num_lelm1lm2, num_channels);
+    if (Phi1.extent(0) < num_nodes)
+        Kokkos::realloc(Phi1, num_nodes, num_lme, num_channels);
     Kokkos::deep_copy(Phi1r, 0.0);
-    Kokkos::realloc(Phi1, num_nodes, num_lme, num_channels);
     Kokkos::deep_copy(Phi1, 0.0);
 
     Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
@@ -859,12 +865,15 @@ void MACEKokkos::reverse_Phi1(
     bool zero_dxyz,
     bool zero_H1_adj)
 {
-    Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2)); 
-    Kokkos::resize(node_forces, xyz.size());
+    if (dPhi1r.extent(0) < Phi1r.extent(0))
+        Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2)); 
+    if (node_forces.size() < xyz.size())
+        Kokkos::resize(node_forces, xyz.size());
+    if (H1_adj.extent(0) < H1.extent(0))
+        Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
     if (zero_dxyz)
         Kokkos::deep_copy(node_forces, 0.0);
     Kokkos::deep_copy(dPhi1r, 0.0);
-    Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
     if (zero_H1_adj)
         Kokkos::deep_copy(H1_adj, 0.0);
 
@@ -1213,9 +1222,9 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M1.extent(0) < num_nodes)
         Kokkos::realloc(M1, num_nodes, num_channels);
-    Kokkos::deep_copy(M1, 0.0);
     if (M1_poly_values.extent(0) < num_nodes)
         Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels); 
+    Kokkos::deep_copy(M1, 0.0);
 
     const auto A1 = this->A1;
     const auto M1_monomials = this->M1_monomials;
@@ -1353,7 +1362,8 @@ void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 
 void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
 {
-    Kokkos::realloc(H2, num_nodes, num_channels);
+    if (H2.extent(0) < num_nodes)
+        Kokkos::realloc(H2, num_nodes, num_channels);
     Kokkos::deep_copy(H2, 0.0);
 
     auto num_channels = this->num_channels;
@@ -1389,10 +1399,13 @@ void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
 
 void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
 {
-    Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (H1_adj.extent(0) < H1.extent(0))
+        Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (M1_adj.extent(0) < M1.extent(0))
+        Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
+
     if (zero_H1_adj)
         Kokkos::deep_copy(H1_adj, 0.0);
-    Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
     Kokkos::deep_copy(M1_adj, 0.0);
 
     auto num_channels = this->num_channels;
@@ -1418,12 +1431,15 @@ void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, 
 
 double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
 {
-    Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (H1_adj.extent(0) < H1.extent(0))
+        Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (H2_adj.extent(0) < num_nodes)
+        Kokkos::resize(H2_adj, num_nodes, num_channels);
+
     // Warning: Although it doesn't appear necessary to set H1_adj to zero,
     //          it matters when the number of nodes associated with H1 is greater than num_nodes.
     //          There is probably a better way to manage this.
     Kokkos::deep_copy(H1_adj, 0.0);
-    Kokkos::resize(H2_adj, num_nodes, num_channels);
 
     auto num_channels = this->num_channels;
     auto node_energies = this->node_energies;
