@@ -1497,7 +1497,7 @@ void MACEKokkos::load_from_json(std::string filename)
     for (int a=0; a<atomic_numbers.size(); ++a) {
         for (int b=0; b<atomic_numbers.size(); ++b) {
             const int ab = a*atomic_numbers.size()+b;
-            const int ab_unordered = std::min(a,b)*(2*atomic_numbers.size()-std::min(a,b)-1)/2 + std::abs(a-b);
+            const int ab_unordered = (std::max(a,b) * (std::max(a,b)+1))/2 + std::min(a,b);
             auto spl_values = spl_values_0[ab_unordered];
             auto spl_derivs = spl_derivs_0[ab_unordered];
             for (int i=0; i<spl_values_0[0][0].size()-1; ++i) {
