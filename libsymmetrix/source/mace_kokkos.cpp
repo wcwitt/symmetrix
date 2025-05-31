@@ -836,51 +836,6 @@ void MACEKokkos::compute_Phi1(
     Kokkos::fence();
 //#endif
 
-#if 0
-    typedef Kokkos::DefaultExecutionSpace::scratch_memory_space ScratchSpace;
-    typedef Kokkos::View<double***,Kokkos::LayoutRight,ScratchSpace,Kokkos::MemoryUnmanaged> ScratchVec;
-    const int num_LM = this->num_LM;
-    Kokkos::deep_copy(Phi1r, 0.0);
-    Kokkos::parallel_for("Compute Phi1r again",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32)
-            .set_scratch_size(1, PerTeam(ScratchVec::shmem_size(num_lm,num_LM,num_channels))),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            auto YH_ij = Kokkos::View<double***,Kokkos::LayoutRight,ScratchSpace,Kokkos::MemoryUnmanaged>(
-                team_member.team_scratch(1), num_lm, num_LM, num_channels);
-            const int i0 = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                Kokkos::parallel_for(
-                    Kokkos::TeamThreadRange(team_member, num_lm*num_LM),
-                    [=] (const int lm1lm2) {
-                        const int lm1 = lm1lm2 / num_LM;
-                        const int lm2 = lm1lm2 % num_LM;
-                        const double Y_ij_lm1 = Y(ij*num_lm+lm1);
-                        Kokkos::parallel_for(
-                            Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [=] (const int k) {
-                                YH_ij(lm1,lm2,k) = Y_ij_lm1 * H1(neigh_indices(ij),lm2,k);
-                            });
-                    });
-                team_member.team_barrier();
-                Kokkos::parallel_for(
-                    Kokkos::TeamThreadRange(team_member, num_lelm1lm2),
-                    [=] (const int lelm1lm2) {
-                        const int lm1 = Phi1_lm1(lelm1lm2);
-                        const int lm2 = Phi1_lm2(lelm1lm2);
-                        const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-                        Kokkos::parallel_for(
-                            Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [=] (const int k) {
-                                Phi1r(i,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * YH_ij(lm1,lm2,k);
-                            });
-                    });
-            }
-        });
-    Kokkos::fence();
-#endif
-
     // Compute Phi1 using CG coefficients
     Kokkos::parallel_for("Compute Phi1",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
