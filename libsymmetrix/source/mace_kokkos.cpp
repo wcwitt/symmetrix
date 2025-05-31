@@ -964,7 +964,6 @@ void MACEKokkos::reverse_Phi1(
         });
     Kokkos::fence();
 
-//#if 0
     Kokkos::parallel_for("Reverse Phi1r",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
@@ -985,7 +984,7 @@ void MACEKokkos::reverse_Phi1(
                             [=] (const int k, double& t1, double& t2) {
                                 t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k); 
                                 t2 += R1(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
-                                Kokkos::atomic_add(// TODO: use scratch space?
+                                Kokkos::atomic_add(
                                     &H1_adj(neigh_indices(ij),lm2,k),
                                     R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * dPhi1r(i,lelm1lm2,k));
                             }, t1, t2);
@@ -993,15 +992,15 @@ void MACEKokkos::reverse_Phi1(
                         f_y += t1*xyz(3*ij+1)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+1)*num_lm+lm1);
                         f_z += t1*xyz(3*ij+2)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+2)*num_lm+lm1);
                     }, f_x, f_y, f_z);
-                    Kokkos::single(Kokkos::PerTeam(team_member), [=]() {
-                        node_forces(3*ij)   -= f_x;
-                        node_forces(3*ij+1) -= f_y;
-                        node_forces(3*ij+2) -= f_z;
-                    });
+                team_member.team_barrier();
+                Kokkos::single(Kokkos::PerTeam(team_member), [=]() {
+                    node_forces(3*ij)   -= f_x;
+                    node_forces(3*ij+1) -= f_y;
+                    node_forces(3*ij+2) -= f_z;
+                });
             }
         });
     Kokkos::fence();
-//#endif
 }
 
 void MACEKokkos::compute_A1(int num_nodes)
