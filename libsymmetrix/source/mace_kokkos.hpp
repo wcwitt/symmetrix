@@ -62,7 +62,9 @@ void compute_R1(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // Spherical harmonics
+Kokkos::View<double*> xyz_shuffled;
 Kokkos::View<double*> Y, Y_grad;// TODO: make multidimensional
+Kokkos::View<double*> Y_grad_shuffled;
 void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0

@@ -173,7 +173,7 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
 #ifndef SYMMETRIX_SPHERICART_CUDA
 
     const int num = xyz.extent(0) / 3;
-    if (Y.size() < num*num_lm) {
+    if (Y.extent(0) < num*num_lm) {
         Kokkos::realloc(Y, num*num_lm);
         Kokkos::realloc(Y_grad, 3*num*num_lm);
     }
@@ -182,8 +182,11 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
 
+    // TODO: review whether this is strictly necessary
     // shuffle to match e3nn
-    auto xyz_shuffled = Kokkos::View<double*>("xyz_unshuffled", 3*num);
+    if (xyz_shuffled.extent(0) < 3*num)
+        Kokkos::realloc(xyz_shuffled, 3*num);
+    auto xyz_shuffled = this->xyz_shuffled;
     Kokkos::parallel_for("shuffle_xyz", num, KOKKOS_LAMBDA (int i) {
         xyz_shuffled(3*i) = xyz(3*i+2);
         xyz_shuffled(3*i+1) = xyz(3*i);
@@ -202,8 +205,10 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::deep_copy(Y_grad, h_Y_grad);
 
     // unshuffle gradient
-    Kokkos::View<double*> Y_grad_shuffled("Y_grad_shuffled", 3*num*num_lm);
+    if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
+        Kokkos::realloc(Y_grad_shuffled, 3*num*num_lm);
     Kokkos::deep_copy(Y_grad_shuffled, Y_grad);
+    auto Y_grad_shuffled = this->Y_grad_shuffled;
     Kokkos::parallel_for("unshuffle_Y_grad", num, KOKKOS_LAMBDA (int i) {
         for (int lm=0; lm<num_lm; ++lm) {
             Y_grad(3*i*num_lm+0*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+1*num_lm+lm);
