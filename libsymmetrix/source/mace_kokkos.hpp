@@ -130,6 +130,7 @@ Kokkos::View<int*> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
 // A1
 Kokkos::View<double***,Kokkos::LayoutRight> A1, A1_adj;
 Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights;
+Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights_trans;
 void compute_A1(int num_nodes);
 void reverse_A1(int num_nodes);
 

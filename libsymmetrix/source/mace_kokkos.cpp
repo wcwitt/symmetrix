@@ -1027,7 +1027,7 @@ void MACEKokkos::reverse_A1(int num_nodes)
     const auto num_channels = this->num_channels;
     const auto Phi1_l = this->Phi1_l;
     const auto A1_adj = this->A1_adj;
-    const auto A1_weights = this->A1_weights;
+    const auto A1_weights_trans = this->A1_weights_trans;
     auto dPhi1 = this->dPhi1;
 
     Kokkos::parallel_for("Reverse A1",
@@ -1049,9 +1049,9 @@ void MACEKokkos::reverse_A1(int num_nodes)
                 &dPhi1(i,lme,0), 2*l+1, num_eta*num_channels);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
                                     KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::Transpose,
+                                    KokkosBatched::Trans::NoTranspose,
                                     KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, dA1_il, A1_weights(l), 0.0, dPhi1_il);
+                ::invoke(team_member, 1.0, dA1_il, A1_weights_trans(l), 0.0, dPhi1_il);
         });
     Kokkos::fence();
 }
@@ -1712,6 +1712,8 @@ void MACEKokkos::load_from_json(std::string filename)
     auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();
     A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("A1_weights", Kokkos::SequentialHostInit), l_max+1);
+    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+        Kokkos::view_alloc("A1_weights_trans", Kokkos::SequentialHostInit), l_max+1);
     for (int l=0; l<=l_max; ++l) {
         int num_eta = 0;
         auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
@@ -1720,11 +1722,19 @@ void MACEKokkos::load_from_json(std::string filename)
         A1_weights(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
             num_eta*num_channels, num_channels);
+        A1_weights_trans(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
+            Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
+            num_channels, num_eta*num_channels);
         auto h_A1_weights_l = Kokkos::create_mirror_view(A1_weights(l));
-        for (int i=0; i<num_eta*num_channels; ++i)
-            for (int j=0; j<num_channels; ++j)
+        auto h_A1_weights_trans_l = Kokkos::create_mirror_view(A1_weights_trans(l));
+        for (int i=0; i<num_eta*num_channels; ++i) {
+            for (int j=0; j<num_channels; ++j) {
                 h_A1_weights_l(i,j) = file_A1_weights[l][i*num_channels+j];
+                h_A1_weights_trans_l(j,i) = file_A1_weights[l][i*num_channels+j];
+            }
+        }
         Kokkos::deep_copy(A1_weights(l), h_A1_weights_l);
+        Kokkos::deep_copy(A1_weights_trans(l), h_A1_weights_trans_l);
     }
 
     // A1 scaling
