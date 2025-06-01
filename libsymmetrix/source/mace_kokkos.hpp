@@ -176,6 +176,7 @@ void reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1
 // Readouts
 Kokkos::View<double*> readout_1_weights;
 MultilayerPerceptronKokkos readout_2;
+Kokkos::View<double*> readout_2_output;
 double compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types);
 
 // Initializer
