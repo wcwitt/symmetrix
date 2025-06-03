@@ -705,8 +705,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
   mace->compute_Y(xyz);
 
   mace->compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi0(num_nodes, num_neigh, neigh_types);
-  mace->compute_A0(num_nodes, node_types);
+  mace->compute_A0(num_nodes, node_types, num_neigh, neigh_types);
   mace->compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M0(num_nodes, node_types);
   mace->compute_H1(num_nodes);
@@ -752,8 +751,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
   mace->reverse_H1(num_nodes);
   mace->reverse_M0(num_nodes, node_types);
   mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_nodes, node_types);
-  mace->reverse_Phi0(num_nodes, num_neigh, neigh_types, xyz, r);
+  mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   if (eflag_global) {
     auto node_energies = mace->node_energies;
@@ -1058,8 +1056,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
   mace->compute_Y(xyz);
 
   mace->compute_R0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi0(num_local_nodes+num_ghost_nodes, num_neigh, neigh_types);
-  mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types);
+  mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types);
   mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M0(num_local_nodes+num_ghost_nodes, node_types);
   mace->compute_H1(num_local_nodes+num_ghost_nodes);
@@ -1082,8 +1079,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
   mace->reverse_H1(num_local_nodes+num_ghost_nodes);
   mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
   mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->reverse_Phi0(num_local_nodes+num_ghost_nodes, num_neigh, neigh_types, xyz, r);
+  mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // ----- end mace evaluation -----
 

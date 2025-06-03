@@ -64,24 +64,21 @@ void compute_Y(std::span<const double> xyz);
 // H0
 std::vector<double> H0_weights;
 
-// Phi0
-std::vector<double> Phi0, Phi0_adj;
-void compute_Phi0(const int num_nodes,
-                  std::span<const int> num_neigh,
-                  std::span<const int> neigh_types);
-void reverse_Phi0(const int num_nodes,
-                  std::span<const int> num_neigh,
-                  std::span<const int> neigh_types,
-                  std::span<const double> xyz,
-                  std::span<const double> r);
-
 // A0
 std::vector<double> A0, A0_adj;
 std::vector<std::vector<std::vector<double>>> A0_weights;
 void compute_A0(
     const int num_nodes,
-    std::span<const int> node_types);
-void reverse_A0(const int num_nodes, std::span<const int> node_types);
+    std::span<const int> node_types,
+    std::span<const int> num_neigh,
+    std::span<const int> neigh_types);
+void reverse_A0(
+    const int num_nodes,
+    std::span<const int> node_types,
+    std::span<const int> num_neigh,
+    std::span<const int> neigh_types,
+    std::span<const double> xyz,
+    std::span<const double> r);
 
 // A0 rescaling
 bool A0_scaled;
