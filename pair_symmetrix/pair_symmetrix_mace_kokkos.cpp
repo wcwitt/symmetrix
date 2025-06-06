@@ -53,8 +53,8 @@ PairSymmetrixMACEKokkos<DeviceType>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
   reverse_comm_device = 1;
   atomKK = (AtomKokkos *) atom;
   execution_space = ExecutionSpaceFromDevice<DeviceType>::space;
-  //datamask_read = EMPTY_MASK;
-  //datamask_modify = EMPTY_MASK;
+  datamask_read = EMPTY_MASK;
+  datamask_modify = F_MASK | ENERGY_MASK | VIRIAL_MASK;
   //host_flag = (execution_space == Host);
 }
 
@@ -82,6 +82,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute(int eflag, int vflag)
   } else if (mode == "no_mpi_message_passing") {
     compute_no_mpi_message_passing(eflag, vflag);
   }
+  if (eflag || vflag) atomKK->modified(execution_space,datamask_modify);
+  else atomKK->modified(execution_space,F_MASK);
 }
 
 /* ----------------------------------------------------------------------
@@ -874,7 +876,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 
   // locate ghosts within r_cut of locals
-  auto is_local = Kokkos::Bitset(list->inum+list->gnum);
+  auto is_local = Kokkos::Bitset(atom->nlocal+atom->nghost);
   Kokkos::parallel_for("fill is_local",
     list->inum,
     KOKKOS_LAMBDA (const int ii) {
@@ -882,7 +884,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
       is_local.set(i);
     });
   Kokkos::fence();
-  auto is_ghost = Kokkos::Bitset(list->inum+list->gnum);
+  auto is_ghost = Kokkos::Bitset(atom->nlocal+atom->nghost);
   Kokkos::parallel_for("fill is_ghost",
     Kokkos::TeamPolicy<>(list->inum, Kokkos::AUTO),
     KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
