@@ -54,7 +54,7 @@ PairSymmetrixMACEKokkos<DeviceType>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
   atomKK = (AtomKokkos *) atom;
   execution_space = ExecutionSpaceFromDevice<DeviceType>::space;
   datamask_read = EMPTY_MASK;
-  datamask_modify = F_MASK; // TODO: Add all the other masks here!
+  datamask_modify = F_MASK | ENERGY_MASK | VIRIAL_MASK;
   //host_flag = (execution_space == Host);
 }
 
@@ -82,6 +82,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute(int eflag, int vflag)
   } else if (mode == "no_mpi_message_passing") {
     compute_no_mpi_message_passing(eflag, vflag);
   }
+  if (eflag || vflag) atomKK->modified(execution_space,datamask_modify);
+  else atomKK->modified(execution_space,F_MASK);
 }
 
 /* ----------------------------------------------------------------------
