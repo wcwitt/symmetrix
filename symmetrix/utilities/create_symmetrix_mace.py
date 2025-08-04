@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("--atomic_numbers", "-Z", type=int, nargs="+", help="atomic numbers to extract", default=[])
+parser.add_argument("model_file", help="torch model file")
+args = parser.parse_args()
+
 import torch
 torch.serialization.add_safe_globals([slice])
 
@@ -9,11 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from scipy.interpolate import CubicSpline
-import sys
 import json
 from pathlib import Path
+import logging
 
-model_name = Path(sys.argv[1]).stem
+model_name = Path(args.model_file).stem
 model = torch.load(
     model_name+".model",
     map_location=torch.device('cpu'),
@@ -34,7 +42,7 @@ def linear_simplify(linear):
 
 ### ----- BASIC MODEL INFO -----
 
-num_elements = len(sys.argv) - 2
+num_elements = len(args.atomic_numbers)
 num_channels = model.node_embedding.linear.irreps_out.count("0e")
 r_cut = model.r_max.item()
 l_max = model.spherical_harmonics._lmax
@@ -48,7 +56,10 @@ output['L_max'] = L_max
 
 ### ----- ATOMIC NUMBERS AND ENERGIES -----
 
-atomic_numbers = sorted([int(i) for i in sys.argv[2:]])
+atomic_numbers = sorted(args.atomic_numbers)
+if len(atomic_numbers) == 0:
+    atomic_numbers = model.atomic_numbers.tolist()
+    logging.warning(f"No atomic_numbers, including all: {atomic_numbers}")
 atomic_energies = [ 
     model.atomic_energies_fn.atomic_energies.squeeze()[model.atomic_numbers.tolist().index(a)].item()
         + model.scale_shift.shift.item()
@@ -86,7 +97,7 @@ for a_i in atomic_numbers:
             continue
         model_i = model.atomic_numbers.tolist().index(a_i)
         model_j = model.atomic_numbers.tolist().index(a_j)
-        bessels = model.radial_embedding(
+        bessels, cutoffs = model.radial_embedding(
             torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
             torch.eye(len(model.atomic_numbers)),
             torch.tensor([[model_i],[model_j]], dtype=torch.int64),
@@ -140,7 +151,7 @@ if A0_scaled:
                 continue
             model_i = model.atomic_numbers.tolist().index(a_i)
             model_j = model.atomic_numbers.tolist().index(a_j)
-            bessels = model.radial_embedding(
+            bessels, cutoffs = model.radial_embedding(
                 torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
@@ -320,7 +331,7 @@ if A1_scaled:
                 continue
             model_i = model.atomic_numbers.tolist().index(a_i)
             model_j = model.atomic_numbers.tolist().index(a_j)
-            bessels = model.radial_embedding(
+            bessels, cutoffs = model.radial_embedding(
                 torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
