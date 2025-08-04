@@ -58,7 +58,7 @@ output['L_max'] = L_max
 
 atomic_numbers = sorted(args.atomic_numbers)
 if len(atomic_numbers) == 0:
-    atomic_numbers = model.atomic_numbers.tolist()
+    atomic_numbers = sorted(model.atomic_numbers.tolist())
     logging.warning(f"No atomic_numbers, including all: {atomic_numbers}")
 atomic_energies = [ 
     model.atomic_energies_fn.atomic_energies.squeeze()[model.atomic_numbers.tolist().index(a)].item()
