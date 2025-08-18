@@ -1,6 +1,6 @@
 name: CI
 
-on: [push, pull_request]
+on: [pull_request, workflow_dispatch]
 
 jobs:
 
@@ -22,7 +22,7 @@ jobs:
       run: |
         python -m venv venv
         source venv/bin/activate
-        pip install pytest
+        pip install ase numpy pytest scipy
         deactivate
     - name: Build symmetrix
       run: |
@@ -30,6 +30,7 @@ jobs:
         cd symmetrix
         cmake \
             -B build \
+            -D SYMMETRIX_KOKKOS=ON \
             .
         cmake --build build -j 2
     - name: Run tests
@@ -56,7 +57,7 @@ jobs:
       run: |
         python -m venv venv
         source venv/bin/activate
-        pip install pytest
+        pip install numpy pytest
         deactivate
     - name: Clone and build LAMMPS
       run: |
@@ -68,11 +69,17 @@ jobs:
         cd ../lammps
         cmake \
             -B build \
+            -D CMAKE_BUILD_TYPE=Release \
             -D CMAKE_CXX_STANDARD=20 \
             -D CMAKE_CXX_STANDARD_REQUIRED=ON \
-            -D SPHERICART_ENABLE_CUDA=OFF \
             -D BUILD_SHARED_LIBS=ON \
-            -D BUILD_MPI=ON \
+            -D PKG_KOKKOS=ON \
+            -D Kokkos_ENABLE_SERIAL=ON \
+            -D Kokkos_ENABLE_OPENMP=ON \
+            -D BUILD_OMP=ON \
+            -D Kokkos_ARCH_NATIVE=ON \
+            -D Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION=ON \
+            -D SYMMETRIX_KOKKOS=ON \
             cmake
         cmake --build build -j 2
         cd build
