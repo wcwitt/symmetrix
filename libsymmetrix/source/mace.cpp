@@ -37,8 +37,7 @@ void MACE::compute_node_energies_forces(
     compute_Y(xyz);
 
     compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
-    compute_Phi0(num_nodes, num_neigh, neigh_types);
-    compute_A0(num_nodes, node_types);
+    compute_A0(num_nodes, node_types, num_neigh, neigh_types);
     compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
     compute_M0(num_nodes, node_types);
     compute_H1(num_nodes);
@@ -61,8 +60,7 @@ void MACE::compute_node_energies_forces(
     reverse_H1(num_nodes);
     reverse_M0(num_nodes, node_types);
     reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-    reverse_A0(num_nodes, node_types);
-    reverse_Phi0(num_nodes, num_neigh, neigh_types, xyz, r);
+    reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
 void MACE::compute_R0(
@@ -149,16 +147,19 @@ void MACE::compute_Y(
     }
 }
 
-void MACE::compute_Phi0(
+void MACE::compute_A0(
     const int num_nodes,
+    std::span<const int> node_types,
     std::span<const int> num_neigh,
     std::span<const int> neigh_types)
 {
-    Phi0.resize(num_nodes*num_lm*num_channels);
-    std::fill(Phi0.begin(),Phi0.end(),0.0);
+    A0.resize(num_nodes*num_lm*num_channels);
+
     int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
-        auto Phi0_i = Phi0.data()+i*num_lm*num_channels;
+
+        // compute Phi0_i
+        auto Phi0_i = std::vector<double>(num_lm*num_channels, 0.0);
         for (int j=0; j<num_neigh[i]; ++j) {
             auto Y_ij = Y.data()+ij*num_lm;
             auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
@@ -167,7 +168,7 @@ void MACE::compute_Phi0(
                 for (int m=-l; m<=l; ++m) {
                     const int lm = l*l+l+m;
                     const double Y_ij_lm = Y_ij[lm];
-                    auto Phi0_i_lm = Phi0_i+lm*num_channels;
+                    auto Phi0_i_lm = Phi0_i.data()+lm*num_channels;
                     for (int k=0; k<num_channels; ++k) {
                         Phi0_i_lm[k] += R0_ij_l[k] * Y_ij_lm * H0_ij[k];
                     }
@@ -175,65 +176,10 @@ void MACE::compute_Phi0(
             }
             ij += 1;
         }
-    }
-}
 
-void MACE::reverse_Phi0(
-    const int num_nodes,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> xyz,
-    std::span<const double> r)
-{
-    // Warning: Assumes node_forces have been initialized elsewhere
-    int ij = 0;
-    for (int i=0; i<num_nodes; ++i) {
-        auto Phi0_adj_i = Phi0_adj.data()+i*num_lm*num_channels;
-        for (int j=0; j<num_neigh[i]; ++j) {
-            auto xyz_ij = xyz.data()+ij*3;
-            auto r_ij = r[ij];
-            auto Y_ij = Y.data()+ij*num_lm;
-            auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
-            auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
-            auto node_forces_ij = node_forces.data()+ij*3;
-            for (int l=0; l<=l_max; ++l) {
-                auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
-                auto R0_deriv_ij_l = R0_deriv.data()+ij*(l_max+1)*num_channels+l*num_channels;
-                for (int m=-l; m<=l; ++m) {
-                    const int lm = l*l+l+m;
-                    const double Y_ij_lm = Y_ij[lm];
-                    const double Y_grad_ij_lm_x = Y_grad_ij[lm];
-                    const double Y_grad_ij_lm_y = Y_grad_ij[num_lm+lm];
-                    const double Y_grad_ij_lm_z = Y_grad_ij[2*num_lm+lm];
-                    auto Phi0_adj_i_lm = Phi0_adj_i+lm*num_channels;
-                    for (int k=0; k<num_channels; ++k) {
-                        node_forces_ij[0] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[0]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_x * H0_ij[k] );
-                        node_forces_ij[1] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[1]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_y * H0_ij[k] );
-                        node_forces_ij[2] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[2]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_z * H0_ij[k]);
-                    }
-                }
-            }
-            ij += 1;
-        }
-    }
-}
-
-void MACE::compute_A0(
-    const int num_nodes,
-    std::span<const int> node_types)
-{
-    // The core matrix multiplication is:
-    //         [A0_il]_mk = \sum_k' [Phi0_il]_mk' [W_il]_k'k
-    A0.resize(num_nodes*num_lm*num_channels);
-    for (int i=0; i<num_nodes; ++i) {
+        // [A0_il]_mk = \sum_k' [Phi0_il]_mk' [W_il]_k'k
         for (int l=0; l<=l_max; ++l) {
-            auto Phi0_il = Phi0.data()+(i*num_lm+l*l)*num_channels;
+            auto Phi0_il = Phi0_i.data()+l*l*num_channels;
             auto A0_il = A0.data()+(i*num_lm+l*l)*num_channels;
             cblas_dgemm(
                 CblasRowMajor,                        // const CBLAS_LAYOUT Layout
@@ -256,14 +202,20 @@ void MACE::compute_A0(
 
 void MACE::reverse_A0(
     const int num_nodes,
-    std::span<const int> node_types)
+    std::span<const int> node_types,
+    std::span<const int> num_neigh,
+    std::span<const int> neigh_types,
+    std::span<const double> xyz,
+    std::span<const double> r)
 {
-    // The core matrix multiplication is:
-    //         [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk'  [trans(W_il)]_k'k 
-    Phi0_adj.resize(Phi0.size());
+    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
+
+        auto Phi0_adj_i = std::vector<double>(num_lm*num_channels);
+
+        // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k 
         for (int l=0; l<=l_max; ++l) {
-            auto Phi0_adj_il = Phi0_adj.data()+(i*num_lm+l*l)*num_channels;
+            auto Phi0_adj_il = Phi0_adj_i.data()+l*l*num_channels;
             auto A0_adj_il = A0_adj.data()+(i*num_lm+l*l)*num_channels;
             cblas_dgemm(
                 CblasRowMajor,                        // const CBLAS_LAYOUT Layout
@@ -280,6 +232,40 @@ void MACE::reverse_A0(
                 0.0,                                  // const double beta
                 Phi0_adj_il,                          // double *c
                 num_channels);                        // const MKL_INT ldc
+        }
+
+        // Warning: Assumes node_forces have been initialized elsewhere
+        for (int j=0; j<num_neigh[i]; ++j) {
+            auto xyz_ij = xyz.data()+ij*3;
+            auto r_ij = r[ij];
+            auto Y_ij = Y.data()+ij*num_lm;
+            auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
+            auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
+            auto node_forces_ij = node_forces.data()+ij*3;
+            for (int l=0; l<=l_max; ++l) {
+                auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
+                auto R0_deriv_ij_l = R0_deriv.data()+ij*(l_max+1)*num_channels+l*num_channels;
+                for (int m=-l; m<=l; ++m) {
+                    const int lm = l*l+l+m;
+                    const double Y_ij_lm = Y_ij[lm];
+                    const double Y_grad_ij_lm_x = Y_grad_ij[lm];
+                    const double Y_grad_ij_lm_y = Y_grad_ij[num_lm+lm];
+                    const double Y_grad_ij_lm_z = Y_grad_ij[2*num_lm+lm];
+                    auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
+                    for (int k=0; k<num_channels; ++k) {
+                        node_forces_ij[0] += -Phi0_adj_i_lm[k] * (
+                            xyz_ij[0]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
+                            + R0_ij_l[k] * Y_grad_ij_lm_x * H0_ij[k] );
+                        node_forces_ij[1] += -Phi0_adj_i_lm[k] * (
+                            xyz_ij[1]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
+                            + R0_ij_l[k] * Y_grad_ij_lm_y * H0_ij[k] );
+                        node_forces_ij[2] += -Phi0_adj_i_lm[k] * (
+                            xyz_ij[2]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
+                            + R0_ij_l[k] * Y_grad_ij_lm_z * H0_ij[k]);
+                    }
+                }
+            }
+            ij += 1;
         }
     }
 }

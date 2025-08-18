@@ -11,11 +11,14 @@ import os
 from scipy.interpolate import CubicSpline
 import sys
 import json
+from pathlib import Path
 
-model_name = sys.argv[1][:-6]
-model = torch.load(model_name+".model",
-                   map_location=torch.device('cpu'),
-                   weights_only=False)
+model_name = Path(sys.argv[1]).stem
+model = torch.load(
+    model_name+".model",
+    map_location=torch.device('cpu'),
+    weights_only=False
+).to(torch.float64)
 
 # global setting
 num_spl_points = 200
@@ -46,7 +49,10 @@ output['L_max'] = L_max
 ### ----- ATOMIC NUMBERS AND ENERGIES -----
 
 atomic_numbers = sorted([int(i) for i in sys.argv[2:]])
-atomic_energies = [ 
+if model.atomic_energies_fn.atomic_energies.squeeze().ndim == 0:
+    atomic_energies = [model.atomic_energies_fn.atomic_energies.squeeze().item()]
+else:
+    atomic_energies = [ 
     model.atomic_energies_fn.atomic_energies.squeeze()[model.atomic_numbers.tolist().index(a)].item()
         + model.scale_shift.shift.item()
     for a in atomic_numbers]
@@ -337,8 +343,7 @@ for l in range(l_max+1):
     if not A1_scaled:
         w_linear /= model.interactions[1].avg_num_neighbors
     w_linear = np.reshape(w_linear, (num_eta[l], num_channels, num_channels))
-    for eta in range(num_eta[l]):
-        A1_weights.append(w_linear[eta,:,:].flatten().tolist())
+    A1_weights.append(w_linear.flatten().tolist())
 output["A1_weights"] = A1_weights
 
 ### ----- M1 -----

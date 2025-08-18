@@ -113,26 +113,41 @@ void ZBLKokkos::compute_ZBL(
     Kokkos::View<double*> node_energies,
     Kokkos::View<double*> node_forces)
 {
-    Kokkos::parallel_for("ZBLKokkos::compute_ZBL",
+    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
+    Kokkos::parallel_scan("first_neigh",
         num_nodes,
-        KOKKOS_CLASS_LAMBDA (const int i) {
-            int ij = 0;
-            for (int j=0; j<i; ++j)  // advance ij to first pair for this "i"
-                ij += num_neigh(j);
+        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
+            const int num_neigh_i = num_neigh(i); 
+            if (final)
+                first_neigh(i) = update;
+            update += num_neigh_i;
+        });
+    Kokkos::fence();
+
+    Kokkos::parallel_for("ZBLKokkos::compute_ZBL",
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
+        KOKKOS_CLASS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int i = team_member.league_rank();
+            const int i0 = first_neigh(i);
             const int type_i = node_types(i);
             const int Z_i = atomic_numbers(type_i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int type_j = neigh_types(ij);
-                const int Z_j = atomic_numbers(type_j);
-                // energy
-                const double f = compute(Z_i, Z_j, r(ij));
-                node_energies(i) += f;
-                // forces
-                const double g = compute_gradient(Z_i, Z_j, r(ij));
-                node_forces(3*ij)   -= xyz(3*ij)   / r(ij) * g;
-                node_forces(3*ij+1) -= xyz(3*ij+1) / r(ij) * g;
-                node_forces(3*ij+2) -= xyz(3*ij+2) / r(ij) * g;
-                ij += 1;
-            }
-    });
+            double e_i;
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                [&] (const int j, double& e_i) {
+                    const int ij = i0 + j;
+                    const int type_j = neigh_types(ij);
+                    const int Z_j = atomic_numbers(type_j);
+                    // energy
+                    e_i += compute(Z_i, Z_j, r(ij));
+                    // forces
+                    const double g = compute_gradient(Z_i, Z_j, r(ij));
+                    node_forces(3*ij)   -= xyz(3*ij)   / r(ij) * g;
+                    node_forces(3*ij+1) -= xyz(3*ij+1) / r(ij) * g;
+                    node_forces(3*ij+2) -= xyz(3*ij+2) / r(ij) * g;
+                }, e_i);
+            Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+                node_energies(i) += e_i;
+            });
+        });
 }

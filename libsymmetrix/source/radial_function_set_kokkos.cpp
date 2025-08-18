@@ -162,7 +162,7 @@ void RadialFunctionSetKokkos::evaluate(
         //       provided num_functions is sufficiently large, and from what i understand
         //       this parameter is essentially ignored on cpu, making it okay there too.
         //       but it would be nice to have something smarter.
-        Kokkos::TeamPolicy<>(r.size(), 1, 32),
+        Kokkos::TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int ij = team_member.league_rank();
             // determine edge type
@@ -180,7 +180,7 @@ void RadialFunctionSetKokkos::evaluate(
             const double three_xx = 3*xx;
             // compute function values
             Kokkos::parallel_for(
-                Kokkos::ThreadVectorRange(team_member, num_functions),
+                Kokkos::TeamVectorRange(team_member, num_functions),
                 [&] (const int k) {
                     const double c0 = c(type_ij,n,0,k);
                     const double c1 = c(type_ij,n,1,k); 
