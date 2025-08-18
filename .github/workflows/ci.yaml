@@ -1,62 +1,85 @@
-name: CI-CPU
+name: CI
 
 on: [push, pull_request]
 
 jobs:
-  build-package-run-tests:
+
+  symmetrix:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
+    - name: Clone repo
       uses: actions/checkout@v4
       with:
         submodules: recursive
-    
     - name: Install dependencies
       run: |
-        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
-    
+        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev
     - name: Set up python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
-    
+        python-version: '3.12'
     - name: Create python venv
       run: |
-        python -m venv test_venv
-        source test_venv/bin/activate
-        pip install mace-torch
+        python -m venv venv
+        source venv/bin/activate
         pip install pytest
         deactivate
-        
-      
+    - name: Build symmetrix
+      run: |
+        source venv/bin/activate
+        cd symmetrix
+        cmake \
+            -B build \
+            .
+        cmake --build build -j 2
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        cd symmetrix/test
+        python -m pytest
+
+  pair_symmetrix:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
+    - name: Set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Create python venv
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install pytest
+        deactivate
     - name: Clone and build LAMMPS
       run: |
-        source test_venv/bin/activate
+        source venv/bin/activate
         git clone -b release https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
         ./install.sh ../lammps
         cd ../lammps
-        mkdir build
+        cmake \
+            -B build \
+            -D CMAKE_CXX_STANDARD=20 \
+            -D CMAKE_CXX_STANDARD_REQUIRED=ON \
+            -D SPHERICART_ENABLE_CUDA=OFF \
+            -D BUILD_SHARED_LIBS=ON \
+            -D BUILD_MPI=ON \
+            cmake
+        cmake --build build -j 2
         cd build
-        cmake ../cmake  -D CMAKE_CXX_STANDARD=20 \
-                        -D CMAKE_CXX_STANDARD_REQUIRED=ON \
-                        -D SPHERICART_ENABLE_CUDA=OFF \
-                        -D BUILD_SHARED_LIBS=on\
-                        -D CMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
-                        -D BUILD_MPI=ON \
-                        ../cmake
-        
-        cmake --build . -j 20
-
-        cmake --install .
-
         make install-python
-        
-        cd ../..
-    
+        cd ../../..
     - name: Run tests
       run: |
-        source test_venv/bin/activate
+        source venv/bin/activate
         cd pair_symmetrix/test/
         python -m pytest
