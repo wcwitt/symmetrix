@@ -61,7 +61,7 @@ if len(atomic_numbers) == 0:
     atomic_numbers = sorted(model.atomic_numbers.tolist())
     logging.warning(f"No atomic_numbers, including all: {atomic_numbers}")
 atomic_energies = [ 
-    model.atomic_energies_fn.atomic_energies.squeeze()[model.atomic_numbers.tolist().index(a)].item()
+    torch.atleast_1d(model.atomic_energies_fn.atomic_energies.squeeze())[model.atomic_numbers.tolist().index(a)].item()
         + model.scale_shift.shift.item()
     for a in atomic_numbers]
 output['atomic_numbers'] = atomic_numbers

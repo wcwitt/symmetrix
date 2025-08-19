@@ -1,0 +1,92 @@
+name: CI
+
+on: [pull_request, workflow_dispatch]
+
+jobs:
+
+  symmetrix:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev
+    - name: Set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Create python venv
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install ase numpy pytest scipy
+        deactivate
+    - name: Build symmetrix
+      run: |
+        source venv/bin/activate
+        cd symmetrix
+        cmake \
+            -B build \
+            -D SYMMETRIX_KOKKOS=ON \
+            .
+        cmake --build build -j 2
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        cd symmetrix/test
+        python -m pytest
+
+  pair_symmetrix:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
+    - name: Set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Create python venv
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install numpy pytest
+        deactivate
+    - name: Clone and build LAMMPS
+      run: |
+        source venv/bin/activate
+        git clone -b release https://github.com/lammps/lammps.git
+        cd pair_symmetrix
+        chmod +x install.sh
+        ./install.sh ../lammps
+        cd ../lammps
+        cmake \
+            -B build \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_CXX_STANDARD=20 \
+            -D CMAKE_CXX_STANDARD_REQUIRED=ON \
+            -D BUILD_SHARED_LIBS=ON \
+            -D PKG_KOKKOS=ON \
+            -D Kokkos_ENABLE_SERIAL=ON \
+            -D Kokkos_ENABLE_OPENMP=ON \
+            -D BUILD_OMP=ON \
+            -D Kokkos_ARCH_NATIVE=ON \
+            -D Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION=ON \
+            -D SYMMETRIX_KOKKOS=ON \
+            cmake
+        cmake --build build -j 2
+        cd build
+        make install-python
+        cd ../../..
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        cd pair_symmetrix/test/
+        python -m pytest
