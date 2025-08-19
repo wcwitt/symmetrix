@@ -2,7 +2,7 @@
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
-parser.add_argument("--atomic_numbers", "-Z", type=int, nargs="+", help="atomic numbers to extract", default=[])
+parser.add_argument("--atomic-numbers", "-Z", type=int, nargs="+", help="atomic numbers to extract", default=[])
 parser.add_argument("model_file", help="torch model file")
 args = parser.parse_args()
 
