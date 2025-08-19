@@ -376,7 +376,7 @@ for corr in range(1,4):
     try:
         U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
     except TypeError:
-        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
+        U_matrix = U_matrix_real(irreps_in, irreps_out, corr)[1]
     num_nu = U_matrix.shape[-1]
     U_matrix = U_matrix.flatten()
     # extract sparse U for this correlation order
