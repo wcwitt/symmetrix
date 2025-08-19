@@ -90,3 +90,37 @@ jobs:
         source venv/bin/activate
         cd pair_symmetrix/test/
         python -m pytest
+
+  utilities:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mace-torch: ["mace-torch==0.3.10", "mace-torch"]
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y build-essential
+    - name: Set up python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Create python venv
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install ${{ matrix.mace-torch }}
+        deactivate
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        cd symmetrix/utilities
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
+        python create_symmetrix_mace.py MACE-OFF23_small.model 1 8
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
+        python create_symmetrix_mace.py MACE-OFF23_medium.model 1 8
+        deactivate
