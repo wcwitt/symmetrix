@@ -42,13 +42,11 @@ def linear_simplify(linear):
 
 ### ----- BASIC MODEL INFO -----
 
-num_elements = len(args.atomic_numbers)
 num_channels = model.node_embedding.linear.irreps_out.count("0e")
 r_cut = model.r_max.item()
 l_max = model.spherical_harmonics._lmax
 L_max =  model.products[0].linear.irreps_out.lmax
 output = {}
-output['num_elements'] = num_elements
 output['num_channels'] = num_channels 
 output['r_cut'] = r_cut 
 output['l_max'] = l_max
@@ -65,6 +63,7 @@ atomic_energies = [
         + model.scale_shift.shift.item()
     for a in atomic_numbers]
 output['atomic_numbers'] = atomic_numbers
+output['num_elements'] = len(atomic_numbers)
 output['atomic_energies'] = atomic_energies
 
 ### --- ZBL ---
