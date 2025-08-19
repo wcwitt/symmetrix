@@ -1,5 +1,7 @@
 # Symmetrix
 
+[![CI](https://github.com/wcwitt/symmetrix/actions/workflows/ci.yaml/badge.svg)](https://github.com/wcwitt/symmetrix/actions/workflows/ci.yaml)
+
 `symmetrix` — a package for functions equivariant under:
 **translation**, **rotation**, **inversion**, and **exchange** of particles.
 

@@ -18,6 +18,7 @@ class MACEKokkos {
 public:
 
 MACEKokkos(std::string filename);
+~MACEKokkos();
 
 // Basic model information
 int num_elements;
