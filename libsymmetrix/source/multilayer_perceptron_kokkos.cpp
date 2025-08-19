@@ -41,6 +41,8 @@ MultilayerPerceptronKokkos::MultilayerPerceptronKokkos(
 
 MultilayerPerceptronKokkos::~MultilayerPerceptronKokkos()
 {
+    Kokkos::fence();
+
     weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     node_values = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     node_derivatives = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();

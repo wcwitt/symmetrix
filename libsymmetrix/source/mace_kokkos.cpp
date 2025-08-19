@@ -31,6 +31,8 @@ MACEKokkos::MACEKokkos(std::string filename)
 
 MACEKokkos::~MACEKokkos()
 {
+    Kokkos::fence();
+
     M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
