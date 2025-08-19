@@ -190,7 +190,10 @@ def U_sparse(irrep_out, irreps_in, corr_in_max):
     U = [[]]  # list of lists because U[0] should be empty
     for corr in range(1,corr_in_max+1):
         # get U matrix for this correlation order
-        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr, use_cueq_cg=False)[1]
+        try:
+            U_matrix = U_matrix_real(irreps_in, [irrep_out], corr, use_cueq_cg=False)[1]
+        except TypeError:
+            U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
         if irrep_out.l == 0:  # makes U_matrix.shape consistent with l>0 cases
             U_matrix = U_matrix.unsqueeze(0)
         num_eta = U_matrix.shape[-1]
@@ -370,7 +373,10 @@ irreps_out = Irreps("0e")
 U = [[]]
 for corr in range(1,4):
     # get U matrix for this correlation order
-    U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
+    try:
+        U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
+    except TypeError:
+        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
     num_nu = U_matrix.shape[-1]
     U_matrix = U_matrix.flatten()
     # extract sparse U for this correlation order
