@@ -12,9 +12,9 @@ See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 ### References
 
 The earliest `symmetrix` results were reported in:
-* Kovács et al, "MACE-OFF: Transferable Short Range Machine Learning Force Fields for Organic Molecules", [arXiv:2312.15211v3](https://arxiv.org/abs/2312.15211v3).
+* D. P. Kovács, J. H. Moore, N. J. Browning, I. Batatia, J. T. Horton, Y. Pu, V. Kapil, W. C. Witt, I.-B. Magdău, D. J. Cole, G. Csányi, ["MACE-OFF: Short-Range Transferable Machine Learning Force Fields for Organic Molecules"](https://doi.org/10.1021/jacs.4c07099), Journal of the American Chemical Society **147**, 17598 (2025). 
 
-If you use `symmetrix`, please cite this preprint.
+If you use `symmetrix`, please cite this paper.
 
 ### Licensing
 
