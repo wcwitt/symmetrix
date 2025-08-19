@@ -49,11 +49,8 @@ output['L_max'] = L_max
 ### ----- ATOMIC NUMBERS AND ENERGIES -----
 
 atomic_numbers = sorted([int(i) for i in sys.argv[2:]])
-if model.atomic_energies_fn.atomic_energies.squeeze().ndim == 0:
-    atomic_energies = [model.atomic_energies_fn.atomic_energies.squeeze().item()]
-else:
-    atomic_energies = [ 
-    model.atomic_energies_fn.atomic_energies.squeeze()[model.atomic_numbers.tolist().index(a)].item()
+atomic_energies = [
+    torch.atleast_1d(model.atomic_energies_fn.atomic_energies.squeeze())[model.atomic_numbers.tolist().index(a)].item()
         + model.scale_shift.shift.item()
     for a in atomic_numbers]
 output['atomic_numbers'] = atomic_numbers
