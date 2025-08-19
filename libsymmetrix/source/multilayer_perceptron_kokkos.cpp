@@ -39,6 +39,13 @@ MultilayerPerceptronKokkos::MultilayerPerceptronKokkos(
             Kokkos::view_alloc("node_derivatives", Kokkos::SequentialHostInit), shape.size());
 }
 
+MultilayerPerceptronKokkos::~MultilayerPerceptronKokkos()
+{
+    weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    node_values = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    node_derivatives = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+}
+
 void MultilayerPerceptronKokkos::evaluate(
     Kokkos::View<const double**,Kokkos::LayoutRight> x,
     Kokkos::View<double*,Kokkos::LayoutRight> f)

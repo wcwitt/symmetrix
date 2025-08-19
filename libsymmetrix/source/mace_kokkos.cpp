@@ -29,6 +29,19 @@ MACEKokkos::MACEKokkos(std::string filename)
     load_from_json(filename);
 }
 
+MACEKokkos::~MACEKokkos()
+{
+    M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_coeff = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+
+    A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+}
+
 void MACEKokkos::compute_node_energies_forces(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
