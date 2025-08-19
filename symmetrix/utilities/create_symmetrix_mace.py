@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("--atomic-numbers", "-Z", type=int, nargs="+", help="atomic numbers to extract", default=[])
+parser.add_argument("model_file", help="torch model file")
+args = parser.parse_args()
+
 import torch
 torch.serialization.add_safe_globals([slice])
 
@@ -9,11 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from scipy.interpolate import CubicSpline
-import sys
 import json
 from pathlib import Path
+import logging
 
-model_name = Path(sys.argv[1]).stem
+model_name = Path(args.model_file).stem
 model = torch.load(
     model_name+".model",
     map_location=torch.device('cpu'),
@@ -34,13 +42,11 @@ def linear_simplify(linear):
 
 ### ----- BASIC MODEL INFO -----
 
-num_elements = len(sys.argv) - 2
 num_channels = model.node_embedding.linear.irreps_out.count("0e")
 r_cut = model.r_max.item()
 l_max = model.spherical_harmonics._lmax
 L_max =  model.products[0].linear.irreps_out.lmax
 output = {}
-output['num_elements'] = num_elements
 output['num_channels'] = num_channels 
 output['r_cut'] = r_cut 
 output['l_max'] = l_max
@@ -48,12 +54,16 @@ output['L_max'] = L_max
 
 ### ----- ATOMIC NUMBERS AND ENERGIES -----
 
-atomic_numbers = sorted([int(i) for i in sys.argv[2:]])
-atomic_energies = [
+atomic_numbers = sorted(args.atomic_numbers)
+if len(atomic_numbers) == 0:
+    atomic_numbers = sorted(model.atomic_numbers.tolist())
+    logging.warning(f"No atomic_numbers, including all: {atomic_numbers}")
+atomic_energies = [ 
     torch.atleast_1d(model.atomic_energies_fn.atomic_energies.squeeze())[model.atomic_numbers.tolist().index(a)].item()
         + model.scale_shift.shift.item()
     for a in atomic_numbers]
 output['atomic_numbers'] = atomic_numbers
+output['num_elements'] = len(atomic_numbers)
 output['atomic_energies'] = atomic_energies
 
 ### --- ZBL ---
@@ -91,6 +101,8 @@ for a_i in atomic_numbers:
             torch.eye(len(model.atomic_numbers)),
             torch.tensor([[model_i],[model_j]], dtype=torch.int64),
             model.atomic_numbers)
+        if isinstance(bessels, tuple):
+            bessels = bessels[0]  # newer versions return (bessels, cutoffs)
         # radial basis for interaction 0
         R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
         spl_0 = [CubicSpline(r, R[:,k]) for k in range(R.shape[1])]
@@ -145,6 +157,8 @@ if A0_scaled:
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
                 model.atomic_numbers)
+            if isinstance(bessels, tuple):
+                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             R = torch.tanh(model.interactions[0].density_fn(bessels)**2).numpy(force=True)
             spl = CubicSpline(r, R[:,0])
             A0_spline_values.append(spl(r).tolist())
@@ -176,7 +190,10 @@ def U_sparse(irrep_out, irreps_in, corr_in_max):
     U = [[]]  # list of lists because U[0] should be empty
     for corr in range(1,corr_in_max+1):
         # get U matrix for this correlation order
-        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
+        try:
+            U_matrix = U_matrix_real(irreps_in, [irrep_out], corr, use_cueq_cg=False)[1]
+        except TypeError:
+            U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
         if irrep_out.l == 0:  # makes U_matrix.shape consistent with l>0 cases
             U_matrix = U_matrix.unsqueeze(0)
         num_eta = U_matrix.shape[-1]
@@ -325,6 +342,8 @@ if A1_scaled:
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
                 model.atomic_numbers)
+            if isinstance(bessels, tuple):
+                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             R = torch.tanh(model.interactions[1].density_fn(bessels)**2).numpy(force=True)
             spl = CubicSpline(r, R[:,0])
             A1_spline_values.append(spl(r).tolist())
@@ -354,7 +373,10 @@ irreps_out = Irreps("0e")
 U = [[]]
 for corr in range(1,4):
     # get U matrix for this correlation order
-    U_matrix = U_matrix_real(irreps_in, irreps_out, corr)[1]
+    try:
+        U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
+    except TypeError:
+        U_matrix = U_matrix_real(irreps_in, irreps_out, corr)[1]
     num_nu = U_matrix.shape[-1]
     U_matrix = U_matrix.flatten()
     # extract sparse U for this correlation order
