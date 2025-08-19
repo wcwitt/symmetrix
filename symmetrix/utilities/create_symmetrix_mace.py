@@ -96,11 +96,13 @@ for a_i in atomic_numbers:
             continue
         model_i = model.atomic_numbers.tolist().index(a_i)
         model_j = model.atomic_numbers.tolist().index(a_j)
-        bessels, cutoffs = model.radial_embedding(
+        bessels = model.radial_embedding(
             torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
             torch.eye(len(model.atomic_numbers)),
             torch.tensor([[model_i],[model_j]], dtype=torch.int64),
             model.atomic_numbers)
+        if isinstance(bessels, tuple):
+            bessels = bessels[0]  # newer versions return (bessels, cutoffs)
         # radial basis for interaction 0
         R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
         spl_0 = [CubicSpline(r, R[:,k]) for k in range(R.shape[1])]
@@ -150,11 +152,13 @@ if A0_scaled:
                 continue
             model_i = model.atomic_numbers.tolist().index(a_i)
             model_j = model.atomic_numbers.tolist().index(a_j)
-            bessels, cutoffs = model.radial_embedding(
+            bessels = model.radial_embedding(
                 torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
                 model.atomic_numbers)
+            if isinstance(bessels, tuple):
+                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             R = torch.tanh(model.interactions[0].density_fn(bessels)**2).numpy(force=True)
             spl = CubicSpline(r, R[:,0])
             A0_spline_values.append(spl(r).tolist())
@@ -186,7 +190,7 @@ def U_sparse(irrep_out, irreps_in, corr_in_max):
     U = [[]]  # list of lists because U[0] should be empty
     for corr in range(1,corr_in_max+1):
         # get U matrix for this correlation order
-        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr, use_cueq_cg=False)[1]
+        U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
         if irrep_out.l == 0:  # makes U_matrix.shape consistent with l>0 cases
             U_matrix = U_matrix.unsqueeze(0)
         num_eta = U_matrix.shape[-1]
@@ -205,7 +209,7 @@ def U_sparse(irrep_out, irreps_in, corr_in_max):
                     j += 1
         U.append(U_sparse_corr)
     return U
-irreps_in = [ir[1] for ir in model.products[0].symmetric_contractions.irreps_in]
+irreps_in = "+".join([str(ir[1]) for ir in model.products[0].symmetric_contractions.irreps_in])
 irreps_out = [ir[1] for ir in model.products[0].symmetric_contractions.irreps_out]
 C = {}
 M = {}
@@ -330,11 +334,13 @@ if A1_scaled:
                 continue
             model_i = model.atomic_numbers.tolist().index(a_i)
             model_j = model.atomic_numbers.tolist().index(a_j)
-            bessels, cutoffs = model.radial_embedding(
+            bessels = model.radial_embedding(
                 torch.tensor(r, dtype=torch.get_default_dtype()).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers)),
                 torch.tensor([[model_i],[model_j]], dtype=torch.int64),
                 model.atomic_numbers)
+            if isinstance(bessels, tuple):
+                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             R = torch.tanh(model.interactions[1].density_fn(bessels)**2).numpy(force=True)
             spl = CubicSpline(r, R[:,0])
             A1_spline_values.append(spl(r).tolist())
@@ -364,7 +370,7 @@ irreps_out = Irreps("0e")
 U = [[]]
 for corr in range(1,4):
     # get U matrix for this correlation order
-    U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
+    U_matrix = U_matrix_real(irreps_in, irreps_out, corr)[1]
     num_nu = U_matrix.shape[-1]
     U_matrix = U_matrix.flatten()
     # extract sparse U for this correlation order
