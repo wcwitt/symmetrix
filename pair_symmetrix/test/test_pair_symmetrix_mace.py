@@ -18,6 +18,7 @@ kokkos = False
 cmdargs = ["-screen", "none"]
 if kokkos:
     cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"]
+L = lammps(cmdargs=cmdargs)
 
 
 @pytest.mark.parametrize(
@@ -29,7 +30,6 @@ if kokkos:
 def test_h20(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
@@ -89,7 +89,6 @@ def test_h20(pair_style):
 def test_h20_zbl(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
@@ -143,7 +142,6 @@ def test_h20_zbl(pair_style):
 def test_water(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
@@ -227,7 +225,6 @@ if not os.path.exists("mace-mp-0b3-medium-hea.json"):
 def test_hea(pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
     L.commands_string("""
         clear
         units           metal
