@@ -5,7 +5,7 @@
 First, extract your model in `.json` form. You will need a Python environment with
 a compatible `mace` module installed.
 ```
-python <symmetrix-base>/symmetrix/utilities/create_symmetrix_mace.py my-mace.model 1 8
+python <symmetrix-base>/symmetrix/utilities/create_symmetrix_mace.py my-mace.model --atomic-numbers 1 8
 ```
 The result should be `my-mace-1-8.json`. This model is only suitable
 for LAMMPS simulations involving H and O.
