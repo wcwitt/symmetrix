@@ -21,9 +21,12 @@ import json
 from pathlib import Path
 import logging
 
-model_name = Path(args.model_file).stem
+if len(Path(args.model_file).suffix) == 0:
+    model_name = args.model_file
+else:
+    model_name = Path(args.model_file).stem
 model = torch.load(
-    model_name+".model",
+    args.model_file,
     map_location=torch.device('cpu'),
     weights_only=False
 ).to(torch.float64)
