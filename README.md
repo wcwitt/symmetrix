@@ -7,6 +7,10 @@
 
 -----
 
+### Python package
+
+See the `symmetrix` [README](symmetrix/README.md) to build and use the Python package.
+
 ### LAMMPS integration
 
 See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
