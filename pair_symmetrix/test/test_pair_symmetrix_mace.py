@@ -13,24 +13,32 @@ if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
     urlretrieve("https://www.dropbox.com/scl/fi/ymzotmy9nw2lp7pvv2awc/mace-mp-0b3-medium-1-8.json?rlkey=3y2y42ieo79ekjwpt8zbfjgoe&st=91o13eux&dl=1",
                 "mace-mp-0b3-medium-1-8.json")
 
-
-kokkos = False
-cmdargs = ["-screen", "none"]
-if kokkos:
-    cmdargs=["-screen", "none", "-k", "on", "-sf", "kk"]
+if not os.path.exists("mace-mp-0b3-medium-hea.json"):
+    urlretrieve("https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
+                "mace-mp-0b3-medium-hea.json")
 
 
 @pytest.mark.parametrize(
+    "cmdargs",
+    [
+        ["-screen", "none"],
+        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+    ]
+)
+@pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace",
-     "symmetrix/mace no_domain_decomposition",
-     "symmetrix/mace mpi_message_passing",
-     "symmetrix/mace no_mpi_message_passing"])
-def test_h20(pair_style):
+    [
+        "symmetrix/mace",
+        "symmetrix/mace no_domain_decomposition",
+        "symmetrix/mace mpi_message_passing",
+        "symmetrix/mace no_mpi_message_passing"
+    ]
+)
+def test_h20(cmdargs, pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
-    L.commands_string("""
+    lmp = lammps(cmdargs=cmdargs)
+    lmp.commands_string("""
         clear
         units           metal
         atom_style      atomic
@@ -52,45 +60,58 @@ def test_h20(pair_style):
     """.format(pair_style))
 
     # ----- energy -----
-    e = L.get_thermo("pe")
+    e = lmp.get_thermo("pe")
     assert e == pytest.approx(-2071.839005822318, rel=1e-4, abs=1e-6)
 
     # ----- atomic energies -----
-    L.command("compute peratom all pe/atom")
-    L.command("run 0")
-    pe_atom = L.extract_compute("peratom", 1, 1)
+    lmp.command("compute peratom all pe/atom")
+    lmp.command("run 0")
+    pe_atom = lmp.extract_compute("peratom", 1, 1)
     assert e == pytest.approx(sum([pe_atom[i] for i in range(3)]))
 
     # ----- forces -----
     h = 1e-4
-    x = L.numpy.extract_atom("x", nelem=3, dim=3)
-    f = L.numpy.extract_atom("f", nelem=3, dim=3)
+    x = lmp.numpy.extract_atom("x", nelem=3, dim=3)
+    f = lmp.numpy.extract_atom("f", nelem=3, dim=3)
     f_num = np.zeros([3,3])
     for i in range(0,3):
         for j in range(0,3):
             x[i,j] += h
-            L.command("run 0")
-            ep = L.get_thermo("pe")
+            lmp.command("run 0")
+            ep = lmp.get_thermo("pe")
             x[i,j] -= 2*h
-            L.command("run 0")
-            em = L.get_thermo("pe")
+            lmp.command("run 0")
+            em = lmp.get_thermo("pe")
             x[i,j] += h
-            L.command("run 0")
+            lmp.command("run 0")
             f_num[i,j] = -(ep-em)/(2*h)
     assert np.allclose(f, f_num, atol=1e-5)
 
+    # ----- teardown -----
+    lmp.close()
+
 
 @pytest.mark.parametrize(
+    "cmdargs",
+    [
+        ["-screen", "none"],
+        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+    ]
+)
+@pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace",
-     "symmetrix/mace no_domain_decomposition",
-     "symmetrix/mace mpi_message_passing",
-     "symmetrix/mace no_mpi_message_passing"])
-def test_h20_zbl(pair_style):
+    [
+        "symmetrix/mace",
+        "symmetrix/mace no_domain_decomposition",
+        "symmetrix/mace mpi_message_passing",
+        "symmetrix/mace no_mpi_message_passing"
+    ]
+)
+def test_h20_zbl(cmdargs, pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
-    L.commands_string("""
+    lmp = lammps(cmdargs=cmdargs)
+    lmp.commands_string("""
         clear
         units           metal
         atom_style      atomic
@@ -112,39 +133,51 @@ def test_h20_zbl(pair_style):
     """.format(pair_style))
 
     # ----- energy -----
-    e = L.get_thermo("pe")
+    e = lmp.get_thermo("pe")
     assert e == pytest.approx(-5.003106904473648, abs=1e-3)
 
     # ----- forces -----
     h = 1e-4
-    x = L.numpy.extract_atom("x", nelem=3, dim=3)
-    f = L.numpy.extract_atom("f", nelem=3, dim=3)
+    x = lmp.numpy.extract_atom("x", nelem=3, dim=3)
+    f = lmp.numpy.extract_atom("f", nelem=3, dim=3)
     f_num = np.zeros([3,3])
     for i in range(0,3):
         for j in range(0,3):
             x[i,j] += h
-            L.command("run 0")
-            ep = L.get_thermo("pe")
+            lmp.command("run 0")
+            ep = lmp.get_thermo("pe")
             x[i,j] -= 2*h
-            L.command("run 0")
-            em = L.get_thermo("pe")
+            lmp.command("run 0")
+            em = lmp.get_thermo("pe")
             x[i,j] += h
-            L.command("run 0")
+            lmp.command("run 0")
             f_num[i,j] = -(ep-em)/(2*h)
     assert np.allclose(f, f_num, rtol=1e-4, atol=1e-6)
 
+    # ----- teardown -----
+    lmp.close()
 
 @pytest.mark.parametrize(
+    "cmdargs",
+    [
+        ["-screen", "none"],
+        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+    ]
+)
+@pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace",
-     "symmetrix/mace no_domain_decomposition",
-     "symmetrix/mace mpi_message_passing",
-     "symmetrix/mace no_mpi_message_passing"])
-def test_water(pair_style):
+    [
+        "symmetrix/mace",
+        "symmetrix/mace no_domain_decomposition",
+        "symmetrix/mace mpi_message_passing",
+        "symmetrix/mace no_mpi_message_passing"
+    ]
+)
+def test_water(cmdargs, pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
-    L.commands_string("""
+    lmp = lammps(cmdargs=cmdargs)
+    lmp.commands_string("""
         clear
         units           metal
         boundary        p p p
@@ -195,40 +228,49 @@ def test_water(pair_style):
     """.format(pair_style))
 
     # ----- test energy and stress -----
-    assert L.get_thermo("pe") == pytest.approx(-16649.784441, abs=1e-6)
-    assert L.get_thermo("pxx") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pyy") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pzz") == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pxy") == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pe") == pytest.approx(-16649.784441, abs=1e-6)
+    assert lmp.get_thermo("pxx") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pyy") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pxy") == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
 
     # ----- run 10 steps, test again -----
-    L.command("run 10")
-    assert L.get_thermo("pe") == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
-    assert L.get_thermo("pxx") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pyy") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pzz") == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pxy") == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    lmp.command("run 10")
+    assert lmp.get_thermo("pe") == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
+    assert lmp.get_thermo("pxx") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pyy") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pxy") == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
 
+    # ----- teardown -----
+    lmp.close()
 
-if not os.path.exists("mace-mp-0b3-medium-hea.json"):
-    urlretrieve("https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
-                "mace-mp-0b3-medium-hea.json")
 
 @pytest.mark.parametrize(
+    "cmdargs",
+    [
+        ["-screen", "none"],
+        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+    ]
+)
+@pytest.mark.parametrize(
     "pair_style",
-    ["symmetrix/mace",
-     "symmetrix/mace no_domain_decomposition",
-     "symmetrix/mace mpi_message_passing",
-     "symmetrix/mace no_mpi_message_passing"])
-def test_hea(pair_style):
+    [
+        "symmetrix/mace",
+        "symmetrix/mace no_domain_decomposition",
+        "symmetrix/mace mpi_message_passing",
+        "symmetrix/mace no_mpi_message_passing"
+    ]
+)
+def test_hea(cmdargs, pair_style):
 
     # ----- setup -----
-    L = lammps(cmdargs=cmdargs)
-    L.commands_string("""
+    lmp = lammps(cmdargs=cmdargs)
+    lmp.commands_string("""
         clear
         units           metal
         boundary        p p p
@@ -293,20 +335,23 @@ def test_hea(pair_style):
     """.format(pair_style))
 
     # ----- test energy and stress -----
-    assert L.get_thermo("pe") == pytest.approx(-105.640759, abs=1e-3)
-    assert L.get_thermo("pxx") == pytest.approx(-85885.592975, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pyy") == pytest.approx(-75802.712836, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pzz") == pytest.approx(-93772.295673, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pe") == pytest.approx(-105.640759, abs=1e-3)
+    assert lmp.get_thermo("pxx") == pytest.approx(-85885.592975, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyy") == pytest.approx(-75802.712836, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pzz") == pytest.approx(-93772.295673, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
 
     # ----- run 10 steps, test again -----
-    L.command("run 10")
-    assert L.get_thermo("pe") == pytest.approx(-105.642334, abs=1e-3)  # note lower tolerance
-    assert L.get_thermo("pxx")  == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pyy")  == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pzz")  == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pxy")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pxz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert L.get_thermo("pyz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    lmp.command("run 10")
+    assert lmp.get_thermo("pe") == pytest.approx(-105.642334, abs=1e-3)  # note lower tolerance
+    assert lmp.get_thermo("pxx")  == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyy")  == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pzz")  == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxy")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+
+    # ----- teardown -----
+    lmp.close()
