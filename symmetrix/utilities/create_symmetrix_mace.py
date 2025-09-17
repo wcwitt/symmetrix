@@ -3,6 +3,8 @@
 from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument("--atomic-numbers", "-Z", type=int, nargs="+", help="atomic numbers to extract", default=[])
+parser.add_argument("--head", "-H", help="Head to keep, ignored unless model is multihead. "
+                                         "Defaults to first non-PT head, same as mace.tools.script_utils.remove_pt_head")
 parser.add_argument("model_file", help="torch model file")
 args = parser.parse_args()
 
@@ -30,6 +32,12 @@ model = torch.load(
     map_location=torch.device('cpu'),
     weights_only=False
 ).to(torch.float64)
+
+from mace.tools.scripts_utils import remove_pt_head
+
+if hasattr(model, 'heads') and len(model.heads) != 1:
+    torch.set_default_dtype(next(model.parameters()).dtype)
+    model = remove_pt_head(model, args.head)
 
 # global setting
 num_spl_points = 200
