@@ -35,7 +35,7 @@ model = torch.load(
 
 from mace.tools.scripts_utils import remove_pt_head
 
-if len(model.heads) != 1:
+if hasattr(model, 'heads') and len(model.heads) != 1:
     torch.set_default_dtype(next(model.parameters()).dtype)
     model = remove_pt_head(model, args.head)
 
