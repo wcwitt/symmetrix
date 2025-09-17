@@ -42,6 +42,30 @@ if hasattr(model, 'heads') and len(model.heads) != 1:
 # global setting
 num_spl_points = 200
 
+### ----- CHECK FOR COMPATIBILITY -----
+
+if len(model.interactions) != 2:
+    raise RuntimeError("Currently, symmetrix only supports two-layer MACE models.")
+
+from mace.modules.blocks import RealAgnosticInteractionBlock, RealAgnosticDensityInteractionBlock
+if (not isinstance(model.interactions[0], RealAgnosticInteractionBlock)
+    and
+    not isinstance(model.interactions[0], RealAgnosticDensityInteractionBlock)):
+    raise RuntimeError(
+        "Currently, symmetrix only supports MACE models whose first interaction is "
+        "RealAgnosticInteractionBlock or RealAgnosticDensityInteractionBlock.")
+
+from mace.modules.blocks import RealAgnosticResidualInteractionBlock, RealAgnosticDensityResidualInteractionBlock
+if (not isinstance(model.interactions[1], RealAgnosticResidualInteractionBlock)
+    and
+    not isinstance(model.interactions[1], RealAgnosticDensityResidualInteractionBlock)):
+    raise RuntimeError(
+        "Currently, symmetrix only supports MACE models whose second interaction is "
+        "RealAgnosticResidualInteractionBlock or RealAgnosticDensityResidualInteractionBlock.")
+
+if (model.spherical_harmonics._lmax != 3):
+    raise RuntimeError("Currently, symmetrix only supports MACE models with l_max=3.")
+
 ### ----- HELPER FUNCTION -----
 
 def linear_simplify(linear):
