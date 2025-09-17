@@ -43,13 +43,13 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   double init_one(int, int) override;
   void init_style() override;
   int pack_forward_comm(int, int *, double *, int, int *) override;
-  int pack_forward_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_xfloat_1d&, int, int*) override;
+  int pack_forward_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_double_1d&, int, int*) override;
   void unpack_forward_comm(int, int, double *) override;
-  void unpack_forward_comm_kokkos(int, int, DAT::tdual_xfloat_1d&) override;
+  void unpack_forward_comm_kokkos(int, int, DAT::tdual_double_1d&) override;
   int pack_reverse_comm(int, int, double *) override;
-  int pack_reverse_comm_kokkos(int, int, DAT::tdual_xfloat_1d&) override;
+  int pack_reverse_comm_kokkos(int, int, DAT::tdual_double_1d&) override;
   void unpack_reverse_comm(int, int *, double *) override;
-  void unpack_reverse_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_xfloat_1d&) override;
+  void unpack_reverse_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_double_1d&) override;
   void compute_no_domain_decomposition(int, int);
   void compute_mpi_message_passing(int, int);
   void compute_no_mpi_message_passing(int, int);
@@ -85,7 +85,7 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   virtual void allocate();
 
  private:
-  DAT::tdual_efloat_1d k_eatom;
+  DAT::ttransform_kkacc_1d k_eatom;
 
 };
 }    // namespace LAMMPS_NS

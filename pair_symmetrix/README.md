@@ -1,5 +1,8 @@
 # Using `pair_symmetrix`
 
+> [!WARNING]
+> Symmetrix now requires the [10 September 2025](https://github.com/lammps/lammps/releases/tag/patch_10Sep2025) LAMMPS release, or newer.
+
 ### Generating a model
 
 First, extract your model in `.json` form. You will need a Python environment with

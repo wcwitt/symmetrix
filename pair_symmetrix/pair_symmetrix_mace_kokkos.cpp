@@ -238,7 +238,7 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm(int n, int *list, dou
 
 template<class DeviceType>
 int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm_kokkos(
-    int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_xfloat_1d &buf, int /*pbc_flag*/, int * /*pbc*/)
+    int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_double_1d &buf, int /*pbc_flag*/, int * /*pbc*/)
 {
   const auto d_sendlist = k_sendlist.view<DeviceType>();
   auto d_buf = buf.view<DeviceType>();
@@ -275,7 +275,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm(int n, int first, 
 /* ---------------------------------------------------------------------- */
 
 template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm_kokkos(int n, int first, DAT::tdual_xfloat_1d &buf)
+void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm_kokkos(int n, int first, DAT::tdual_double_1d &buf)
 {
   auto H1 = this->H1;
   const auto num_channels = mace->num_channels;
@@ -312,7 +312,7 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm(int n, int first, dou
 /* ---------------------------------------------------------------------- */
 template<class DeviceType>
 int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm_kokkos(
-    int n, int first, DAT::tdual_xfloat_1d &buf)
+    int n, int first, DAT::tdual_double_1d &buf)
 {
   auto d_buf = buf.view<DeviceType>();
   const auto H1_adj = this->H1_adj;
@@ -349,7 +349,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm(int n, int *list, 
 
 template<class DeviceType>
 void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm_kokkos(
-    int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_xfloat_1d &buf)
+    int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_double_1d& buf)
 {
   const auto d_sendlist = k_sendlist.view<DeviceType>();
   const auto d_buf = buf.view<DeviceType>();
