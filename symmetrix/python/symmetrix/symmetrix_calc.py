@@ -4,17 +4,21 @@ network library
 This file was written and publicly released by Dr. Noam Bernstein as part of his
 work for the U. S. Government, and is not subject to copyright.
 """
+import json
+import logging
+from tempfile import NamedTemporaryFile
 import numpy as np
 
 try:
     from matscipy.neighbours import neighbour_list as neighbor_list
 except:
+    logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
     from ase.neighborlist import neighbor_list
 
 from ase.calculators.calculator import Calculator, PropertyNotImplementedError, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
-from symmetrix import MACE
+from .symmetrix import MACE
 
 class Symmetrix(Calculator):
     """ASE Calculator using symmetrix library to evaluate equivariant graph neural network 
@@ -34,7 +38,16 @@ class Symmetrix(Calculator):
 
     def __init__(self, model_file, **kwargs):
         Calculator.__init__(self, **kwargs)
-        self.evaluator = MACE(model_file)
+        try:
+            self.evaluator = MACE(model_file)
+        except RuntimeError: # expecting json.exception.parse_error.101
+            # import this here so that torch/mace support isn't needed if file is already symmetrix json
+            from .convert_mace import extract_model_data
+            data = extract_model_data(model_file, atomic_numbers=kwargs.get('atomic_numbers'), head=kwargs.get('head'))
+            with NamedTemporaryFile("w") as fout:
+                logging.warning(f"Converting via NamedTemporaryFile {fout.name}")
+                fout.write(json.dumps(data))
+                self.evaluator = MACE(fout.name)
 
         self.cutoff = self.evaluator.r_cut
 
