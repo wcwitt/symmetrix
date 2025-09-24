@@ -43,14 +43,12 @@ class Symmetrix(Calculator):
         except RuntimeError: # expecting json.exception.parse_error.101
             # import this here so that torch/mace support isn't needed if file is already symmetrix json
             from .convert_mace import extract_model_data
-            logging.warning("Converting model from pytorch model to symmetrix dict with "
-                    f"atomic_numbers={kwargs.get('atomic_numbers')} "
-                    f"head={kwargs.get('head')} "
-                    f"num_spline_points={kwargs.get('num_spline_points')}")
-            data = extract_model_data(model_file,
-                    atomic_numbers=kwargs.get('atomic_numbers'),
-                    head=kwargs.get('head'),
-                    num_spline_points=kwargs.get('num_spline_points'))
+            kwargs_extract = {k: v for k, v in kwargs.items()
+                if k in ['atomic_numbers',
+                         'head',
+                         'num_spline_points']}
+            logging.warning(f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}")
+            data = extract_model_data(model_file, **kwargs_extract)
             with NamedTemporaryFile("w") as fout:
                 logging.warning(f"Converting via NamedTemporaryFile {fout.name}")
                 fout.write(json.dumps(data))
