@@ -1,27 +1,48 @@
 # This file was written and publicly released by Dr. Noam Bernstein as part of his
 # work for the U. S. Government, and is not subject to copyright.
 
-import sys
-from pathlib import Path
+import pytest
+
 import time
+from pathlib import Path
 
 import numpy as np
 
 from ase.atoms import Atoms
 from ase.stress import full_3x3_to_voigt_6_stress
 
-import os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../build/'))
-sys.path.append(Path(__file__).parent)
-from symmetrix_calc import Symmetrix
+try:
+    from symmetrix import Symmetrix
+except ModuleNotFoundError as exc:
+    if "No module named 'symmetrix.symmetrix'" in str(exc):
+        raise RuntimeError("Can't import symmetrix.symmetrix, probably need to run pytest in venv "
+                "and install version to be tested with "
+                "'(cd /path/to/repo && python3 -m pip install -e .)'") from exc
+    else:
+        raise
 
-def test_calc_caching():
+try:
+    from mace.calculators import MACECalculator
+except ImportError:
+    MACECalculator = None
+
+
+@pytest.fixture(scope="module")
+def mace_foundation_model():
+    return Path.home() / ".cache" / "mace" / "maceomat0smallmodel"
+
+@pytest.fixture
+def symmetrix_model():
+    return Path(__file__).parent / "assets" / "maceomat0smallmodel-1-8.json"
+
+
+def test_calc_caching(symmetrix_model):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 4
     rng = np.random.default_rng(5)
     atoms.rattle(rng=rng)
 
-    calc = Symmetrix("mace-mp-0b3-medium-1-8.json")
+    calc = Symmetrix(symmetrix_model)
     atoms.calc = calc
 
     t0 = time.time()
@@ -45,7 +66,7 @@ def test_calc_caching():
     assert np.abs(dt_F_pert - dt_E) / dt_E < 0.5
 
 
-def test_mace_calc_finite_diff():
+def test_mace_calc_finite_diff(symmetrix_model, mace_foundation_model):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -61,15 +82,39 @@ def test_mace_calc_finite_diff():
     do_grad_test(atoms, calc, False)
 
     print("")
-    print("MACE")
-    from mace.calculators import MACECalculator
-    calc = MACECalculator(model_paths="mace-mp-0b3-medium.model", device="cuda", default_dtype="float64")
+    print("MACECalculator")
+    calc = MACECalculator(mace_foundation_model)
     do_grad_test(atoms, calc, False)
 
     print("")
     print("Symmetrix")
-    calc = Symmetrix("mace-mp-0b3-medium-1-8.json")
+    calc = Symmetrix(symmetrix_model)
     do_grad_test(atoms, calc, True)
+
+
+@pytest.mark.skipif(MACECalculator is None, reason="No MACECalculator available")
+def test_symmetrix_vs_pytorch(mace_foundation_model):
+    atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
+    atoms *= 2
+    rng = np.random.default_rng(5)
+    atoms.rattle(rng=rng)
+
+    F = np.eye(3) + 0.01 * rng.normal(size=(3,3))
+    atoms.set_cell(atoms.cell @ F, True)
+
+    atoms_s = atoms.copy()
+    atoms_p = atoms.copy()
+
+    calc_sym = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
+    atoms_s.calc = calc_sym
+
+    calc_torch = MACECalculator(mace_foundation_model)
+    atoms_p.calc = calc_torch
+
+    # are these in fact reasonable accuracies?
+    assert np.allclose(atoms_s.get_potential_energy(), atoms_p.get_potential_energy(), atol=0.001)
+    assert np.allclose(atoms_s.get_forces(), atoms_p.get_forces(), atol=0.002)
+    assert np.allclose(atoms_s.get_stress(), atoms_p.get_stress(), atol=0.003)
 
 
 def do_grad_test(atoms, calc, check):
@@ -84,6 +129,7 @@ def do_grad_test(atoms, calc, check):
     c0 = atoms.cell.copy()
     V0 = atoms.get_volume()
 
+    passed_f = True
     for dx_i in np.arange(1.0, 4.1, 0.5):
         dx = 0.1 ** dx_i
 
@@ -105,9 +151,10 @@ def do_grad_test(atoms, calc, check):
         print(f"F {dx:6f} {F_err:10.6e} {F_err / F0_norm:10.6e}")
 
         # force error only shows expected 2nd order scaling for dx = 0.1 ** 1, 0.1 ** 1.5
-        if check and dx_i < 2:
-                assert F_err / F0_norm < 3 * dx ** 2
+        if dx_i < 2:
+            passed_f = passed_f and (F_err / F0_norm < 3 * dx ** 2)
 
+    passed_s = True
     for dx_i in np.arange(1.0, 4.1, 0.5):
         dx = 0.1 ** dx_i
 
@@ -138,5 +185,8 @@ def do_grad_test(atoms, calc, check):
         S_err = np.linalg.norm(S0 - full_3x3_to_voigt_6_stress(S_fd))
         print(f"S {dx:6f} {S_err:10.6e} {S_err / S0_norm:10.6e}")
 
-        if check and dx_i < 3:
-            assert S_err / S0_norm < 20 * dx ** 2
+        if dx_i < 3:
+            passed_s = passed_s and (S_err / S0_norm < 20 * dx ** 2)
+
+    if check:
+        assert passed_f and passed_s
