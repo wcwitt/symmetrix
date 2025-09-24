@@ -75,20 +75,57 @@ def test_mace_calc_finite_diff(symmetrix_model, mace_foundation_model):
     F = np.eye(3) + 0.01 * rng.normal(size=(3,3))
     atoms.set_cell(atoms.cell @ F, True)
 
+    # plot scaling of error
+    """
+    from matplotlib.figure import Figure
+    fig = Figure()
+    ax = fig.add_subplot()
+
     print("")
     print("EMT")
     from ase.calculators.emt import EMT
     calc = EMT()
-    do_grad_test(atoms, calc, False)
+    do_grad_test(atoms, calc, False, ax=ax, label="EMT")
 
     print("")
     print("MACECalculator")
     calc = MACECalculator(mace_foundation_model)
-    do_grad_test(atoms, calc, False)
+    do_grad_test(atoms, calc, False, ax=ax, label="MACECaculator")
 
     print("")
-    print("Symmetrix")
-    calc = Symmetrix(symmetrix_model)
+    print("Symmetrix 200")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=200)
+    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 200")
+
+    print("")
+    print("Symmetrix 1000")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=1000)
+    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 1000")
+
+    print("")
+    print("Symmetrix 3000")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=3000)
+    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 3000")
+
+    print("")
+    print("Symmetrix 10000")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=10000)
+    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 10000")
+
+    # plot
+    ax.set_xlabel("dx")
+    ax.set_ylabel("force err")
+    ax.legend()
+
+    x_max = ax.get_xlim()[1]
+    y_max = ax.get_ylim()[1]
+    ax.loglog(ax.get_xlim(), y_max / x_max ** 2 * np.asarray(ax.get_xlim()) ** 2, "--", label="$1/dx^2$")
+    fig.savefig("finite_diff_scaling.pdf", bbox_inches="tight")
+    """
+
+    print("")
+    print("Symmetrix default")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
     do_grad_test(atoms, calc, True)
 
 
@@ -117,7 +154,7 @@ def test_symmetrix_vs_pytorch(mace_foundation_model):
     assert np.allclose(atoms_s.get_stress(), atoms_p.get_stress(), atol=0.003)
 
 
-def do_grad_test(atoms, calc, check):
+def do_grad_test(atoms, calc, check, ax=None, label=None):
     atoms = atoms.copy()
     atoms.calc = calc
 
@@ -129,8 +166,9 @@ def do_grad_test(atoms, calc, check):
     c0 = atoms.cell.copy()
     V0 = atoms.get_volume()
 
+    f_data = []
     passed_f = True
-    for dx_i in np.arange(1.0, 4.1, 0.5):
+    for dx_i in np.arange(1.0, 5.1, 0.5):
         dx = 0.1 ** dx_i
 
         #### forces ####
@@ -148,14 +186,20 @@ def do_grad_test(atoms, calc, check):
                 E_m = atoms.get_potential_energy()
                 F_fd[i_a, j_a] = -(E_p - E_m) / (2 * dx)
         F_err = np.linalg.norm(F0 - F_fd)
-        print(f"F {dx:6f} {F_err:10.6e} {F_err / F0_norm:10.6e}")
+        print(f"F {dx:6f} {F0_norm:10.6e} {F_err:10.6e} {F_err / F0_norm:10.6e}")
+
+        f_data.append([dx, F_err])
 
         # force error only shows expected 2nd order scaling for dx = 0.1 ** 1, 0.1 ** 1.5
         if dx_i < 2:
             passed_f = passed_f and (F_err / F0_norm < 3 * dx ** 2)
 
+    if ax is not None:
+        f_data = np.asarray(f_data)
+        ax.loglog(f_data[:, 0], f_data[:, 1], "-", label=label)
+
     passed_s = True
-    for dx_i in np.arange(1.0, 4.1, 0.5):
+    for dx_i in np.arange(1.0, 5.1, 0.5):
         dx = 0.1 ** dx_i
 
         #### stress ####
@@ -183,7 +227,7 @@ def do_grad_test(atoms, calc, check):
                 S_fd[i0, i1] = (E_p - E_m) / (2 * dx) / V0
 
         S_err = np.linalg.norm(S0 - full_3x3_to_voigt_6_stress(S_fd))
-        print(f"S {dx:6f} {S_err:10.6e} {S_err / S0_norm:10.6e}")
+        print(f"S {dx:6f} {S0_norm:10.6e} {S_err:10.6e} {S_err / S0_norm:10.6e}")
 
         if dx_i < 3:
             passed_s = passed_s and (S_err / S0_norm < 20 * dx ** 2)

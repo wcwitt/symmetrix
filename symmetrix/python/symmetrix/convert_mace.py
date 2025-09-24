@@ -12,12 +12,17 @@ import os
 from scipy.interpolate import CubicSpline
 import logging
 
-def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=200):
+def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=None):
     model = torch.load(
         model_file,
         map_location=torch.device('cpu'),
         weights_only=False
     ).to(torch.float64)
+
+    if atomic_numbers is None:
+        atomic_numbers = []
+    if num_spline_points is None:
+        num_spline_points = 200
 
     ### ----- EXTRACT SINGLE HEAD -----
 
