@@ -24,6 +24,9 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
     if num_spline_points is None:
         num_spline_points = 200
 
+    # ensure that splines goes smoothly to 0 at outer cutoff
+    spline_bc_type = ("not-a-knot", "clamped")
+
     ### ----- EXTRACT SINGLE HEAD -----
 
     if hasattr(model, 'heads') and len(model.heads) != 1:
@@ -108,7 +111,7 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
 
     logging.info("R0+R1")
     # TODO: what to do about the 0.5 Ang buffer?
-    r,h = np.linspace(1e-12, r_cut+0.5, num_spline_points, retstep=True)
+    r,h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
     spline_values_0 = []
     spline_derivatives_0 = []
     spline_values_1 = []
@@ -128,14 +131,15 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
                 bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             # radial basis for interaction 0
             R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
-            spl_0 = [CubicSpline(r, R[:,k]) for k in range(R.shape[1])]
+            spl_0 = [CubicSpline(r, R[:,k], bc_type=spline_bc_type) for k in range(R.shape[1])]
             spline_values_0.append([spl(r).tolist() for spl in spl_0])
             spline_derivatives_0.append([spl.derivative()(r).tolist() for spl in spl_0])
             # radial basis for interaction 1
             R = model.interactions[1].conv_tp_weights(bessels).numpy(force=True)
-            spl_1 = [CubicSpline(r, R[:,k]) for k in range(R.shape[1])]
+            spl_1 = [CubicSpline(r, R[:,k], bc_type=spline_bc_type) for k in range(R.shape[1])]
             spline_values_1.append([spl(r).tolist() for spl in spl_1])
             spline_derivatives_1.append([spl.derivative()(r).tolist() for spl in spl_1])
+
     output['radial_spline_h'] = float(h)
     output['radial_spline_values_0'] = spline_values_0
     output['radial_spline_derivs_0'] = spline_derivatives_0
@@ -166,7 +170,7 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
     A0_scaled = True if ("Density" in type(model.interactions[0]).__name__) else False
     output['A0_scaled'] = A0_scaled
     if A0_scaled:
-        r,h = np.linspace(1e-12, r_cut+0.5, num_spline_points, retstep=True)
+        r,h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
         A0_spline_values = []
         A0_spline_derivs = []
         for a_i in atomic_numbers:
@@ -183,7 +187,7 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
                 if isinstance(bessels, tuple):
                     bessels = bessels[0]  # newer versions return (bessels, cutoffs)
                 R = torch.tanh(model.interactions[0].density_fn(bessels)**2).numpy(force=True)
-                spl = CubicSpline(r, R[:,0])
+                spl = CubicSpline(r, R[:,0], bc_type=spline_bc_type)
                 A0_spline_values.append(spl(r).tolist())
                 A0_spline_derivs.append(spl.derivative()(r).tolist())
         output['A0_spline_h'] = float(h)
@@ -351,7 +355,7 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
     A1_scaled = True if ("Density" in type(model.interactions[1]).__name__) else False
     output['A1_scaled'] = A1_scaled
     if A1_scaled:
-        r,h = np.linspace(1e-12, r_cut+0.5, num_spline_points, retstep=True)
+        r,h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
         A1_spline_values = []
         A1_spline_derivs = []
         for a_i in atomic_numbers:
@@ -368,7 +372,7 @@ def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=
                 if isinstance(bessels, tuple):
                     bessels = bessels[0]  # newer versions return (bessels, cutoffs)
                 R = torch.tanh(model.interactions[1].density_fn(bessels)**2).numpy(force=True)
-                spl = CubicSpline(r, R[:,0])
+                spl = CubicSpline(r, R[:,0], bc_type=spline_bc_type)
                 A1_spline_values.append(spl(r).tolist())
                 A1_spline_derivs.append(spl.derivative()(r).tolist())
         output['A1_spline_h'] = float(h)

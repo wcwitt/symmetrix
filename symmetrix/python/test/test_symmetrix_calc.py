@@ -75,56 +75,43 @@ def test_mace_calc_finite_diff(symmetrix_model, mace_foundation_model):
     F = np.eye(3) + 0.01 * rng.normal(size=(3,3))
     atoms.set_cell(atoms.cell @ F, True)
 
-    # plot scaling of error
-    """
-    from matplotlib.figure import Figure
-    fig = Figure()
-    ax = fig.add_subplot()
+    if False:
+        # plot scaling of error
+        from matplotlib.figure import Figure
+        fig = Figure()
+        ax = fig.add_subplot()
 
-    print("")
-    print("EMT")
-    from ase.calculators.emt import EMT
-    calc = EMT()
-    do_grad_test(atoms, calc, False, ax=ax, label="EMT")
+        print("")
+        print("EMT")
+        from ase.calculators.emt import EMT
+        calc = EMT()
+        do_grad_test(atoms, calc, False, ax=ax, label="EMT")
 
-    print("")
-    print("MACECalculator")
-    calc = MACECalculator(mace_foundation_model)
-    do_grad_test(atoms, calc, False, ax=ax, label="MACECaculator")
+        print("")
+        print("MACECalculator")
+        calc = MACECalculator(mace_foundation_model)
+        do_grad_test(atoms, calc, False, ax=ax, label="MACECaculator")
 
-    print("")
-    print("Symmetrix 200")
-    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=200)
-    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 200")
+        print("")
+        print("Symmetrix converted 200")
+        calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
+        do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 200")
 
-    print("")
-    print("Symmetrix 1000")
-    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=1000)
-    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 1000")
+        ax.set_xlabel("dx")
+        ax.set_ylabel("force err")
+        ax.legend()
 
-    print("")
-    print("Symmetrix 3000")
-    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=3000)
-    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 3000")
+        x_max = ax.get_xlim()[1]
+        y_max = ax.get_ylim()[1]
+        ax.loglog(ax.get_xlim(), y_max / x_max ** 2 * np.asarray(ax.get_xlim()) ** 2, "--", label="$1/dx^2$")
+        fig.savefig("finite_difF_scaling.png", bbox_inches="tight", dpi=600)
 
-    print("")
-    print("Symmetrix 10000")
-    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8], num_spline_points=10000)
-    do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 10000")
+    print("pre-converted")
+    calc = Symmetrix(symmetrix_model)
+    do_grad_test(atoms, calc, True)
 
-    ax.set_xlabel("dx")
-    ax.set_ylabel("force err")
-    ax.legend()
-
-    x_max = ax.get_xlim()[1]
-    y_max = ax.get_ylim()[1]
-    ax.loglog(ax.get_xlim(), y_max / x_max ** 2 * np.asarray(ax.get_xlim()) ** 2, "--", label="$1/dx^2$")
-    fig.savefig("finite_diff_scaling.png", bbox_inches="tight", dpi=600)
-    """
-
-    print("")
-    print("Symmetrix default")
-    calc = Symmetrix(symmetrix_model, atomic_numbers=[1, 8])
+    print("converted on-the-fly")
+    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
     do_grad_test(atoms, calc, True)
 
 
@@ -167,6 +154,7 @@ def do_grad_test(atoms, calc, check, ax=None, label=None, plot_factor=1.0):
 
     f_data = []
     passed_f = True
+    F_scaling = None
     for dx_exp in np.arange(1.0, 5.1, 0.5):
         dx = 0.1 ** dx_exp
 
@@ -190,14 +178,19 @@ def do_grad_test(atoms, calc, check, ax=None, label=None, plot_factor=1.0):
         f_data.append([dx, F_err])
 
         # force error only shows expected 2nd order scaling for dx = 0.1 ** 1, 0.1 ** 1.5
-        if dx_exp >= 1.0 and dx_exp <= 1.5:
-            passed_f = passed_f and (F_err / F0_norm < 7 * dx ** 2)
+        if F_scaling is None and dx_exp >= 1.99:
+            # F_err / F0_norm < F_scaling * dx ** 2
+            F_scaling = 2.5 * F_err / F0_norm / (dx ** 2)
+        if F_scaling is not None and dx_exp < 4.01:
+            print("test forces", dx_exp, dx, F_err / F0_norm, "<?", F_scaling * dx ** 2)
+            passed_f = passed_f and (F_err / F0_norm < F_scaling * dx ** 2)
 
     if ax is not None:
         f_data = np.asarray(f_data)
         ax.loglog(f_data[:, 0], f_data[:, 1] * plot_factor, "-", label=label)
 
     passed_s = True
+    S_scaling = None
     for dx_exp in np.arange(1.0, 5.1, 0.5):
         dx = 0.1 ** dx_exp
 
@@ -228,8 +221,12 @@ def do_grad_test(atoms, calc, check, ax=None, label=None, plot_factor=1.0):
         S_err = np.linalg.norm(S0 - full_3x3_to_voigt_6_stress(S_fd))
         print(f"S {dx:6f} {S0_norm:10.6e} {S_err:10.6e} {S_err / S0_norm:10.6e} {S_err / S0_norm / dx ** 2:10.6e}")
 
-        if dx_exp >= 1.5 and dx_exp <= 2.0:
-            passed_s = passed_s and (S_err / S0_norm < 350 * dx ** 2)
+        if S_scaling is None and dx_exp >= 1.99:
+            # S_err / S0_norm < S_scaling * dx ** 2
+            S_scaling = 1.5 * S_err / S0_norm / (dx ** 2)
+        if S_scaling is not None and dx_exp < 4.01:
+            print("test stress", dx_exp, dx, S_err / S0_norm, "<?", S_scaling * dx ** 2)
+            passed_f = passed_f and (S_err / S0_norm < S_scaling * dx ** 2)
 
     if check:
         assert passed_f and passed_s
