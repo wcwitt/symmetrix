@@ -1,0 +1,31 @@
+[build-system]
+requires = [
+    "scikit_build_core",
+    "pybind11",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "symmetrix"
+version = "0.0.1"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26.4",
+    "scipy>=1.12.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=6.0"]
+
+[tool.scikit-build]
+cmake.define.CMAKE_CXX_STANDARD = "20"
+cmake.define.BUILD_MPI = "ON"
+cmake.define.BUILD_OMP = "ON"
+cmake.define.BUILD_SHARED_LIBS = "ON"
+#cmake.define.PKG_KOKKOS = "ON"
+#cmake.define.Kokkos_ENABLE_SERIAL = "ON"
+#cmake.define.Kokkos_ENABLE_CUDA = "ON"
+#cmake.define.Kokkos_ARCH_AMPERE80 = "ON"
+#cmake.define.SYMMETRIX_KOKKOS = "ON"
+cmake.define.SYMMETRIX_SPHERICART_CUDA = "ON"
+
