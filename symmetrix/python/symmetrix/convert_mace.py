@@ -1,28 +1,62 @@
 import torch
 torch.serialization.add_safe_globals([slice])
 
-from e3nn.o3 import Irrep, Irreps, Linear, wigner_3j
+import os
+import logging
 import itertools
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import CubicSpline
+
+from e3nn.o3 import Irrep, Irreps, Linear, wigner_3j
 from mace.modules.radial import ZBLBasis
 from mace.tools.cg import U_matrix_real
 from mace.tools.scripts_utils import remove_pt_head
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-from scipy.interpolate import CubicSpline
-import logging
 
-def extract_model_data(model_file, atomic_numbers, head=None, num_spline_points=None):
+from ase.data import chemical_symbols
+
+def extract_model_data(model_file, species, head=None, num_spline_points=None):
+    """Extract data from pytorch model file into structure that can be
+    written as symmetrix JSON data file
+
+    Parameters
+    ----------
+    model_file: str / Path
+        path to pytorch model file
+    species: list(int / str)
+        list of atomic numbers or chemical symbols to extract
+    head: str, default None
+        head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
+    num_spline_points: int, default 200
+        number of spline points to approximate various functions
+
+    Returns
+    -------
+    output_data: dict with symmetrix model data
+    """
     model = torch.load(
         model_file,
         map_location=torch.device('cpu'),
         weights_only=False
     ).to(torch.float64)
 
-    if atomic_numbers is None:
-        atomic_numbers = []
+    if species is None:
+        species = []
     if num_spline_points is None:
         num_spline_points = 200
+
+    # extract atomic numbers
+    atomic_numbers = []
+    for sp in species:
+        try:
+            Z = int(sp)
+        except ValueError:
+            try:
+                Z = chemical_symbols.index(sp)
+            except ValueError as exc:
+                raise ValueError("Failed to parse {sp} as atomic number or chemical species") from exc
+        atomic_numbers.append(Z)
 
     # ensure that splines goes smoothly to 0 at outer cutoff
     spline_bc_type = ("not-a-knot", "clamped")

@@ -44,7 +44,7 @@ class Symmetrix(Calculator):
             # import this here so that torch/mace support isn't needed if file is already symmetrix json
             from .convert_mace import extract_model_data
             kwargs_extract = {k: v for k, v in kwargs.items()
-                if k in ['atomic_numbers',
+                if k in ['species',
                          'head',
                          'num_spline_points']}
             logging.warning(f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}")
