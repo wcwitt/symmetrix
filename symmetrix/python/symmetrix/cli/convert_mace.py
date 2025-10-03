@@ -10,7 +10,7 @@ def main():
     parser.add_argument("--head", "-H", help="Head to keep, ignored unless model is multihead. "
                                              "Defaults to first non-PT head, same as mace.tools.script_utils.remove_pt_head")
     parser.add_argument("--output_file", "-o", help="output filename")
-    parser.add_argument("model_file", help="torch model file")
+    parser.add_argument("--model_file", "-m", help="torch model file")
     args = parser.parse_args()
 
     import json
