@@ -1,0 +1,15 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11", "cmake>=3.27"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+cmake.minimum-version = "3.27"
+wheel.exclude = ["lib/", "include/"]
+
+[project]
+name = "symmetrix"
+version = "0.0.1"
+description = "Python wrappers for symmetrix MLIP library"
+
+[project.scripts]
+symmetrix_convert_mace = "symmetrix.cli.convert_mace:main"

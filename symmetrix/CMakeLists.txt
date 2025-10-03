@@ -41,3 +41,5 @@ if(SYMMETRIX_KOKKOS)
     target_compile_definitions(symmetrix_bindings PRIVATE SYMMETRIX_KOKKOS)
     target_link_libraries(symmetrix_bindings PRIVATE Kokkos::kokkos)
 endif()
+
+install(TARGETS symmetrix_bindings DESTINATION symmetrix)
