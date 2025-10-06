@@ -9,7 +9,7 @@ wheel.exclude = ["lib/", "include/"]
 [project]
 name = "symmetrix"
 version = "0.0.1"
-description = "Python wrappers for symmetrix MLIP library"
+description = "Symmetrix — a package for functions equivariant under: translation, rotation, inversion, and exchange of particles."
 
 [project.scripts]
 symmetrix_convert_mace = "symmetrix.cli.convert_mace:main"
