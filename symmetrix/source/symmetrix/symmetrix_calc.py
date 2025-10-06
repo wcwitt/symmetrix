@@ -42,7 +42,7 @@ class Symmetrix(Calculator):
             self.evaluator = MACE(str(model_file))
         except RuntimeError: # expecting json.exception.parse_error.101
             # import this here so that torch/mace support isn't needed if file is already symmetrix json
-            from .convert_mace import extract_model_data
+            from .extract_mace_data import extract_mace_data
             kwargs_extract = {k: v for k, v in kwargs.items()
                 if k in ['species',
                          'head',

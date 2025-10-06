@@ -6,7 +6,6 @@ import pytest
 import sys
 from urllib.request import urlretrieve
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../build/'))
 import symmetrix
 
 if not os.path.exists("MACE-OFF23_small-1-8.json"):

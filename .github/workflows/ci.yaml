@@ -145,15 +145,17 @@ jobs:
         source venv/bin/activate
         pip install setuptools wheel cmake-build-extension[all] numpy
         deactivate
-    # - name: Build and package symmetrix
-    #   run: |
-    #     source venv/bin/activate
-    #     cd symmetrix
-    #     pipx run build
-    #     deactivate
+    - name: Build and package symmetrix
+      run: |
+        source venv/bin/activate
+        cd symmetrix
+        pip install .
+        deactivate
     - name: Test package installation locally
       run: |
         source venv/bin/activate
         pip install .
         python -c "import symmetrix; print(symmetrix.__version__)"
+        cd test
+        pytest
         deactivate

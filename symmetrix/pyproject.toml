@@ -4,7 +4,9 @@ build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
 cmake.minimum-version = "3.27"
+build-dir = "build"
 wheel.exclude = ["lib/", "include/"]
+wheel.packages = ["source/symmetrix"]
 
 [project]
 name = "symmetrix"
@@ -12,4 +14,4 @@ version = "0.0.1"
 description = "Symmetrix — a package for functions equivariant under: translation, rotation, inversion, and exchange of particles."
 
 [project.scripts]
-symmetrix_convert_mace = "symmetrix.cli.convert_mace:main"
+symmetrix_extract_mace = "symmetrix.cli.extract_mace:main"
