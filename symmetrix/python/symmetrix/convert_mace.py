@@ -144,7 +144,6 @@ def extract_model_data(model_file, species, head=None, num_spline_points=None):
     ### ----- RADIAL SPLINES -----
 
     logging.info("R0+R1")
-    # TODO: what to do about the 0.5 Ang buffer?
     r,h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
     spline_values_0 = []
     spline_derivatives_0 = []
