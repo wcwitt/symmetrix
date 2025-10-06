@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+
 add_subdirectory(../libsymmetrix ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix)
 
 add_subdirectory(external/pybind11)
