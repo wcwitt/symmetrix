@@ -16,13 +16,13 @@ from mace.tools.scripts_utils import remove_pt_head
 
 from ase.data import chemical_symbols
 
-def extract_model_data(model_file, species, head=None, num_spline_points=None):
+def extract_model_data(model, species, head=None, num_spline_points=None):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
     Parameters
     ----------
-    model_file: str / Path
+    model: str / Path
         path to pytorch model file
     species: list(int / str)
         list of atomic numbers or chemical symbols to extract
@@ -36,7 +36,7 @@ def extract_model_data(model_file, species, head=None, num_spline_points=None):
     output_data: dict with symmetrix model data
     """
     model = torch.load(
-        model_file,
+        model,
         map_location=torch.device('cpu'),
         weights_only=False
     ).to(torch.float64)
