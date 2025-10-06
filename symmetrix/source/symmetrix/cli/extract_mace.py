@@ -18,20 +18,18 @@ def main():
     import json
     from pathlib import Path
 
-    if len(Path(args.model_file).suffix) == 0:
-        model_name = Path(args.model_file).name
+    if len(Path(args.model).suffix) == 0:
+        model_name = Path(args.model).name
     else:
-        model_name = Path(args.model_file).stem
+        model_name = Path(args.model).stem
 
-    species = args.atomic_numbers
-    if species == []:
-        species = args.chemical_symbols
-    output = extract_model_data(args.model_file, args.species, args.head)
+    species = args.atomic_numbers if args.chemical_symbols == [] else args.chemical_symbols
+    output = extract_mace_data(args.model, species, args.head)
 
     ### ----- WRITE JSON -----
 
-    if args.output_file is None:
-        args.output_file = model_name + '-' + '-'.join(str(a) for a in sorted(args.species)) + '.json'
-    print("WRITING JSON TO", args.output_file)
-    with open(args.output_file, "w") as f:
+    if args.output is None:
+        args.output = model_name + '-' + '-'.join(str(a) for a in sorted(species)) + '.json'
+    print("WRITING JSON TO", args.output)
+    with open(args.output, "w") as f:
         json.dump(output, f, indent=4)

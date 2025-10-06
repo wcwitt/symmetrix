@@ -22,22 +22,23 @@ jobs:
       run: |
         python -m venv venv
         source venv/bin/activate
-        pip install ase numpy pytest scipy
+        pip install ase cmake-build-extension[all] numpy pytest setuptools scipy wheel cmake-build-extension[all]
         deactivate
-    - name: Build symmetrix
+    - name: Build and package symmetrix
       run: |
         source venv/bin/activate
         cd symmetrix
-        cmake \
-            -B build \
-            -D SYMMETRIX_KOKKOS=ON \
-            .
-        cmake --build build -j 2
+        pip install .
+        cd ..
+        deactivate
     - name: Run tests
       run: |
         source venv/bin/activate
+        python -c "import symmetrix; print(symmetrix.__version__)"
         cd symmetrix/test
-        python -m pytest
+        pytest
+        deactivate
+        cd ../..
 
   pair_symmetrix:
     runs-on: ubuntu-latest
@@ -91,42 +92,12 @@ jobs:
         cd pair_symmetrix/test/
         python -m pytest
 
-  utilities:
+  extract-mace-model:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         mace-torch: ["mace-torch==0.3.10", "mace-torch"]
-    steps:
-    - name: Clone repo
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install dependencies
-      run: |
-        sudo apt-get install -y build-essential
-    - name: Set up python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-    - name: Create python venv
-      run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install ${{ matrix.mace-torch }}
-        deactivate
-    - name: Run tests
-      run: |
-        source venv/bin/activate
-        cd symmetrix/utilities
-        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
-        python create_symmetrix_mace.py MACE-OFF23_small.model --atomic-numbers 1 8
-        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
-        python create_symmetrix_mace.py MACE-OFF23_medium.model --atomic-numbers 1 8
-        deactivate
-  
-  package:
-    runs-on: ubuntu-latest
     steps:
     - name: Clone repo
       uses: actions/checkout@v4
@@ -143,19 +114,21 @@ jobs:
       run: |
         python -m venv venv
         source venv/bin/activate
-        pip install setuptools wheel cmake-build-extension[all] numpy
+        pip install ${{ matrix.mace-torch }}
         deactivate
     - name: Build and package symmetrix
       run: |
         source venv/bin/activate
         cd symmetrix
         pip install .
+        cd ..
         deactivate
-    - name: Test package installation locally
+    - name: Test model extraction
       run: |
         source venv/bin/activate
-        pip install .
-        python -c "import symmetrix; print(symmetrix.__version__)"
-        cd test
-        pytest
+        pip install mace-torch
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
+        symmetrix_extract_mace --model MACE-OFF23_small.model --atomic-numbers 1 8
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
+        symmetrix_extract_mace --model MACE-OFF23_medium.model --atomic-numbers 1 8
         deactivate
