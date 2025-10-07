@@ -127,8 +127,12 @@ jobs:
       run: |
         source venv/bin/activate
         pip install mace-torch
+        # check for valid symmetrix json from atomic numbers and default filename
         wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
         symmetrix_extract_mace --model MACE-OFF23_small.model --atomic-numbers 1 8
+        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('MACE-OFF23_small-1-8.json', species=[1, 8])"
+        # check for valid symmetrix json from checmical symbols and specified filename
         wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
-        symmetrix_extract_mace --model MACE-OFF23_medium.model --atomic-numbers 1 8
+        symmetrix_extract_mace --model MACE-OFF23_medium.model --chemical-symbols H O -o extract_test.json
+        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('extract_test.json', species=[1, 8])"
         deactivate
