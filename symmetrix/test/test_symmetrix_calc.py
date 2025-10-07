@@ -3,6 +3,7 @@
 
 import pytest
 
+import os
 import time
 from pathlib import Path
 
@@ -24,27 +25,39 @@ except ModuleNotFoundError as exc:
         raise
 
 try:
+    import mace
     from mace.calculators import MACECalculator
-except ImportError:
-    MACECalculator = None
-
+    from mace.tools.utils import get_cache_dir
+    from mace.calculators.foundations_models import download_mace_mp_checkpoint
+except ImportError as exc:
+    mace = None
 
 @pytest.fixture(scope="module")
-def mace_foundation_model():
-    return Path.home() / ".cache" / "mace" / "maceomat0smallmodel"
+def mace_foundation_model(tmp_path_factory):
+    if mace is None:
+        return None
+    else:
+        # download into a temp dir by modifying XDG_CACHE_HOME which
+        # mace.calculators.foundations_models uses
+        cache_dir = tmp_path_factory.mktemp("mace_cache")
+        xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
+        os.environ["XDG_CACHE_HOME"] = str(cache_dir)
+        downloaded_model = download_mace_mp_checkpoint('small-omat-0')
+        if xdg_cache_home is None:
+            del os.environ["XDG_CACHE_HOME"]
+        else:
+            os.environ["XDG_CACHE_HOME"] = xdg_cache_home
 
-@pytest.fixture
-def symmetrix_model():
-    return Path(__file__).parent / "assets" / "maceomat0smallmodel-1-8.json"
+        return str(downloaded_model)
 
 
-def test_calc_caching(symmetrix_model):
+def test_calc_caching(symmetrix_mace_mp0b3_1_8):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 4
     rng = np.random.default_rng(5)
     atoms.rattle(rng=rng)
 
-    calc = Symmetrix(symmetrix_model)
+    calc = Symmetrix(symmetrix_mace_mp0b3_1_8)
     atoms.calc = calc
 
     t0 = time.time()
@@ -68,7 +81,7 @@ def test_calc_caching(symmetrix_model):
     assert np.abs(dt_F_pert - dt_E) / dt_E < 0.5
 
 
-def test_mace_calc_finite_diff(symmetrix_model, mace_foundation_model):
+def test_symmetrix_calc_finite_diff(symmetrix_mace_mp0b3_1_8):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -77,47 +90,27 @@ def test_mace_calc_finite_diff(symmetrix_model, mace_foundation_model):
     F = np.eye(3) + 0.01 * rng.normal(size=(3,3))
     atoms.set_cell(atoms.cell @ F, True)
 
-    if False:
-        # plot scaling of error
-        from matplotlib.figure import Figure
-        fig = Figure()
-        ax = fig.add_subplot()
-
-        print("")
-        print("EMT")
-        from ase.calculators.emt import EMT
-        calc = EMT()
-        do_grad_test(atoms, calc, False, ax=ax, label="EMT")
-
-        print("")
-        print("MACECalculator")
-        calc = MACECalculator(mace_foundation_model)
-        do_grad_test(atoms, calc, False, ax=ax, label="MACECaculator")
-
-        print("")
-        print("Symmetrix converted 200")
-        calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
-        do_grad_test(atoms, calc, False, ax=ax, label="Symmetrix 200")
-
-        ax.set_xlabel("dx")
-        ax.set_ylabel("force err")
-        ax.legend()
-
-        x_max = ax.get_xlim()[1]
-        y_max = ax.get_ylim()[1]
-        ax.loglog(ax.get_xlim(), y_max / x_max ** 2 * np.asarray(ax.get_xlim()) ** 2, "--", label="$1/dx^2$")
-        fig.savefig("finite_difF_scaling.png", bbox_inches="tight", dpi=600)
-
     print("pre-converted")
-    calc = Symmetrix(symmetrix_model)
+    calc = Symmetrix(symmetrix_mace_mp0b3_1_8)
     do_grad_test(atoms, calc, True)
+
+
+@pytest.mark.skipif(mace is None, reason="mace-torch is not available")
+def test_mace_onthefly_calc_finite_diff(mace_foundation_model):
+    atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
+    atoms *= 2
+    rng = np.random.default_rng(5)
+    atoms.rattle(rng=rng)
+
+    F = np.eye(3) + 0.01 * rng.normal(size=(3,3))
+    atoms.set_cell(atoms.cell @ F, True)
 
     print("converted on-the-fly")
-    calc = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
+    calc = Symmetrix(mace_foundation_model, species=[1, 8])
     do_grad_test(atoms, calc, True)
 
 
-@pytest.mark.skipif(MACECalculator is None, reason="No MACECalculator available")
+@pytest.mark.skipif(mace is None, reason="mace-torch is not available")
 def test_symmetrix_vs_pytorch(mace_foundation_model):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
@@ -130,7 +123,7 @@ def test_symmetrix_vs_pytorch(mace_foundation_model):
     atoms_s = atoms.copy()
     atoms_p = atoms.copy()
 
-    calc_sym = Symmetrix(mace_foundation_model, atomic_numbers=[1, 8])
+    calc_sym = Symmetrix(mace_foundation_model, species=[1, 8])
     atoms_s.calc = calc_sym
 
     calc_torch = MACECalculator(mace_foundation_model)
