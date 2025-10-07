@@ -48,7 +48,7 @@ class Symmetrix(Calculator):
                          'head',
                          'num_spline_points']}
             logging.warning(f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}")
-            data = extract_model_data(model_file, **kwargs_extract)
+            data = extract_mace_data(model_file, **kwargs_extract)
             with NamedTemporaryFile("w") as fout:
                 logging.warning(f"Converting via NamedTemporaryFile {fout.name}")
                 fout.write(json.dumps(data))
