@@ -3,7 +3,7 @@
 To build the `symmetrix` Python package:
 
 ```
-cmake -B build \
-    -D SYMMETRIX_KOKKOS=ON \
-    -D SYMMETRIX_SPHERICART_CUDA=ON
+git clone --recursive https://github.com/wcwitt/symmetrix
+cd symmetrix/symmetrix
+pip install .
 ```
