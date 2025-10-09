@@ -7,6 +7,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # TODO: return to this
 set(SYMMETRIX_KOKKOS ON)
+set(KokkosKernels_INST_DOUBLE OFF CACHE BOOL "Disable explicit instantiation of double kernels.")
+set(KokkosKernels_INST_LAYOUTLEFT OFF CACHE BOOL "Disable explicit instantiation of layoutleft kernels.")
 
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
