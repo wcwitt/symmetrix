@@ -63,7 +63,7 @@ jobs:
     - name: Clone and build LAMMPS
       run: |
         source venv/bin/activate
-        git clone -b release https://github.com/lammps/lammps.git
+        git clone -b release --depth 1 https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
         ./install.sh ../lammps
