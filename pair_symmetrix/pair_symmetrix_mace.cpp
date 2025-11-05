@@ -169,7 +169,7 @@ double PairSymmetrixMACE::init_one(int i, int j)
 
 void PairSymmetrixMACE::init_style()
 {
-  if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace requires \'atom_modify map yes\'");
+  if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace requires newton pair on");
 
   if (mode == "mpi_message_passing") {
