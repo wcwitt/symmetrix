@@ -51,13 +51,13 @@ def mace_foundation_model(tmp_path_factory):
         return str(downloaded_model)
 
 
-def test_calc_caching(symmetrix_mace_mp0b3_1_8):
+def test_calc_caching(model_cache):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 4
     rng = np.random.default_rng(5)
     atoms.rattle(rng=rng)
 
-    calc = Symmetrix(symmetrix_mace_mp0b3_1_8)
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
     atoms.calc = calc
 
     t0 = time.time()
@@ -81,7 +81,7 @@ def test_calc_caching(symmetrix_mace_mp0b3_1_8):
     assert np.abs(dt_F_pert - dt_E) / dt_E < 0.5
 
 
-def test_symmetrix_calc_finite_diff(symmetrix_mace_mp0b3_1_8):
+def test_symmetrix_calc_finite_diff(model_cache):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -91,7 +91,7 @@ def test_symmetrix_calc_finite_diff(symmetrix_mace_mp0b3_1_8):
     atoms.set_cell(atoms.cell @ F, True)
 
     print("pre-converted")
-    calc = Symmetrix(symmetrix_mace_mp0b3_1_8)
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
     do_grad_test(atoms, calc, True)
 
 
