@@ -7,7 +7,7 @@
 
 -----
 
-### Python package
+### Python package and ASE calculator
 
 See the `symmetrix` [README](symmetrix/README.md) to build and use the Python package.
 
