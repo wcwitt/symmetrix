@@ -11,6 +11,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(BLAS REQUIRED)
 add_subdirectory(external/sphericart)
+option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
     if(TARGET Kokkos::kokkos)
         message(STATUS "Symmetrix: Found existing Kokkos target.")
