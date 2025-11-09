@@ -24,12 +24,14 @@ using Kokkos::TeamVectorRange;
 using Kokkos::TeamVectorMDRange;
 using Kokkos::View;
 
-MACEKokkos::MACEKokkos(std::string filename)
+template <typename Precision>
+MACEKokkos<Precision>::MACEKokkos(std::string filename)
 {
     load_from_json(filename);
 }
 
-MACEKokkos::~MACEKokkos()
+template <typename Precision>
+MACEKokkos<Precision>::~MACEKokkos()
 {
     Kokkos::fence();
 
@@ -44,7 +46,8 @@ MACEKokkos::~MACEKokkos()
     A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 }
 
-void MACEKokkos::compute_node_energies_forces(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_node_energies_forces(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -94,7 +97,8 @@ void MACEKokkos::compute_node_energies_forces(
     reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
-void MACEKokkos::compute_R0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_R0(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -168,7 +172,8 @@ void MACEKokkos::compute_R0(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_R1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_R1(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -183,7 +188,8 @@ void MACEKokkos::compute_R1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
+template <typename Precision>
+void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
 
 #ifndef SYMMETRIX_SPHERICART_CUDA
 
@@ -268,7 +274,8 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A0(
     const int num_nodes,
     View<const int*> node_types,
     View<const int*> num_neigh,
@@ -315,7 +322,8 @@ void MACEKokkos::compute_A0(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A0(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A0(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -382,7 +390,8 @@ void MACEKokkos::reverse_A0(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A0_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A0_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -437,7 +446,8 @@ void MACEKokkos::compute_A0_scaled(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A0_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A0_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -510,7 +520,8 @@ void MACEKokkos::reverse_A0_scaled(
 }
 
 #if 0
-void MACEKokkos::compute_M0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M0(
     const int num_nodes,
     Kokkos::View<const int*> node_types)
 {
@@ -545,7 +556,8 @@ void MACEKokkos::compute_M0(
 #endif
 
 //#if 0
-void MACEKokkos::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M0.extent(0) < num_nodes)
         Kokkos::realloc(M0, num_nodes, num_LM, num_channels);
@@ -599,7 +611,8 @@ void MACEKokkos::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 //#endif
 
 #if 0
-void MACEKokkos::reverse_M0(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M0(
     const int num_nodes,
     Kokkos::View<const int*> node_types)
 {
@@ -640,7 +653,8 @@ void MACEKokkos::reverse_M0(
 #endif
 
 //#if 0
-void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A0_adj.extent(0) < num_nodes)
         Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
@@ -702,7 +716,8 @@ void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 }
 //#endif
 
-void MACEKokkos::compute_H1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_H1(
     const int num_nodes)
 {
     if (H1.extent(0) < M0.extent(0))
@@ -730,7 +745,8 @@ void MACEKokkos::compute_H1(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_H1(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_H1(
     const int num_nodes)
 {
     if (M0_adj.extent(0) < M0.extent(0))
@@ -758,7 +774,8 @@ void MACEKokkos::reverse_H1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_Phi1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_Phi1(
     const int num_nodes,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_indices)
@@ -873,7 +890,8 @@ void MACEKokkos::compute_Phi1(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_Phi1(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_Phi1(
     const int num_nodes,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_indices,
@@ -978,7 +996,8 @@ void MACEKokkos::reverse_Phi1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A1(int num_nodes)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A1(int num_nodes)
 {
     // The core matrix multiplication is:
     //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
@@ -1018,7 +1037,8 @@ void MACEKokkos::compute_A1(int num_nodes)
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A1(int num_nodes)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A1(int num_nodes)
 {
     // The core matrix multiplication is:
     //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
@@ -1058,7 +1078,8 @@ void MACEKokkos::reverse_A1(int num_nodes)
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A1_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -1115,7 +1136,8 @@ void MACEKokkos::compute_A1_scaled(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A1_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -1189,7 +1211,8 @@ void MACEKokkos::reverse_A1_scaled(
 }
 
 #if 0
-void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     Kokkos::realloc(M1, num_nodes, num_channels);
 
@@ -1220,7 +1243,8 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 #endif
 
 //#if 0
-void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M1.extent(0) < num_nodes)
         Kokkos::realloc(M1, num_nodes, num_channels);
@@ -1269,7 +1293,8 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 //#endif
 
 #if 0
-void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
     Kokkos::deep_copy(A1_adj, 0.0);
@@ -1305,7 +1330,8 @@ void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 }
 #endif
 
-void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A1_adj.extent(0) < num_nodes)
         Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
@@ -1362,7 +1388,8 @@ void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (H2.extent(0) < num_nodes or H2.extent(1) != num_channels)
         Kokkos::realloc(H2, num_nodes, num_channels);
@@ -1399,7 +1426,8 @@ void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
 {
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
@@ -1431,7 +1459,8 @@ void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, 
     Kokkos::fence();
 }
 
-double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
+template <typename Precision>
+double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
 {
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
@@ -1484,7 +1513,8 @@ double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*
     return energy;
 }
 
-void MACEKokkos::load_from_json(std::string filename)
+template <typename Precision>
+void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
@@ -1827,3 +1857,6 @@ void MACEKokkos::load_from_json(std::string filename)
         std::vector<std::vector<double>>{readout_2_weights_1, readout_2_weights_2},
         file["readout_2_scale_factor"]);
 }
+
+template class MACEKokkos<float>;
+template class MACEKokkos<double>;

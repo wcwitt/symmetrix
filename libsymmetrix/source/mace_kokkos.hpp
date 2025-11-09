@@ -13,6 +13,7 @@
 #include "radial_function_set_kokkos.hpp"
 #include "zbl_kokkos.hpp"
 
+template <typename Precision>
 class MACEKokkos {
 
 public:
