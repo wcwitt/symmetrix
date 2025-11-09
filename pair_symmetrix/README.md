@@ -5,13 +5,8 @@
 
 ### Generating a model
 
-First, extract your model in `.json` form. You will need a Python environment with
-a compatible `mace` module installed.
-```
-python <symmetrix-base>/symmetrix/utilities/create_symmetrix_mace.py my-mace.model --atomic-numbers 1 8
-```
-The result should be `my-mace-1-8.json`. This model is only suitable
-for LAMMPS simulations involving H and O.
+First, extract your model in `.json` form. See the `symmetrix` [Python package documentation](../symmetrix/README.md) for details.
+You will need a Python environment with a compatible `mace` module installed.
 
 The appropriate LAMMPS pair style commands are
 ```

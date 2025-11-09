@@ -6,15 +6,14 @@ import pytest
 import sys
 from urllib.request import urlretrieve
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../build/'))
 import symmetrix
 
 if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve("https://www.dropbox.com/scl/fi/zbg122s1zeeb1j6ogheok/MACE-OFF23_small-1-8.json?rlkey=mqb7cje9y3l0smwf75cfoahr7&st=iabk9093&dl=1",
+    urlretrieve("https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
                 "MACE-OFF23_small-1-8.json")
 
 if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve("https://www.dropbox.com/scl/fi/ymzotmy9nw2lp7pvv2awc/mace-mp-0b3-medium-1-8.json?rlkey=3y2y42ieo79ekjwpt8zbfjgoe&st=91o13eux&dl=1",
+    urlretrieve("https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
                 "mace-mp-0b3-medium-1-8.json")
 
 model = "mace-off-small"

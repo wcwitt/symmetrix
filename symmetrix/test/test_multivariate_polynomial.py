@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../build/'))
 from symmetrix import MultivariatePolynomial
 
 def test_evaluate():

@@ -22,22 +22,23 @@ jobs:
       run: |
         python -m venv venv
         source venv/bin/activate
-        pip install ase numpy pytest scipy
+        pip install ase cmake-build-extension[all] numpy pytest setuptools scipy wheel cmake-build-extension[all]
         deactivate
-    - name: Build symmetrix
+    - name: Build and package symmetrix
       run: |
         source venv/bin/activate
         cd symmetrix
-        cmake \
-            -B build \
-            -D SYMMETRIX_KOKKOS=ON \
-            .
-        cmake --build build -j 2
+        pip install .
+        cd ..
+        deactivate
     - name: Run tests
       run: |
         source venv/bin/activate
+        python -c "import symmetrix; print(symmetrix.__version__)"
         cd symmetrix/test
-        python -m pytest
+        pytest
+        deactivate
+        cd ../..
 
   pair_symmetrix:
     runs-on: ubuntu-latest
@@ -62,7 +63,7 @@ jobs:
     - name: Clone and build LAMMPS
       run: |
         source venv/bin/activate
-        git clone -b release https://github.com/lammps/lammps.git
+        git clone -b release --depth 1 https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
         ./install.sh ../lammps
@@ -91,7 +92,7 @@ jobs:
         cd pair_symmetrix/test/
         python -m pytest
 
-  utilities:
+  extract-mace-model:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -104,7 +105,7 @@ jobs:
         submodules: recursive
     - name: Install dependencies
       run: |
-        sudo apt-get install -y build-essential
+        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev
     - name: Set up python
       uses: actions/setup-python@v5
       with:
@@ -115,12 +116,23 @@ jobs:
         source venv/bin/activate
         pip install ${{ matrix.mace-torch }}
         deactivate
-    - name: Run tests
+    - name: Build and package symmetrix
       run: |
         source venv/bin/activate
-        cd symmetrix/utilities
+        cd symmetrix
+        pip install .
+        cd ..
+        deactivate
+    - name: Test model extraction
+      run: |
+        source venv/bin/activate
+        pip install mace-torch
+        # check for valid symmetrix json from atomic numbers and default filename
         wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
-        python create_symmetrix_mace.py MACE-OFF23_small.model --atomic-numbers 1 8
+        symmetrix_extract_mace --model MACE-OFF23_small.model --atomic-numbers 1 8
+        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('MACE-OFF23_small-1-8.json', species=[1, 8])"
+        # check for valid symmetrix json from checmical symbols and specified filename
         wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
-        python create_symmetrix_mace.py MACE-OFF23_medium.model --atomic-numbers 1 8
+        symmetrix_extract_mace --model MACE-OFF23_medium.model --chemical-symbols H O -o extract_test.json
+        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('extract_test.json', species=[1, 8])"
         deactivate

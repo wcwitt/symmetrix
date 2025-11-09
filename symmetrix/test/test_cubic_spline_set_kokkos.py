@@ -5,8 +5,6 @@ from pytest import approx
 from scipy.interpolate import CubicSpline
 import sys
 
-sys.path.append(os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), '../build/'))
 import symmetrix
 if not symmetrix._kokkos_is_initialized():
     symmetrix._init_kokkos()
