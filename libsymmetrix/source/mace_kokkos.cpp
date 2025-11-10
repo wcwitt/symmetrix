@@ -36,11 +36,11 @@ MACEKokkos<Precision>::~MACEKokkos()
     Kokkos::fence();
 
     M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_coeff = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 
     A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
@@ -564,7 +564,7 @@ void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> n
     Kokkos::deep_copy(M0, 0.0);
     for (int LM=0; LM<num_LM; ++LM) {
         if (M0_poly_values(LM).extent(0) < num_nodes)
-            M0_poly_values(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+            M0_poly_values(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
                 Kokkos::view_alloc(std::string("M0_poly_values_")+std::to_string(LM),Kokkos::WithoutInitializing),
                 num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
     }
@@ -661,7 +661,7 @@ void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> n
     Kokkos::deep_copy(A0_adj, 0.0);
     for (int LM=0; LM<num_LM; ++LM) {
         if (M0_poly_adjoints(LM).extent(0) < num_nodes)
-            M0_poly_adjoints(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+            M0_poly_adjoints(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
                 Kokkos::view_alloc(std::string("M0_poly_adjoints_")+std::to_string(LM),Kokkos::WithoutInitializing),
                 num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
     }
@@ -1625,12 +1625,12 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // M0 weights and monomials
     auto M0_weights_file = file["M0_weights"].get<std::map<std::string,std::map<std::string,std::map<std::string,std::vector<double>>>>>();
     auto M0_monomials_file = file["M0_monomials"].get<std::map<std::string,std::vector<std::vector<int>>>>();
-    M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_weights", Kokkos::SequentialHostInit), num_LM);
     M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_monomials", Kokkos::SequentialHostInit), num_LM);
     for (int LM=0; LM<num_LM; ++LM) {
-        M0_weights(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+        M0_weights(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("M0_weights_") + std::to_string(LM), Kokkos::WithoutInitializing),
             atomic_numbers.size(), num_channels, M0_monomials_file[std::to_string(LM)].size());
         auto h_M0_weights_LM = Kokkos::create_mirror_view(M0_weights(LM));
@@ -1671,14 +1671,14 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         Kokkos::deep_copy(M0_poly_spec(LM), h_M0_poly_spec_LM);
     }
     // M0_poly_coeff
-    M0_poly_coeff = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_coeff",Kokkos::SequentialHostInit), num_LM);
     for (int LM=0; LM<num_LM; ++LM) {
         auto P = MultivariatePolynomial(
             num_lm,
             M0_weights_file[std::to_string(0)][std::to_string(LM)][std::to_string(0)],
             M0_monomials_file[std::to_string(LM)]);
-        M0_poly_coeff(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+        M0_poly_coeff(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("M0_poly_coeff_")+std::to_string(LM),Kokkos::WithoutInitializing),
             atomic_numbers.size(), P.node_coefficients.size(), num_channels);
         auto h_M0_poly_coeff_LM = Kokkos::create_mirror_view(M0_poly_coeff(LM));
@@ -1695,9 +1695,9 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         }
         Kokkos::deep_copy(M0_poly_coeff(LM), h_M0_poly_coeff_LM);
     }
-    M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_values",Kokkos::SequentialHostInit), num_LM);
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_adjoints",Kokkos::SequentialHostInit), num_LM);
 
     // H1 weights
