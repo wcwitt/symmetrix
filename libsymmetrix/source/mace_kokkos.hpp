@@ -55,8 +55,8 @@ void compute_R0(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // R1
-RadialFunctionSetKokkos<double> radial_1;
-Kokkos::View<double**,Kokkos::LayoutRight> R1, R1_deriv;
+RadialFunctionSetKokkos<Precision> radial_1;
+Kokkos::View<Precision**,Kokkos::LayoutRight> R1, R1_deriv;
 void compute_R1(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,

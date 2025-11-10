@@ -29,7 +29,7 @@ void set_kokkos_view(
 {
     auto d_array = Kokkos::create_mirror_view_and_copy(
         Kokkos::DefaultExecutionSpace(),
-        Kokkos::View<const double*,
+        Kokkos::View<const T*,
                      Kokkos::HostSpace,
                      Kokkos::MemoryUnmanaged>(array.data(), array.size()));
     if (view.size() != array.size())
@@ -46,7 +46,7 @@ void set_kokkos_view(
 {
     auto d_array = Kokkos::create_mirror_view_and_copy(
         Kokkos::DefaultExecutionSpace(),
-        Kokkos::View<const double**,
+        Kokkos::View<const T**,
                      Kokkos::LayoutRight,
                      Kokkos::HostSpace,
                      Kokkos::MemoryUnmanaged>(array.data(), N0, N1));
@@ -65,7 +65,7 @@ void set_kokkos_view(
 {
     auto d_array = Kokkos::create_mirror_view_and_copy(
         Kokkos::DefaultExecutionSpace(),
-        Kokkos::View<const double***,
+        Kokkos::View<const T***,
                      Kokkos::LayoutRight,
                      Kokkos::HostSpace,
                      Kokkos::MemoryUnmanaged>(array.data(), N0, N1, N2));

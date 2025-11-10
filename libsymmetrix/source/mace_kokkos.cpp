@@ -1607,7 +1607,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // R1
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
-    radial_1 = RadialFunctionSetKokkos<double>(spl_h, spl_values_1, spl_derivs_1);
+    radial_1 = RadialFunctionSetKokkos<Precision>(spl_h, spl_values_1, spl_derivs_1);
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
