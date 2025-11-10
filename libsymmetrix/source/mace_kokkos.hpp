@@ -46,8 +46,8 @@ ZBLKokkos zbl;
 
 // R0
 double R0_spline_h;
-Kokkos::View<const double****,Kokkos::LayoutRight> R0_spline_coefficients;
-Kokkos::View<double**,Kokkos::LayoutRight> R0, R0_deriv;
+Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
+Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;
 void compute_R0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,

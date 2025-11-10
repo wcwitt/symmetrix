@@ -57,7 +57,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.R0);
             },
-            [] (MACEKokkos<Precision>& self, py::array_t<double> R0) {
+            [] (MACEKokkos<Precision>& self, py::array_t<Precision> R0) {
                 const int total_num_neigh = R0.size()/((self.l_max+1)*self.num_channels);
                 set_kokkos_view(self.R0, R0, total_num_neigh, (self.l_max+1)*self.num_channels);
             })

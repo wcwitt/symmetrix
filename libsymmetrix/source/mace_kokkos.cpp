@@ -1544,7 +1544,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     const double spl_h = file["radial_spline_h"];
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
-    auto c = Kokkos::View<double****,Kokkos::LayoutRight>(
+    auto c = Kokkos::View<Precision****,Kokkos::LayoutRight>(
         "c", atomic_numbers.size()*atomic_numbers.size(), spl_values_0[0][0].size()-1, 4, (l_max+1)*num_channels);
     auto h_c = Kokkos::create_mirror_view(c);
     for (int a=0; a<atomic_numbers.size(); ++a) {
