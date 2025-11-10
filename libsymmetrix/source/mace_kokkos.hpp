@@ -55,7 +55,7 @@ void compute_R0(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // R1
-RadialFunctionSetKokkos radial_1;
+RadialFunctionSetKokkos<double> radial_1;
 Kokkos::View<double**,Kokkos::LayoutRight> R1, R1_deriv;
 void compute_R1(const int num_nodes,
                 Kokkos::View<const int*> node_types,
@@ -84,7 +84,7 @@ void reverse_A0(const int num_nodes,
 
 // A0 rescaling
 bool A0_scaled;
-RadialFunctionSetKokkos A0_splines;
+RadialFunctionSetKokkos<double> A0_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_derivs;
 void compute_A0_scaled(
@@ -140,7 +140,7 @@ void reverse_A1(int num_nodes);
 
 // A1 rescaling
 bool A1_scaled;
-RadialFunctionSetKokkos A1_splines;
+RadialFunctionSetKokkos<double> A1_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_derivs;
 void compute_A1_scaled(

@@ -1607,7 +1607,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // R1
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
-    radial_1 = RadialFunctionSetKokkos(spl_h, spl_values_1, spl_derivs_1);
+    radial_1 = RadialFunctionSetKokkos<double>(spl_h, spl_values_1, spl_derivs_1);
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
@@ -1619,7 +1619,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         auto A0_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A0_spline_derivs"].get<std::vector<std::vector<double>>>())
             A0_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A0_splines = RadialFunctionSetKokkos(A0_spline_h, A0_spline_values, A0_spline_derivs);
+        A0_splines = RadialFunctionSetKokkos<double>(A0_spline_h, A0_spline_values, A0_spline_derivs);
     }
 
     // M0 weights and monomials
@@ -1783,7 +1783,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         auto A1_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A1_spline_derivs"].get<std::vector<std::vector<double>>>())
             A1_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A1_splines = RadialFunctionSetKokkos(A1_spline_h, A1_spline_values, A1_spline_derivs);
+        A1_splines = RadialFunctionSetKokkos<double>(A1_spline_h, A1_spline_values, A1_spline_derivs);
     }
 
     // M1 weights and monomials
