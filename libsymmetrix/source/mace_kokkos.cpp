@@ -219,7 +219,7 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_shuffled);
     auto h_Y = Kokkos::create_mirror_view(Y);
     auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
-    sphericart::SphericalHarmonics<double> sphericart(l_max);
+    sphericart::SphericalHarmonics<Precision> sphericart(l_max);
     sphericart.compute_array_with_gradients(
         h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm),
     Kokkos::deep_copy(Y, h_Y);
@@ -362,8 +362,8 @@ void MACEKokkos<Precision>::reverse_A0(
                 const double x_ij = xyz(3*ij) / r_ij;
                 const double y_ij = xyz(3*ij+1) / r_ij;
                 const double z_ij = xyz(3*ij+2) / r_ij;
-                const double* Y_ij = &Y(ij*num_lm);
-                const double* Y_grad_ij = &Y_grad(3*ij*num_lm);
+                const Precision* Y_ij = &Y(ij*num_lm);
+                const Precision* Y_grad_ij = &Y_grad(3*ij*num_lm);
                 double f_x, f_y, f_z;
                 Kokkos::parallel_reduce(
                     Kokkos::TeamThreadRange(team_member, num_lm),
