@@ -158,13 +158,13 @@ void reverse_A1_scaled(
     Kokkos::View<const double*> r);
 
 // M1
-Kokkos::View<double**,Kokkos::LayoutRight> M1, M1_adj;
+Kokkos::View<Precision**,Kokkos::LayoutRight> M1, M1_adj;
 Kokkos::View<int**,Kokkos::LayoutRight> M1_monomials;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_weights;
 Kokkos::View<int**,Kokkos::LayoutRight> M1_poly_spec;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_coeff;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_values;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_adjoints;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_coeff;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_values;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_adjoints;
 void compute_M1(int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 
