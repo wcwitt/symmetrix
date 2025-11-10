@@ -186,7 +186,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.M0);
             },
-            [] (MACEKokkos<Precision>& self, py::array_t<double> M0) {
+            [] (MACEKokkos<Precision>& self, py::array_t<Precision> M0) {
                 const int num_nodes = M0.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.M0, M0, num_nodes, self.num_LM, self.num_channels);
             })
@@ -194,7 +194,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.M0_adj);
             },
-            [] (MACEKokkos<Precision>& self, py::array_t<double> M0_adj) {
+            [] (MACEKokkos<Precision>& self, py::array_t<Precision> M0_adj) {
                 const int num_nodes = M0_adj.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.M0_adj, M0_adj, num_nodes, self.num_LM, self.num_channels);
             })
@@ -219,7 +219,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.H1);
             },
-            [] (MACEKokkos<Precision>& self, py::array_t<double> H1) {
+            [] (MACEKokkos<Precision>& self, py::array_t<Precision> H1) {
                 const int num_nodes = H1.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.H1, H1, num_nodes, self.num_LM, self.num_channels);
             })
@@ -227,7 +227,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.H1_adj);
             },
-            [] (MACEKokkos<Precision>& self, py::array_t<double> H1_adj) {
+            [] (MACEKokkos<Precision>& self, py::array_t<Precision> H1_adj) {
                 const int num_nodes = H1_adj.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.H1_adj, H1_adj, num_nodes, self.num_LM, self.num_channels);
             })

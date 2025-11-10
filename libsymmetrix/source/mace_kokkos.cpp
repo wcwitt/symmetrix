@@ -1703,7 +1703,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // H1 weights
     set_kokkos_view(
         H1_weights,
-        file["H1_weights"].get<std::vector<double>>(),
+        file["H1_weights"].get<std::vector<Precision>>(),
         L_max+1,
         num_channels,
         num_channels);
