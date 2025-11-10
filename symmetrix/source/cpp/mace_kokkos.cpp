@@ -17,6 +17,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self) {
                 return view2vector(self.atomic_numbers);
             })
+        .def_readonly("r_cut", &MACEKokkos<Precision>::r_cut)
         // node energies
         .def_property("node_energies",
             [] (MACEKokkos<Precision>& self) {

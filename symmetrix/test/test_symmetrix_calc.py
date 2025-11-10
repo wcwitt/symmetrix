@@ -49,13 +49,14 @@ def mace_foundation_model(tmp_path_factory):
         return str(downloaded_model)
 
 
-def test_calc_caching(model_cache):
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_calc_caching(model_cache, use_kokkos):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 4
     rng = np.random.default_rng(5)
     atoms.rattle(rng=rng)
 
-    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"], use_kokkos=use_kokkos)
     atoms.calc = calc
 
     t0 = time.time()
@@ -79,7 +80,8 @@ def test_calc_caching(model_cache):
     assert np.abs(dt_F_pert - dt_E) / dt_E < 0.5
 
 
-def test_symmetrix_calc_finite_diff(model_cache):
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_symmetrix_calc_finite_diff(model_cache, use_kokkos):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -89,12 +91,13 @@ def test_symmetrix_calc_finite_diff(model_cache):
     atoms.set_cell(atoms.cell @ F, True)
 
     print("pre-converted")
-    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"], use_kokkos=use_kokkos)
     do_grad_test(atoms, calc, True)
 
 
 @pytest.mark.skipif(mace is None, reason="mace-torch is not available")
-def test_mace_onthefly_calc_finite_diff(mace_foundation_model):
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_mace_onthefly_calc_finite_diff(mace_foundation_model, use_kokkos):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -104,12 +107,13 @@ def test_mace_onthefly_calc_finite_diff(mace_foundation_model):
     atoms.set_cell(atoms.cell @ F, True)
 
     print("converted on-the-fly")
-    calc = Symmetrix(mace_foundation_model, species=[1, 8])
+    calc = Symmetrix(mace_foundation_model, species=[1, 8], use_kokkos=use_kokkos)
     do_grad_test(atoms, calc, True)
 
 
 @pytest.mark.skipif(mace is None, reason="mace-torch is not available")
-def test_symmetrix_vs_pytorch(mace_foundation_model):
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_symmetrix_vs_pytorch(mace_foundation_model, use_kokkos):
     atoms = Atoms('O', cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
     rng = np.random.default_rng(5)
@@ -121,7 +125,7 @@ def test_symmetrix_vs_pytorch(mace_foundation_model):
     atoms_s = atoms.copy()
     atoms_p = atoms.copy()
 
-    calc_sym = Symmetrix(mace_foundation_model, species=[1, 8])
+    calc_sym = Symmetrix(mace_foundation_model, species=[1, 8], use_kokkos=use_kokkos)
     atoms_s.calc = calc_sym
 
     calc_torch = MACECalculator(mace_foundation_model)

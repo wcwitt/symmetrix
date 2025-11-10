@@ -18,7 +18,7 @@ except:
 from ase.calculators.calculator import Calculator, PropertyNotImplementedError, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
-from .symmetrix import MACE
+from . import symmetrix
 
 class Symmetrix(Calculator):
     """ASE Calculator using symmetrix library to evaluate equivariant graph neural network 
@@ -36,8 +36,17 @@ class Symmetrix(Calculator):
     implemented_properties = ['energy', 'free_energy', 'energies', 'forces', 'stress']
 
 
-    def __init__(self, model_file, **kwargs):
+    def __init__(self, model_file, use_kokkos=True, **kwargs):
         Calculator.__init__(self, **kwargs)
+        self.use_kokkos = use_kokkos
+        if self.use_kokkos:
+            if not hasattr(symmetrix, "MACEKokkos"):
+                raise RuntimeError("Symmetrix was built without Kokkos support.")
+            if not symmetrix._kokkos_is_initialized():
+                symmetrix._init_kokkos()
+            MACE = symmetrix.MACEKokkos
+        else:
+            MACE = symmetrix.MACE
         try:
             self.evaluator = MACE(str(model_file))
         except RuntimeError: # expecting json.exception.parse_error.101
@@ -56,7 +65,6 @@ class Symmetrix(Calculator):
 
         self.cutoff = self.evaluator.r_cut
 
-
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         Calculator.calculate(self, atoms, properties, system_changes)
 
@@ -74,6 +82,7 @@ class Symmetrix(Calculator):
         self.results['energies'] = np.asarray(self.evaluator.node_energies)
 
         pair_forces = np.asarray(self.evaluator.node_forces).reshape((-1, 3))
+        pair_forces = pair_forces[:len(i_list), :]  # trim to actual number of pairs
 
         # atom forces from pair_forces
         N_atoms = len(self.atoms)
