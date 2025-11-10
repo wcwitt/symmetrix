@@ -12,8 +12,6 @@ import numpy as np
 from ase.atoms import Atoms
 from ase.stress import full_3x3_to_voigt_6_stress
 
-# TODO: currently skipping these tests - revisit
-
 try:
     from symmetrix import Symmetrix
 except ModuleNotFoundError as exc:
