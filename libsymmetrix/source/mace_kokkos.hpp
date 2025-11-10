@@ -70,7 +70,7 @@ Kokkos::View<double*> Y_grad_shuffled;
 void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0
-Kokkos::View<double***,Kokkos::LayoutRight> A0, A0_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> A0, A0_adj;
 void compute_A0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,
