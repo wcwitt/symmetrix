@@ -42,8 +42,8 @@ MACEKokkos<Precision>::~MACEKokkos()
     M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 
-    A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 }
 
 template <typename Precision>
@@ -1025,7 +1025,7 @@ void MACEKokkos<Precision>::compute_A1(int num_nodes)
                 if (ll == l)
                     num_eta += 1;
             }
-            auto Phi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            auto Phi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
                 &Phi1(i,lme,0), 2*l+1, num_eta*num_channels);
             auto A1_il = Kokkos::subview(A1, i, Kokkos::make_pair(l*l,l*(l+2)+1), Kokkos::ALL);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
@@ -1067,7 +1067,7 @@ void MACEKokkos<Precision>::reverse_A1(int num_nodes)
                     num_eta += 1;
             }
             auto dA1_il = Kokkos::subview(A1_adj, i, Kokkos::make_pair(l*l,l*l+2*l+1), Kokkos::ALL);
-            auto dPhi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            auto dPhi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
                 &dPhi1(i,lme,0), 2*l+1, num_eta*num_channels);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
                                     KokkosBatched::Trans::NoTranspose,
@@ -1713,7 +1713,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     Phi1_l1 = toKokkosView("Phi1_l1", file["Phi1_l1"].get<std::vector<int>>());
     Phi1_l2 = toKokkosView("Phi1_l2", file["Phi1_l2"].get<std::vector<int>>());
     Phi1_lme = toKokkosView("Phi1_lme", file["Phi1_lme"].get<std::vector<int>>());
-    Phi1_clebsch_gordan = toKokkosView("Phi1_clebsch_gordan", file["Phi1_clebsch_gordan"].get<std::vector<double>>());
+    Phi1_clebsch_gordan = toKokkosView("Phi1_clebsch_gordan", file["Phi1_clebsch_gordan"].get<std::vector<Precision>>());
     Phi1_lelm1lm2 = toKokkosView("Phi1_lelm1lm2", file["Phi1_lelm1lm2"].get<std::vector<int>>());
     num_lme = 0;
     auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
@@ -1745,20 +1745,20 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     this->Phi1_lel1l2 = toKokkosView("Phi1_lel1l2", Phi1_lel1l2);
 
     // A1 weights
-    auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();
-    A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<Precision>>>();
+    A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("A1_weights", Kokkos::SequentialHostInit), l_max+1);
-    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("A1_weights_trans", Kokkos::SequentialHostInit), l_max+1);
     for (int l=0; l<=l_max; ++l) {
         int num_eta = 0;
         auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
         for (int i=0; i<h_Phi1_l.size(); ++i)
             num_eta += (h_Phi1_l(i) == l);
-        A1_weights(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
+        A1_weights(l) = Kokkos::View<Precision**,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
             num_eta*num_channels, num_channels);
-        A1_weights_trans(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
+        A1_weights_trans(l) = Kokkos::View<Precision**,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
             num_channels, num_eta*num_channels);
         auto h_A1_weights_l = Kokkos::create_mirror_view(A1_weights(l));
