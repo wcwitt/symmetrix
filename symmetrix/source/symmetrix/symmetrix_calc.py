@@ -77,7 +77,7 @@ class Symmetrix(Calculator):
         i_list, j_list, r, xyz = neighbor_list('ijdD', self.atoms, self.cutoff)
         num_nodes = np.max(i_list) + 1
         node_types = [mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)]
-        num_neigh = [sum(j_list == i) for i in range(num_nodes)]
+        num_neigh = np.bincount(j_list, minlength=num_nodes)
         neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
         self.evaluator.compute_node_energies_forces(
             num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
