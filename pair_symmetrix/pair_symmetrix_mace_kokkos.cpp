@@ -134,7 +134,7 @@ void PairSymmetrixMACEKokkos<DeviceType>::coeff(int narg, char **arg)
   if (!allocated) allocate();
 
   utils::logmesg(lmp, "Loading MACEKokkos model from \'{}\' ... ", arg[2]);
-  mace = std::make_unique<MACEKokkos>(arg[2]);
+  mace = std::make_unique<MACEKokkos<double>>(arg[2]);
   utils::logmesg(lmp, "success\n");
 
   // extract atomic numbers from pair_coeff

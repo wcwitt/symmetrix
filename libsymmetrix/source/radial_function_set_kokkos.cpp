@@ -1,14 +1,15 @@
 #include <vector>
+#include <cmath>
 
 #include "radial_function_set_kokkos.hpp"
 
-
-RadialFunctionSetKokkos::RadialFunctionSetKokkos()
+template <typename Precision>
+RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos()
 {
 }
 
-
-RadialFunctionSetKokkos::RadialFunctionSetKokkos(
+template <typename Precision>
+RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos(
     double h,
     std::vector<std::vector<std::vector<double>>> node_values,
     std::vector<std::vector<std::vector<double>>> node_derivatives)
@@ -19,18 +20,20 @@ RadialFunctionSetKokkos::RadialFunctionSetKokkos(
     num_functions = node_values[0].size();
     num_nodes = node_values[0][0].size();
 
-    auto c = Kokkos::View<double****, Kokkos::LayoutRight>(
+    auto c = Kokkos::View<Precision****, Kokkos::LayoutRight>(
         "coefficients", num_edge_types, num_nodes-1, 4, num_functions);
     auto h_c = Kokkos::create_mirror_view(c);
     for (int a=0; a<num_edge_types; ++a) {
         for (int i=0; i<num_nodes-1; ++i) {
             for (int j=0; j<num_functions; ++j) {
-                h_c(a,i,0,j) = node_values[a][j][i];
-                h_c(a,i,1,j) = node_derivatives[a][j][i];
-                h_c(a,i,2,j) = (-3*node_values[a][j][i] -2*h*node_derivatives[a][j][i]
-                                + 3*node_values[a][j][i+1] - h*node_derivatives[a][j][i+1]) / (h*h);
-                h_c(a,i,3,j) = (2*node_values[a][j][i] + h*node_derivatives[a][j][i]
-                                - 2*node_values[a][j][i+1] + h*node_derivatives[a][j][i+1]) / (h*h*h);
+                h_c(a,i,0,j) = static_cast<Precision>(node_values[a][j][i]);
+                h_c(a,i,1,j) = static_cast<Precision>(node_derivatives[a][j][i]);
+                h_c(a,i,2,j) = static_cast<Precision>(
+                    (-3*node_values[a][j][i] -2*h*node_derivatives[a][j][i]
+                        + 3*node_values[a][j][i+1] - h*node_derivatives[a][j][i+1]) / (h*h));
+                h_c(a,i,3,j) = static_cast<Precision>(
+                    (2*node_values[a][j][i] + h*node_derivatives[a][j][i]
+                        - 2*node_values[a][j][i+1] + h*node_derivatives[a][j][i+1]) / (h*h*h));
             }
         }
     }
@@ -41,14 +44,15 @@ RadialFunctionSetKokkos::RadialFunctionSetKokkos(
 
 // This older, cleaner version of the function lacks edge-type dependence
 #if 0
-void RadialFunctionSetKokkos::evaluate(
+template <typename Precision>
+void RadialFunctionSetKokkos<Precision>::evaluate(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> r,
-    Kokkos::View<double**,Kokkos::LayoutRight> R,
-    Kokkos::View<double**,Kokkos::LayoutRight> R_deriv) const
+    Kokkos::View<Precision**,Kokkos::LayoutRight> R,
+    Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const
 {
     const auto h = this->h;
     const auto num_functions = this->num_functions;
@@ -117,14 +121,15 @@ void RadialFunctionSetKokkos::evaluate(
 #endif
 
 
-void RadialFunctionSetKokkos::evaluate(
+template <typename Precision>
+void RadialFunctionSetKokkos<Precision>::evaluate(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> r,
-    Kokkos::View<double**,Kokkos::LayoutRight> R,
-    Kokkos::View<double**,Kokkos::LayoutRight> R_deriv) const
+    Kokkos::View<Precision**,Kokkos::LayoutRight> R,
+    Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const
 {
     const auto h = this->h;
     const auto num_functions = this->num_functions;
@@ -182,13 +187,20 @@ void RadialFunctionSetKokkos::evaluate(
             Kokkos::parallel_for(
                 Kokkos::TeamVectorRange(team_member, num_functions),
                 [&] (const int k) {
-                    const double c0 = c(type_ij,n,0,k);
-                    const double c1 = c(type_ij,n,1,k); 
-                    const double c2 = c(type_ij,n,2,k); 
-                    const double c3 = c(type_ij,n,3,k); 
-                    R(ij,k) = c0 + c1*x + c2*xx + c3*xxx;
-                    R_deriv(ij,k) = c1 + c2*two_x + c3*three_xx;
+                    const Precision c0 = c(type_ij,n,0,k);
+                    const Precision c1 = c(type_ij,n,1,k);
+                    const Precision c2 = c(type_ij,n,2,k);
+                    const Precision c3 = c(type_ij,n,3,k);
+                    R(ij,k) = c0 + c1*static_cast<Precision>(x)
+                        + c2*static_cast<Precision>(xx)
+                        + c3*static_cast<Precision>(xxx);
+                    R_deriv(ij,k) = c1
+                        + c2*static_cast<Precision>(two_x)
+                        + c3*static_cast<Precision>(three_xx);
                 });
         });
         Kokkos::fence();
 }
+
+template class RadialFunctionSetKokkos<float>;
+template class RadialFunctionSetKokkos<double>;
