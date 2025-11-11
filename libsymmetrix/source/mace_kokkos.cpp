@@ -256,15 +256,43 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
         Kokkos::realloc(Y, num*num_lm);
         Kokkos::realloc(Y_grad, 3*num*num_lm);
     }
-    sphericart::cuda::SphericalHarmonics<double> sphericart(l_max);
-    sphericart.compute_with_gradients(xyz.data(), num, Y.data(), Y_grad.data());
+    auto Y = this->Y;
+    auto Y_grad = this->Y_grad;
+
+    // shuffle to match e3nn
+    if (xyz_shuffled.extent(0) < 3*num)
+        Kokkos::realloc(xyz_shuffled, 3*num);
+    auto xyz_shuffled = this->xyz_shuffled;
+    Kokkos::parallel_for("shuffle_xyz", num, KOKKOS_LAMBDA (int i) {
+        xyz_shuffled(3*i) = xyz(3*i+2);
+        xyz_shuffled(3*i+1) = xyz(3*i);
+        xyz_shuffled(3*i+2) = xyz(3*i+1);
+    });
+    Kokkos::fence();
+
+    // call sphericart
+    sphericart::cuda::SphericalHarmonics<Precision> sphericart(l_max);
+    sphericart.compute_with_gradients(xyz_shuffled.data(), num, Y.data(), Y_grad.data());
+
+    // unshuffle gradient
+    if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
+        Kokkos::realloc(Y_grad_shuffled, 3*num*num_lm);
+    Kokkos::deep_copy(Y_grad_shuffled, Y_grad);
+    auto Y_grad_shuffled = this->Y_grad_shuffled;
+    Kokkos::parallel_for("unshuffle_Y_grad", num, KOKKOS_LAMBDA (int i) {
+        for (int lm=0; lm<num_lm; ++lm) {
+            Y_grad(3*i*num_lm+0*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+1*num_lm+lm);
+            Y_grad(3*i*num_lm+1*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+2*num_lm+lm);
+            Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
+        }
+    });
+    Kokkos::fence();
+
     // normalize to match e3nn conventions
     const double normalization_factor = 2 * std::sqrt(M_PI);
-    auto Y = this->Y;
     Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
         Y(i) *= normalization_factor;
     });
-    auto Y_grad = this->Y_grad;
     Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
         Y_grad(i) *= normalization_factor;
     });
