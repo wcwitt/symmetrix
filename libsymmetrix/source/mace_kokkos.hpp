@@ -13,6 +13,7 @@
 #include "radial_function_set_kokkos.hpp"
 #include "zbl_kokkos.hpp"
 
+template <typename Precision>
 class MACEKokkos {
 
 public:
@@ -45,8 +46,8 @@ ZBLKokkos zbl;
 
 // R0
 double R0_spline_h;
-Kokkos::View<const double****,Kokkos::LayoutRight> R0_spline_coefficients;
-Kokkos::View<double**,Kokkos::LayoutRight> R0, R0_deriv;
+Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
+Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;
 void compute_R0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,
@@ -54,8 +55,8 @@ void compute_R0(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // R1
-RadialFunctionSetKokkos radial_1;
-Kokkos::View<double**,Kokkos::LayoutRight> R1, R1_deriv;
+RadialFunctionSetKokkos<Precision> radial_1;
+Kokkos::View<Precision**,Kokkos::LayoutRight> R1, R1_deriv;
 void compute_R1(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,
@@ -63,13 +64,13 @@ void compute_R1(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // Spherical harmonics
-Kokkos::View<double*> xyz_shuffled;
-Kokkos::View<double*> Y, Y_grad;// TODO: make multidimensional
-Kokkos::View<double*> Y_grad_shuffled;
+Kokkos::View<Precision*> xyz_shuffled;
+Kokkos::View<Precision*> Y, Y_grad;// TODO: make multidimensional
+Kokkos::View<Precision*> Y_grad_shuffled;
 void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0
-Kokkos::View<double***,Kokkos::LayoutRight> A0, A0_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> A0, A0_adj;
 void compute_A0(const int num_nodes,
                 Kokkos::View<const int*> node_types,
                 Kokkos::View<const int*> num_neigh,
@@ -83,7 +84,7 @@ void reverse_A0(const int num_nodes,
 
 // A0 rescaling
 bool A0_scaled;
-RadialFunctionSetKokkos A0_splines;
+RadialFunctionSetKokkos<double> A0_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_derivs;
 void compute_A0_scaled(
@@ -101,19 +102,19 @@ void reverse_A0_scaled(
     Kokkos::View<const double*> r);
 
 // M0
-Kokkos::View<double***,Kokkos::LayoutRight> M0, M0_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M0, M0_adj;
 Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_monomials;
-Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_weights;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_weights;
 Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_spec;
-Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_coeff;
-Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_values;
-Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_adjoints;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_coeff;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_values;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_adjoints;
 void compute_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
 // H1
-Kokkos::View<double***,Kokkos::LayoutRight> H1, H1_adj;
-Kokkos::View<double***,Kokkos::LayoutRight> H1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights;
 void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
 
@@ -121,9 +122,9 @@ void reverse_H1(const int num_nodes);
 int num_lelm1lm2, num_lme;
 Kokkos::View<int*> Phi1_l, Phi1_l1, Phi1_l2;
 Kokkos::View<int*> Phi1_lme, Phi1_lelm1lm2;
-Kokkos::View<double*> Phi1_clebsch_gordan;
-Kokkos::View<double***,Kokkos::LayoutRight> Phi1r, dPhi1r;
-Kokkos::View<double***,Kokkos::LayoutRight> Phi1, dPhi1;
+Kokkos::View<Precision*> Phi1_clebsch_gordan;
+Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1r, dPhi1r;
+Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1, dPhi1;
 void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
 void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
@@ -131,15 +132,15 @@ void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokko
 Kokkos::View<int*> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
 
 // A1
-Kokkos::View<double***,Kokkos::LayoutRight> A1, A1_adj;
-Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights;
-Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights_trans;
+Kokkos::View<Precision***,Kokkos::LayoutRight> A1, A1_adj;
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights;
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights_trans;
 void compute_A1(int num_nodes);
 void reverse_A1(int num_nodes);
 
 // A1 rescaling
 bool A1_scaled;
-RadialFunctionSetKokkos A1_splines;
+RadialFunctionSetKokkos<double> A1_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_derivs;
 void compute_A1_scaled(
@@ -157,13 +158,13 @@ void reverse_A1_scaled(
     Kokkos::View<const double*> r);
 
 // M1
-Kokkos::View<double**,Kokkos::LayoutRight> M1, M1_adj;
+Kokkos::View<Precision**,Kokkos::LayoutRight> M1, M1_adj;
 Kokkos::View<int**,Kokkos::LayoutRight> M1_monomials;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_weights;
 Kokkos::View<int**,Kokkos::LayoutRight> M1_poly_spec;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_coeff;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_values;
-Kokkos::View<double***,Kokkos::LayoutRight> M1_poly_adjoints;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_coeff;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_values;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_adjoints;
 void compute_M1(int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 

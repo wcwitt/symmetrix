@@ -24,27 +24,30 @@ using Kokkos::TeamVectorRange;
 using Kokkos::TeamVectorMDRange;
 using Kokkos::View;
 
-MACEKokkos::MACEKokkos(std::string filename)
+template <typename Precision>
+MACEKokkos<Precision>::MACEKokkos(std::string filename)
 {
     load_from_json(filename);
 }
 
-MACEKokkos::~MACEKokkos()
+template <typename Precision>
+MACEKokkos<Precision>::~MACEKokkos()
 {
     Kokkos::fence();
 
     M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_coeff = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 
-    A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 }
 
-void MACEKokkos::compute_node_energies_forces(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_node_energies_forces(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -94,7 +97,8 @@ void MACEKokkos::compute_node_energies_forces(
     reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
-void MACEKokkos::compute_R0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_R0(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -168,7 +172,8 @@ void MACEKokkos::compute_R0(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_R1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_R1(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -183,7 +188,8 @@ void MACEKokkos::compute_R1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
+template <typename Precision>
+void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
 
 #ifndef SYMMETRIX_SPHERICART_CUDA
 
@@ -213,7 +219,7 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_shuffled);
     auto h_Y = Kokkos::create_mirror_view(Y);
     auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
-    sphericart::SphericalHarmonics<double> sphericart(l_max);
+    sphericart::SphericalHarmonics<Precision> sphericart(l_max);
     sphericart.compute_array_with_gradients(
         h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm),
     Kokkos::deep_copy(Y, h_Y);
@@ -250,15 +256,43 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
         Kokkos::realloc(Y, num*num_lm);
         Kokkos::realloc(Y_grad, 3*num*num_lm);
     }
-    sphericart::cuda::SphericalHarmonics<double> sphericart(l_max);
-    sphericart.compute_with_gradients(xyz.data(), num, Y.data(), Y_grad.data());
+    auto Y = this->Y;
+    auto Y_grad = this->Y_grad;
+
+    // shuffle to match e3nn
+    if (xyz_shuffled.extent(0) < 3*num)
+        Kokkos::realloc(xyz_shuffled, 3*num);
+    auto xyz_shuffled = this->xyz_shuffled;
+    Kokkos::parallel_for("shuffle_xyz", num, KOKKOS_LAMBDA (int i) {
+        xyz_shuffled(3*i) = xyz(3*i+2);
+        xyz_shuffled(3*i+1) = xyz(3*i);
+        xyz_shuffled(3*i+2) = xyz(3*i+1);
+    });
+    Kokkos::fence();
+
+    // call sphericart
+    sphericart::cuda::SphericalHarmonics<Precision> sphericart(l_max);
+    sphericart.compute_with_gradients(xyz_shuffled.data(), num, Y.data(), Y_grad.data());
+
+    // unshuffle gradient
+    if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
+        Kokkos::realloc(Y_grad_shuffled, 3*num*num_lm);
+    Kokkos::deep_copy(Y_grad_shuffled, Y_grad);
+    auto Y_grad_shuffled = this->Y_grad_shuffled;
+    Kokkos::parallel_for("unshuffle_Y_grad", num, KOKKOS_LAMBDA (int i) {
+        for (int lm=0; lm<num_lm; ++lm) {
+            Y_grad(3*i*num_lm+0*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+1*num_lm+lm);
+            Y_grad(3*i*num_lm+1*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+2*num_lm+lm);
+            Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
+        }
+    });
+    Kokkos::fence();
+
     // normalize to match e3nn conventions
     const double normalization_factor = 2 * std::sqrt(M_PI);
-    auto Y = this->Y;
     Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
         Y(i) *= normalization_factor;
     });
-    auto Y_grad = this->Y_grad;
     Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
         Y_grad(i) *= normalization_factor;
     });
@@ -268,7 +302,8 @@ void MACEKokkos::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A0(
     const int num_nodes,
     View<const int*> node_types,
     View<const int*> num_neigh,
@@ -315,7 +350,8 @@ void MACEKokkos::compute_A0(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A0(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A0(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -354,8 +390,8 @@ void MACEKokkos::reverse_A0(
                 const double x_ij = xyz(3*ij) / r_ij;
                 const double y_ij = xyz(3*ij+1) / r_ij;
                 const double z_ij = xyz(3*ij+2) / r_ij;
-                const double* Y_ij = &Y(ij*num_lm);
-                const double* Y_grad_ij = &Y_grad(3*ij*num_lm);
+                const Precision* Y_ij = &Y(ij*num_lm);
+                const Precision* Y_grad_ij = &Y_grad(3*ij*num_lm);
                 double f_x, f_y, f_z;
                 Kokkos::parallel_reduce(
                     Kokkos::TeamThreadRange(team_member, num_lm),
@@ -382,7 +418,8 @@ void MACEKokkos::reverse_A0(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A0_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A0_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -437,7 +474,8 @@ void MACEKokkos::compute_A0_scaled(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A0_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A0_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -510,7 +548,8 @@ void MACEKokkos::reverse_A0_scaled(
 }
 
 #if 0
-void MACEKokkos::compute_M0(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M0(
     const int num_nodes,
     Kokkos::View<const int*> node_types)
 {
@@ -545,14 +584,15 @@ void MACEKokkos::compute_M0(
 #endif
 
 //#if 0
-void MACEKokkos::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M0.extent(0) < num_nodes)
         Kokkos::realloc(M0, num_nodes, num_LM, num_channels);
     Kokkos::deep_copy(M0, 0.0);
     for (int LM=0; LM<num_LM; ++LM) {
         if (M0_poly_values(LM).extent(0) < num_nodes)
-            M0_poly_values(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+            M0_poly_values(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
                 Kokkos::view_alloc(std::string("M0_poly_values_")+std::to_string(LM),Kokkos::WithoutInitializing),
                 num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
     }
@@ -599,7 +639,8 @@ void MACEKokkos::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 //#endif
 
 #if 0
-void MACEKokkos::reverse_M0(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M0(
     const int num_nodes,
     Kokkos::View<const int*> node_types)
 {
@@ -640,14 +681,15 @@ void MACEKokkos::reverse_M0(
 #endif
 
 //#if 0
-void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A0_adj.extent(0) < num_nodes)
         Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
     Kokkos::deep_copy(A0_adj, 0.0);
     for (int LM=0; LM<num_LM; ++LM) {
         if (M0_poly_adjoints(LM).extent(0) < num_nodes)
-            M0_poly_adjoints(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+            M0_poly_adjoints(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
                 Kokkos::view_alloc(std::string("M0_poly_adjoints_")+std::to_string(LM),Kokkos::WithoutInitializing),
                 num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
     }
@@ -702,7 +744,8 @@ void MACEKokkos::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 }
 //#endif
 
-void MACEKokkos::compute_H1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_H1(
     const int num_nodes)
 {
     if (H1.extent(0) < M0.extent(0))
@@ -730,7 +773,8 @@ void MACEKokkos::compute_H1(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_H1(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_H1(
     const int num_nodes)
 {
     if (M0_adj.extent(0) < M0.extent(0))
@@ -758,7 +802,8 @@ void MACEKokkos::reverse_H1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_Phi1(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_Phi1(
     const int num_nodes,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_indices)
@@ -873,7 +918,8 @@ void MACEKokkos::compute_Phi1(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_Phi1(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_Phi1(
     const int num_nodes,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_indices,
@@ -978,7 +1024,8 @@ void MACEKokkos::reverse_Phi1(
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A1(int num_nodes)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A1(int num_nodes)
 {
     // The core matrix multiplication is:
     //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
@@ -1006,7 +1053,7 @@ void MACEKokkos::compute_A1(int num_nodes)
                 if (ll == l)
                     num_eta += 1;
             }
-            auto Phi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            auto Phi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
                 &Phi1(i,lme,0), 2*l+1, num_eta*num_channels);
             auto A1_il = Kokkos::subview(A1, i, Kokkos::make_pair(l*l,l*(l+2)+1), Kokkos::ALL);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
@@ -1018,7 +1065,8 @@ void MACEKokkos::compute_A1(int num_nodes)
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A1(int num_nodes)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A1(int num_nodes)
 {
     // The core matrix multiplication is:
     //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
@@ -1047,7 +1095,7 @@ void MACEKokkos::reverse_A1(int num_nodes)
                     num_eta += 1;
             }
             auto dA1_il = Kokkos::subview(A1_adj, i, Kokkos::make_pair(l*l,l*l+2*l+1), Kokkos::ALL);
-            auto dPhi1_il = Kokkos::View<double**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            auto dPhi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
                 &dPhi1(i,lme,0), 2*l+1, num_eta*num_channels);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
                                     KokkosBatched::Trans::NoTranspose,
@@ -1058,7 +1106,8 @@ void MACEKokkos::reverse_A1(int num_nodes)
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_A1_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::compute_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -1115,7 +1164,8 @@ void MACEKokkos::compute_A1_scaled(
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_A1_scaled(
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_A1_scaled(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -1189,7 +1239,8 @@ void MACEKokkos::reverse_A1_scaled(
 }
 
 #if 0
-void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     Kokkos::realloc(M1, num_nodes, num_channels);
 
@@ -1220,7 +1271,8 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 #endif
 
 //#if 0
-void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M1.extent(0) < num_nodes)
         Kokkos::realloc(M1, num_nodes, num_channels);
@@ -1269,7 +1321,8 @@ void MACEKokkos::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 //#endif
 
 #if 0
-void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
     Kokkos::deep_copy(A1_adj, 0.0);
@@ -1305,7 +1358,8 @@ void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 }
 #endif
 
-void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A1_adj.extent(0) < num_nodes)
         Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
@@ -1362,7 +1416,8 @@ void MACEKokkos::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
     Kokkos::fence();
 }
 
-void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
+template <typename Precision>
+void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (H2.extent(0) < num_nodes or H2.extent(1) != num_channels)
         Kokkos::realloc(H2, num_nodes, num_channels);
@@ -1399,7 +1454,8 @@ void MACEKokkos::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
     Kokkos::fence();
 }
 
-void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
+template <typename Precision>
+void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
 {
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
@@ -1431,7 +1487,8 @@ void MACEKokkos::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, 
     Kokkos::fence();
 }
 
-double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
+template <typename Precision>
+double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
 {
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
@@ -1484,7 +1541,8 @@ double MACEKokkos::compute_readouts(int num_nodes, const Kokkos::View<const int*
     return energy;
 }
 
-void MACEKokkos::load_from_json(std::string filename)
+template <typename Precision>
+void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
@@ -1514,7 +1572,7 @@ void MACEKokkos::load_from_json(std::string filename)
     const double spl_h = file["radial_spline_h"];
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
-    auto c = Kokkos::View<double****,Kokkos::LayoutRight>(
+    auto c = Kokkos::View<Precision****,Kokkos::LayoutRight>(
         "c", atomic_numbers.size()*atomic_numbers.size(), spl_values_0[0][0].size()-1, 4, (l_max+1)*num_channels);
     auto h_c = Kokkos::create_mirror_view(c);
     for (int a=0; a<atomic_numbers.size(); ++a) {
@@ -1577,7 +1635,7 @@ void MACEKokkos::load_from_json(std::string filename)
     // R1
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
-    radial_1 = RadialFunctionSetKokkos(spl_h, spl_values_1, spl_derivs_1);
+    radial_1 = RadialFunctionSetKokkos<Precision>(spl_h, spl_values_1, spl_derivs_1);
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
@@ -1589,18 +1647,18 @@ void MACEKokkos::load_from_json(std::string filename)
         auto A0_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A0_spline_derivs"].get<std::vector<std::vector<double>>>())
             A0_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A0_splines = RadialFunctionSetKokkos(A0_spline_h, A0_spline_values, A0_spline_derivs);
+        A0_splines = RadialFunctionSetKokkos<double>(A0_spline_h, A0_spline_values, A0_spline_derivs);
     }
 
     // M0 weights and monomials
     auto M0_weights_file = file["M0_weights"].get<std::map<std::string,std::map<std::string,std::map<std::string,std::vector<double>>>>>();
     auto M0_monomials_file = file["M0_monomials"].get<std::map<std::string,std::vector<std::vector<int>>>>();
-    M0_weights = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_weights", Kokkos::SequentialHostInit), num_LM);
     M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_monomials", Kokkos::SequentialHostInit), num_LM);
     for (int LM=0; LM<num_LM; ++LM) {
-        M0_weights(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+        M0_weights(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("M0_weights_") + std::to_string(LM), Kokkos::WithoutInitializing),
             atomic_numbers.size(), num_channels, M0_monomials_file[std::to_string(LM)].size());
         auto h_M0_weights_LM = Kokkos::create_mirror_view(M0_weights(LM));
@@ -1641,14 +1699,14 @@ void MACEKokkos::load_from_json(std::string filename)
         Kokkos::deep_copy(M0_poly_spec(LM), h_M0_poly_spec_LM);
     }
     // M0_poly_coeff
-    M0_poly_coeff = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_coeff",Kokkos::SequentialHostInit), num_LM);
     for (int LM=0; LM<num_LM; ++LM) {
         auto P = MultivariatePolynomial(
             num_lm,
             M0_weights_file[std::to_string(0)][std::to_string(LM)][std::to_string(0)],
             M0_monomials_file[std::to_string(LM)]);
-        M0_poly_coeff(LM) = Kokkos::View<double***,Kokkos::LayoutRight>(
+        M0_poly_coeff(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("M0_poly_coeff_")+std::to_string(LM),Kokkos::WithoutInitializing),
             atomic_numbers.size(), P.node_coefficients.size(), num_channels);
         auto h_M0_poly_coeff_LM = Kokkos::create_mirror_view(M0_poly_coeff(LM));
@@ -1665,15 +1723,15 @@ void MACEKokkos::load_from_json(std::string filename)
         }
         Kokkos::deep_copy(M0_poly_coeff(LM), h_M0_poly_coeff_LM);
     }
-    M0_poly_values = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_values",Kokkos::SequentialHostInit), num_LM);
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<double***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("M0_poly_adjoints",Kokkos::SequentialHostInit), num_LM);
 
     // H1 weights
     set_kokkos_view(
         H1_weights,
-        file["H1_weights"].get<std::vector<double>>(),
+        file["H1_weights"].get<std::vector<Precision>>(),
         L_max+1,
         num_channels,
         num_channels);
@@ -1683,7 +1741,7 @@ void MACEKokkos::load_from_json(std::string filename)
     Phi1_l1 = toKokkosView("Phi1_l1", file["Phi1_l1"].get<std::vector<int>>());
     Phi1_l2 = toKokkosView("Phi1_l2", file["Phi1_l2"].get<std::vector<int>>());
     Phi1_lme = toKokkosView("Phi1_lme", file["Phi1_lme"].get<std::vector<int>>());
-    Phi1_clebsch_gordan = toKokkosView("Phi1_clebsch_gordan", file["Phi1_clebsch_gordan"].get<std::vector<double>>());
+    Phi1_clebsch_gordan = toKokkosView("Phi1_clebsch_gordan", file["Phi1_clebsch_gordan"].get<std::vector<Precision>>());
     Phi1_lelm1lm2 = toKokkosView("Phi1_lelm1lm2", file["Phi1_lelm1lm2"].get<std::vector<int>>());
     num_lme = 0;
     auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
@@ -1715,20 +1773,20 @@ void MACEKokkos::load_from_json(std::string filename)
     this->Phi1_lel1l2 = toKokkosView("Phi1_lel1l2", Phi1_lel1l2);
 
     // A1 weights
-    auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();
-    A1_weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<Precision>>>();
+    A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("A1_weights", Kokkos::SequentialHostInit), l_max+1);
-    A1_weights_trans = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+    A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
         Kokkos::view_alloc("A1_weights_trans", Kokkos::SequentialHostInit), l_max+1);
     for (int l=0; l<=l_max; ++l) {
         int num_eta = 0;
         auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
         for (int i=0; i<h_Phi1_l.size(); ++i)
             num_eta += (h_Phi1_l(i) == l);
-        A1_weights(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
+        A1_weights(l) = Kokkos::View<Precision**,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
             num_eta*num_channels, num_channels);
-        A1_weights_trans(l) = Kokkos::View<double**,Kokkos::LayoutRight>(
+        A1_weights_trans(l) = Kokkos::View<Precision**,Kokkos::LayoutRight>(
             Kokkos::view_alloc(std::string("A1_weights_") + std::to_string(l), Kokkos::WithoutInitializing),
             num_channels, num_eta*num_channels);
         auto h_A1_weights_l = Kokkos::create_mirror_view(A1_weights(l));
@@ -1753,7 +1811,7 @@ void MACEKokkos::load_from_json(std::string filename)
         auto A1_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A1_spline_derivs"].get<std::vector<std::vector<double>>>())
             A1_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A1_splines = RadialFunctionSetKokkos(A1_spline_h, A1_spline_values, A1_spline_derivs);
+        A1_splines = RadialFunctionSetKokkos<double>(A1_spline_h, A1_spline_values, A1_spline_derivs);
     }
 
     // M1 weights and monomials
@@ -1827,3 +1885,6 @@ void MACEKokkos::load_from_json(std::string filename)
         std::vector<std::vector<double>>{readout_2_weights_1, readout_2_weights_2},
         file["readout_2_scale_factor"]);
 }
+
+template class MACEKokkos<float>;
+template class MACEKokkos<double>;

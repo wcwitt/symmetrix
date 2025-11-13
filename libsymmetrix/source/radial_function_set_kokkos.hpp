@@ -4,6 +4,7 @@
 
 #include <Kokkos_Core.hpp>
 
+template <typename Precision>
 class RadialFunctionSetKokkos
 {
 public:
@@ -19,8 +20,8 @@ public:
         Kokkos::View<const int*> num_neigh,
         Kokkos::View<const int*> neigh_types,
         Kokkos::View<const double*> r,
-        Kokkos::View<double**,Kokkos::LayoutRight> R,
-        Kokkos::View<double**,Kokkos::LayoutRight> R_deriv) const;
+        Kokkos::View<Precision**,Kokkos::LayoutRight> R,
+        Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const;
     
 private:
     
@@ -28,5 +29,5 @@ private:
     int num_edge_types;
     int num_functions;
     int num_nodes;
-    Kokkos::View<const double****,Kokkos::LayoutRight> coefficients;
+    Kokkos::View<const Precision****,Kokkos::LayoutRight> coefficients;
 };

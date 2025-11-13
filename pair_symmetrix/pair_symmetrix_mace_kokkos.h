@@ -56,7 +56,7 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
 
  protected:
   std::string mode;
-  std::unique_ptr<MACEKokkos> mace;
+  std::unique_ptr<MACEKokkos<double>> mace;
   Kokkos::View<int*> mace_types;
   Kokkos::View<double***,Kokkos::LayoutRight> H1, H1_adj;
 
