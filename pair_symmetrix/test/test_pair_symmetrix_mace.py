@@ -31,10 +31,17 @@ if not os.path.exists("mace-mp-0b3-medium-hea.json"):
         "symmetrix/mace",
         "symmetrix/mace no_domain_decomposition",
         "symmetrix/mace mpi_message_passing",
-        "symmetrix/mace no_mpi_message_passing"
+        "symmetrix/mace no_mpi_message_passing",
+        "symmetrix/mace/float32",
+        "symmetrix/mace/float32 no_domain_decomposition",
+        "symmetrix/mace/float32 mpi_message_passing",
+        "symmetrix/mace/float32 no_mpi_message_passing"
     ]
 )
 def test_h20(cmdargs, pair_style):
+
+    if "float32" in pair_style and "kk" not in cmdargs:
+        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -104,10 +111,17 @@ def test_h20(cmdargs, pair_style):
         "symmetrix/mace",
         "symmetrix/mace no_domain_decomposition",
         "symmetrix/mace mpi_message_passing",
-        "symmetrix/mace no_mpi_message_passing"
+        "symmetrix/mace no_mpi_message_passing",
+        "symmetrix/mace/float32",
+        "symmetrix/mace/float32 no_domain_decomposition",
+        "symmetrix/mace/float32 mpi_message_passing",
+        "symmetrix/mace/float32 no_mpi_message_passing"
     ]
 )
 def test_h20_zbl(cmdargs, pair_style):
+
+    if "float32" in pair_style and "kk" not in cmdargs:
+        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -170,10 +184,17 @@ def test_h20_zbl(cmdargs, pair_style):
         "symmetrix/mace",
         "symmetrix/mace no_domain_decomposition",
         "symmetrix/mace mpi_message_passing",
-        "symmetrix/mace no_mpi_message_passing"
+        "symmetrix/mace no_mpi_message_passing",
+        "symmetrix/mace/float32",
+        "symmetrix/mace/float32 no_domain_decomposition",
+        "symmetrix/mace/float32 mpi_message_passing",
+        "symmetrix/mace/float32 no_mpi_message_passing"
     ]
 )
 def test_water(cmdargs, pair_style):
+
+    if "float32" in pair_style and "kk" not in cmdargs:
+        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -263,10 +284,17 @@ def test_water(cmdargs, pair_style):
         "symmetrix/mace",
         "symmetrix/mace no_domain_decomposition",
         "symmetrix/mace mpi_message_passing",
-        "symmetrix/mace no_mpi_message_passing"
+        "symmetrix/mace no_mpi_message_passing",
+        "symmetrix/mace/float32",
+        "symmetrix/mace/float32 no_domain_decomposition",
+        "symmetrix/mace/float32 mpi_message_passing",
+        "symmetrix/mace/float32 no_mpi_message_passing"
     ]
 )
 def test_hea(cmdargs, pair_style):
+
+    if "float32" in pair_style and "kk" not in cmdargs:
+        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
