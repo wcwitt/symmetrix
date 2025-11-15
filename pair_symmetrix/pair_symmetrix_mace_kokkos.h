@@ -13,12 +13,22 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-PairStyle(symmetrix/mace/kk,PairSymmetrixMACEKokkos<LMPDeviceType,double>);
-PairStyle(symmetrix/mace/kk/device,PairSymmetrixMACEKokkos<LMPDeviceType,double>);
-PairStyle(symmetrix/mace/kk/host,PairSymmetrixMACEKokkos<LMPHostType,double>);
-PairStyle(symmetrix/mace/float32/kk,PairSymmetrixMACEKokkos<LMPDeviceType,float>);
-PairStyle(symmetrix/mace/float32/kk/device,PairSymmetrixMACEKokkos<LMPDeviceType,float>);
-PairStyle(symmetrix/mace/float32/kk/host,PairSymmetrixMACEKokkos<LMPHostType,float>);
+#define PairSymmetrixMACEKokkosDeviceDouble PairSymmetrixMACEKokkos<LMPDeviceType,double>
+#define PairSymmetrixMACEKokkosHostDouble PairSymmetrixMACEKokkos<LMPHostType,double>
+#define PairSymmetrixMACEKokkosDeviceFloat PairSymmetrixMACEKokkos<LMPDeviceType,float>
+#define PairSymmetrixMACEKokkosHostFloat PairSymmetrixMACEKokkos<LMPHostType,float>
+
+PairStyle(symmetrix/mace/kk,PairSymmetrixMACEKokkosDeviceDouble);
+PairStyle(symmetrix/mace/kk/device,PairSymmetrixMACEKokkosDeviceDouble);
+PairStyle(symmetrix/mace/kk/host,PairSymmetrixMACEKokkosHostDouble);
+PairStyle(symmetrix/mace/float32/kk,PairSymmetrixMACEKokkosDeviceFloat);
+PairStyle(symmetrix/mace/float32/kk/device,PairSymmetrixMACEKokkosDeviceFloat);
+PairStyle(symmetrix/mace/float32/kk/host,PairSymmetrixMACEKokkosHostFloat);
+
+#undef PairSymmetrixMACEKokkosDeviceDouble
+#undef PairSymmetrixMACEKokkosHostDouble
+#undef PairSymmetrixMACEKokkosDeviceFloat
+#undef PairSymmetrixMACEKokkosHostFloat
 // clang-format on
 #else
 
