@@ -375,7 +375,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
@@ -591,7 +591,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
@@ -858,7 +858,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
