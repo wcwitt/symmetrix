@@ -191,7 +191,7 @@ double PairSymmetrixMACEKokkos<DeviceType, Precision>::init_one(int i, int j)
 template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::init_style()
 {
-  if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map yes\'");
+  if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace/kk requires newton pair on");
 
   if (mode == "mpi_message_passing") {
