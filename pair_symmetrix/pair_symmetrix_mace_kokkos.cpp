@@ -37,8 +37,8 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-PairSymmetrixMACEKokkos<DeviceType>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
+template<class DeviceType, typename Precision>
+PairSymmetrixMACEKokkos<DeviceType, Precision>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
   : Pair(lmp)
 {
   single_enable = 0;
@@ -60,8 +60,8 @@ PairSymmetrixMACEKokkos<DeviceType>::PairSymmetrixMACEKokkos(LAMMPS *lmp)
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-PairSymmetrixMACEKokkos<DeviceType>::~PairSymmetrixMACEKokkos()
+template<class DeviceType, typename Precision>
+PairSymmetrixMACEKokkos<DeviceType, Precision>::~PairSymmetrixMACEKokkos()
 {
   if (allocated) {
     memory->destroy(setflag);
@@ -72,8 +72,8 @@ PairSymmetrixMACEKokkos<DeviceType>::~PairSymmetrixMACEKokkos()
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute(int eflag, int vflag)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute(int eflag, int vflag)
 {
   if (mode == "no_domain_decomposition") {
     compute_no_domain_decomposition(eflag, vflag);
@@ -90,8 +90,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute(int eflag, int vflag)
    allocate all arrays
 ------------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::allocate()
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::allocate()
 {
   allocated = 1;
 
@@ -107,8 +107,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::allocate()
    global settings
 ------------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::settings(int narg, char **arg)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::settings(int narg, char **arg)
 {
   if (narg == 0) {
     mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
@@ -128,13 +128,13 @@ void PairSymmetrixMACEKokkos<DeviceType>::settings(int narg, char **arg)
    set coeffs for one or more type pairs
 ------------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::coeff(int narg, char **arg)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
 
   utils::logmesg(lmp, "Loading MACEKokkos model from \'{}\' ... ", arg[2]);
-  mace = std::make_unique<MACEKokkos<double>>(arg[2]);
+  mace = std::make_unique<MACEKokkos<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
 
   // extract atomic numbers from pair_coeff
@@ -176,8 +176,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::coeff(int narg, char **arg)
    init for one type pair i,j and corresponding j,i
 ------------------------------------------------------------------------- */
 
-template<class DeviceType>
-double PairSymmetrixMACEKokkos<DeviceType>::init_one(int i, int j)
+template<class DeviceType, typename Precision>
+double PairSymmetrixMACEKokkos<DeviceType, Precision>::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
@@ -188,10 +188,10 @@ double PairSymmetrixMACEKokkos<DeviceType>::init_one(int i, int j)
    init specific to this pair style
 ------------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::init_style()
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::init_style()
 {
-  if (atom->map_user != atom->MAP_YES) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map yes\'");
+  if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace/kk requires newton pair on");
 
   if (mode == "mpi_message_passing") {
@@ -219,8 +219,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::init_style()
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm(int n, int *list, double *buf, int /*pbc_flag*/, int * /*pbc*/)
+template<class DeviceType, typename Precision>
+int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_forward_comm(int n, int *list, double *buf, int /*pbc_flag*/, int * /*pbc*/)
 {
   auto h_H1 = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), H1);
   for (int ii=0; ii<n; ++ii) {
@@ -236,8 +236,8 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm(int n, int *list, dou
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm_kokkos(
+template<class DeviceType, typename Precision>
+int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_forward_comm_kokkos(
     int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_double_1d &buf, int /*pbc_flag*/, int * /*pbc*/)
 {
   const auto d_sendlist = k_sendlist.view<DeviceType>();
@@ -258,8 +258,8 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_forward_comm_kokkos(
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm(int n, int first, double *buf)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_forward_comm(int n, int first, double *buf)
 {
   auto h_H1 = Kokkos::create_mirror_view(H1);
   for (int i=0; i<n; ++i) {
@@ -274,8 +274,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm(int n, int first, 
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm_kokkos(int n, int first, DAT::tdual_double_1d &buf)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_forward_comm_kokkos(int n, int first, DAT::tdual_double_1d &buf)
 {
   auto H1 = this->H1;
   const auto num_channels = mace->num_channels;
@@ -293,8 +293,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_forward_comm_kokkos(int n, int 
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm(int n, int first, double *buf)
+template<class DeviceType, typename Precision>
+int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_reverse_comm(int n, int first, double *buf)
 {
   // TODO: for some reason this does not work as expected, causing problems
   //       for GPU simulations called with -pk kokkos comm/pair/reverse no
@@ -310,8 +310,8 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm(int n, int first, dou
 }
 
 /* ---------------------------------------------------------------------- */
-template<class DeviceType>
-int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm_kokkos(
+template<class DeviceType, typename Precision>
+int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_reverse_comm_kokkos(
     int n, int first, DAT::tdual_double_1d &buf)
 {
   auto d_buf = buf.view<DeviceType>();
@@ -330,8 +330,8 @@ int PairSymmetrixMACEKokkos<DeviceType>::pack_reverse_comm_kokkos(
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm(int n, int *list, double *buf)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_reverse_comm(int n, int *list, double *buf)
 {
   auto h_H1_adj = Kokkos::create_mirror_view(H1_adj);
   for (int ii=0; ii<n; ++ii) {
@@ -347,8 +347,8 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm(int n, int *list, 
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm_kokkos(
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_reverse_comm_kokkos(
     int n, DAT::tdual_int_1d k_sendlist, DAT::tdual_double_1d& buf)
 {
   const auto d_sendlist = k_sendlist.view<DeviceType>();
@@ -370,12 +370,12 @@ void PairSymmetrixMACEKokkos<DeviceType>::unpack_reverse_comm_kokkos(
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int eflag, int vflag)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposition(int eflag, int vflag)
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
@@ -586,12 +586,12 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_domain_decomposition(int ef
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag, int vflag)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
@@ -853,12 +853,12 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_mpi_message_passing(int eflag,
 
 /* ---------------------------------------------------------------------- */
 
-template<class DeviceType>
-void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int eflag, int vflag)
+template<class DeviceType, typename Precision>
+void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.h_view.extent(0)<maxeatom) {
+  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
      memoryKK->destroy_kokkos(k_eatom,eatom);
      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
   }
@@ -1181,8 +1181,10 @@ void PairSymmetrixMACEKokkos<DeviceType>::compute_no_mpi_message_passing(int efl
 /* ---------------------------------------------------------------------- */
 
 namespace LAMMPS_NS {
-template class PairSymmetrixMACEKokkos<LMPDeviceType>;
+template class PairSymmetrixMACEKokkos<LMPDeviceType,double>;
+template class PairSymmetrixMACEKokkos<LMPDeviceType,float>;
 #ifdef LMP_KOKKOS_GPU
-template class PairSymmetrixMACEKokkos<LMPHostType>;
+template class PairSymmetrixMACEKokkos<LMPHostType,double>;
+template class PairSymmetrixMACEKokkos<LMPHostType,float>;
 #endif
 }

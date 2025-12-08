@@ -13,9 +13,22 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-PairStyle(symmetrix/mace/kk,PairSymmetrixMACEKokkos<LMPDeviceType>);
-PairStyle(symmetrix/mace/kk/device,PairSymmetrixMACEKokkos<LMPDeviceType>);
-PairStyle(symmetrix/mace/kk/host,PairSymmetrixMACEKokkos<LMPHostType>);
+#define PairSymmetrixMACEKokkosDeviceDouble PairSymmetrixMACEKokkos<LMPDeviceType,double>
+#define PairSymmetrixMACEKokkosHostDouble PairSymmetrixMACEKokkos<LMPHostType,double>
+#define PairSymmetrixMACEKokkosDeviceFloat PairSymmetrixMACEKokkos<LMPDeviceType,float>
+#define PairSymmetrixMACEKokkosHostFloat PairSymmetrixMACEKokkos<LMPHostType,float>
+
+PairStyle(symmetrix/mace/kk,PairSymmetrixMACEKokkosDeviceDouble);
+PairStyle(symmetrix/mace/kk/device,PairSymmetrixMACEKokkosDeviceDouble);
+PairStyle(symmetrix/mace/kk/host,PairSymmetrixMACEKokkosHostDouble);
+PairStyle(symmetrix/mace/float32/kk,PairSymmetrixMACEKokkosDeviceFloat);
+PairStyle(symmetrix/mace/float32/kk/device,PairSymmetrixMACEKokkosDeviceFloat);
+PairStyle(symmetrix/mace/float32/kk/host,PairSymmetrixMACEKokkosHostFloat);
+
+#undef PairSymmetrixMACEKokkosDeviceDouble
+#undef PairSymmetrixMACEKokkosHostDouble
+#undef PairSymmetrixMACEKokkosDeviceFloat
+#undef PairSymmetrixMACEKokkosHostFloat
 // clang-format on
 #else
 
@@ -30,7 +43,7 @@ PairStyle(symmetrix/mace/kk/host,PairSymmetrixMACEKokkos<LMPHostType>);
 
 namespace LAMMPS_NS {
 
-template<class DeviceType>
+template<class DeviceType, typename Precision = double>
 class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
 
  public:
@@ -52,13 +65,13 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   void unpack_reverse_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_double_1d&) override;
   void compute_no_domain_decomposition(int, int);
   void compute_mpi_message_passing(int, int);
-  void compute_no_mpi_message_passing(int, int);
+ void compute_no_mpi_message_passing(int, int);
 
  protected:
   std::string mode;
-  std::unique_ptr<MACEKokkos<double>> mace;
+  std::unique_ptr<MACEKokkos<Precision>> mace;
   Kokkos::View<int*> mace_types;
-  Kokkos::View<double***,Kokkos::LayoutRight> H1, H1_adj;
+  Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
 
   // neighbor list variables
   Kokkos::View<int*> node_indices;

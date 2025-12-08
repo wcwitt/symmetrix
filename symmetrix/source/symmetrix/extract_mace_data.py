@@ -16,7 +16,7 @@ from mace.tools.scripts_utils import remove_pt_head
 
 from ase.data import chemical_symbols
 
-def extract_mace_data(model, species, head=None, num_spline_points=None):
+def extract_mace_data(model, species, head=None, num_spline_points=256):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
@@ -28,7 +28,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=None):
         list of atomic numbers or chemical symbols to extract
     head: str, default None
         head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
-    num_spline_points: int, default 200
+    num_spline_points: int, default 256
         number of spline points to approximate various functions
 
     Returns
@@ -43,8 +43,6 @@ def extract_mace_data(model, species, head=None, num_spline_points=None):
 
     if species is None:
         species = []
-    if num_spline_points is None:
-        num_spline_points = 200
 
     # extract atomic numbers
     atomic_numbers = []
