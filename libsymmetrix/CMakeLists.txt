@@ -47,6 +47,11 @@ endif()
 
 add_library(symmetrix ${SYMMETRIX_SOURCE_FILES})
 
+# TODO: generalize
+target_compile_options(symmetrix
+    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+            $<$<COMPILE_LANGUAGE:CXX>:-ffast-math>)
+
 target_include_directories(symmetrix
     PUBLIC  source
     PRIVATE external/json/single_include

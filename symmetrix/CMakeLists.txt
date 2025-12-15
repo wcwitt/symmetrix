@@ -1,14 +1,36 @@
 cmake_minimum_required(VERSION 3.16)
 project(Symmetrix)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "Disable IPO.")
 
 # TODO: return to this
-set(SYMMETRIX_KOKKOS ON)
+set(SYMMETRIX_KOKKOS ON CACHE BOOL "Enable Symmetrix-Kokkos.")
+set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Kokkos serial backend.")
+set(Kokkos_ARCH_NATIVE ON CACHE BOOL "Enable Kokkos_ARCH_NATIVE.")
+set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION ON CACHE BOOL "Enable Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION.")
 set(KokkosKernels_INST_DOUBLE OFF CACHE BOOL "Disable explicit instantiation of double kernels.")
 set(KokkosKernels_INST_LAYOUTLEFT OFF CACHE BOOL "Disable explicit instantiation of layoutleft kernels.")
+
+# check for cuda
+include(CheckLanguage)
+check_language(CUDA)
+set(_cuda_found FALSE)
+if(CMAKE_CUDA_COMPILER)
+  set(_cuda_found TRUE)
+endif()
+if(_cuda_found)
+  message(STATUS "Symmetrix: CUDA found.")
+  if(NOT DEFINED Kokkos_ENABLE_CUDA)
+    set(Kokkos_ENABLE_CUDA ON CACHE BOOL)
+    set(SYMMETRIX_SPHERICART_CUDA ON CACHE BOOL)
+  endif()
+endif()
 
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
