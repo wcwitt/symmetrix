@@ -11,9 +11,9 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "Disable IPO.")
 
 # TODO: return to this
 set(SYMMETRIX_KOKKOS ON CACHE BOOL "Enable Symmetrix-Kokkos.")
-set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Kokkos serial backend.")
-set(Kokkos_ARCH_NATIVE ON CACHE BOOL "Enable Kokkos_ARCH_NATIVE.")
-set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION ON CACHE BOOL "Enable Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION.")
+set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Set Kokkos_ENABLE_CUDA.")
+set(Kokkos_ARCH_NATIVE ON CACHE BOOL "Set Kokkos_ARCH_NATIVE.")
+set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION ON CACHE BOOL "Set Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION.")
 set(KokkosKernels_INST_DOUBLE OFF CACHE BOOL "Disable explicit instantiation of double kernels.")
 set(KokkosKernels_INST_LAYOUTLEFT OFF CACHE BOOL "Disable explicit instantiation of layoutleft kernels.")
 
@@ -27,8 +27,8 @@ endif()
 if(_cuda_found)
   message(STATUS "Symmetrix: CUDA found.")
   if(NOT DEFINED Kokkos_ENABLE_CUDA)
-    set(Kokkos_ENABLE_CUDA ON CACHE BOOL)
-    set(SYMMETRIX_SPHERICART_CUDA ON CACHE BOOL)
+    set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Set Kokkos_ENABLE_CUDA.")
+    set(SYMMETRIX_SPHERICART_CUDA ON CACHE BOOL "Enable SpheriCart-CUDA.")
   endif()
 endif()
 
