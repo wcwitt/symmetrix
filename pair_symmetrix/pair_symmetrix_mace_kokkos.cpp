@@ -194,7 +194,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::init_style()
   if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace/kk requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace/kk requires newton pair on");
 
-  if (mode == "mpi_message_passing") {
+  if (mode == "no_domain_decomposition" or mode == "mpi_message_passing") {
     auto request = neighbor->add_request(this, NeighConst::REQ_FULL);
     request->set_kokkos_host(std::is_same_v<DeviceType,LMPHostType> &&
                              !std::is_same_v<DeviceType,LMPDeviceType>);

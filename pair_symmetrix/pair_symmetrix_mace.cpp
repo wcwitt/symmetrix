@@ -172,7 +172,7 @@ void PairSymmetrixMACE::init_style()
   if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace requires newton pair on");
 
-  if (mode == "mpi_message_passing") {
+  if (mode == "no_domain_decomposition" or mode == "mpi_message_passing") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
   } else {
     // enforce the communication cutoff is more than twice the model cutoff
