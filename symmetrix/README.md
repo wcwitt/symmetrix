@@ -8,16 +8,16 @@ cd symmetrix/symmetrix
 pip install .
 ```
 
-On a non-GPU node this will build a CPU-only version, and the `use_kokkos`
-flag to the ASE calculator will switch between serial and OpenMP-kokkkos
+If CUDA is not detected, the defaults will build a CPU-only version, and the `use_kokkos`
+flag to the ASE calculator will switch between non-Kokkos-serial and Kokkkos-OpenMP
 CPU implementations.
 
-If GPU CUDA is available at build time, this should produce a CUDA+kokkos+GPU version
-of the package by default. The `use_kokkos` flag to the ASE calculator
-will then switch between non-kokkos-CPU and kokkos-GPU implementations.
+If CUDA is available at build time, the defaults should produce a Kokkos-CUDA GPU version
+of the package. The `use_kokkos` flag to the ASE calculator
+will then switch between non-Kokkos CPU and Kokkos-CUDA GPU implementations.
 
-If `cmake` settings need to be specified explicitly, they can be passed as
-arguments to the `pip install` command, e.g.
+For other build types, `CMake` settings need to be specified explicitly, and
+they can be passed as arguments to the `pip install` command, e.g.
 ```
 pip install --verbose . \
     --config-settings=cmake.define.CMAKE_BUILD_TYPE=Release \
