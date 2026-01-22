@@ -29,7 +29,7 @@ def test_lammpslib_map(model_cache):
 
     for map_type in [None, "yes", "array", "hash"]:
         lammpslib_kwargs = dict(lmpcmds = [ "pair_style    symmetrix/mace",
-                                           f"pair_coeff    * * {model_cache["mace-mp-0b3-medium-1-8.json"]}     " + " ".join(species)],
+                                           f"pair_coeff    * * {model_cache['mace-mp-0b3-medium-1-8.json']}     " + " ".join(species)],
                                    atom_types = {sp: sp_i+1 for sp_i, sp in enumerate(species)},
                                    lammps_header = ['units metal', 'atom_style atomic', 'atom_modify sort 0 0'])
         if map_type is None:
@@ -53,14 +53,14 @@ def test_lammpslib_default_header(model_cache):
 
     # use default lammps_header, should do "atom_modify map array sort 0 0"
     lammpslib_kwargs = dict(lmpcmds = [ "pair_style    symmetrix/mace",
-                                       f"pair_coeff    * * {model_cache["mace-mp-0b3-medium-1-8.json"]}     " + " ".join(species)],
+                                       f"pair_coeff    * * {model_cache['mace-mp-0b3-medium-1-8.json']}     " + " ".join(species)],
                                atom_types = {sp: sp_i+1 for sp_i, sp in enumerate(species)})
 
     compare_lammpslib_symmetrix(calc_symmetrix, lammpslib_kwargs)
 
     # confirm that without "atom_modify sort 0 0" it fails
     lammpslib_kwargs = dict(lmpcmds = [ "pair_style    symmetrix/mace",
-                                       f"pair_coeff    * * {model_cache["mace-mp-0b3-medium-1-8.json"]}     " + " ".join(species)],
+                                       f"pair_coeff    * * {model_cache['mace-mp-0b3-medium-1-8.json']}     " + " ".join(species)],
                                atom_types = {sp: sp_i+1 for sp_i, sp in enumerate(species)},
                                lammps_header = ['units metal', 'atom_style atomic', 'atom_modify map yes'])
 
