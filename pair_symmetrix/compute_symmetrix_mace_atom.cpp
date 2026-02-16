@@ -28,9 +28,7 @@ ComputeSymmetrixMACEatom::ComputeSymmetrixMACEatom(LAMMPS *lmp, int narg, char *
   mace = std::make_unique<MACE>(model_file);
 
   num_channels = mace->num_channels;
-  std::cout<<"num channels "<<num_channels<<std::endl;
   num_LM = mace->num_LM;
-  std::cout<<"num LM "<<num_LM<<std::endl;
   r_cut = mace->r_cut;
 
   // compute outputs a per-atom ARRAY with num_channels columns (output is invariant features of final layer)
@@ -80,7 +78,6 @@ void ComputeSymmetrixMACEatom::init()
   // same as the pair's mpi_message_passing mode: request full neighbor list
   auto *req = neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
   req->set_cutoff(r_cut);
-  std::cout<<"set cutoff to "<< r_cut <<std::endl;
 }
 
 void ComputeSymmetrixMACEatom::init_list(int /*id*/, NeighList *ptr)
