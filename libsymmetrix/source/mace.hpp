@@ -1,3 +1,5 @@
+#ifndef MACE_HPP_INCLUDED
+#define MACE_HPP_INCLUDED
 #include <memory>
 #include <string>
 #include <vector>
@@ -167,3 +169,4 @@ void compute_readouts(const int num_nodes, std::span<const int> node_types);
 void load_from_json(std::string filename);
 
 };
+#endif
