@@ -18,6 +18,8 @@ ln -sf $(pwd)/pair_symmetrix_mace_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_m
 ln -sf $(pwd)/pair_symmetrix_mace_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_mace_kokkos.cpp
 ln -sf $(pwd)/compute_symmetrix_mace_atom.h ${lammps}/src/compute_symmetrix_mace_atom.h
 ln -sf $(pwd)/compute_symmetrix_mace_atom.cpp ${lammps}/src/compute_symmetrix_mace_atom.cpp
+ln -sf $(pwd)/compute_symmetrix_maced_atom.h ${lammps}/src/compute_symmetrix_maced_atom.h
+ln -sf $(pwd)/compute_symmetrix_maced_atom.cpp ${lammps}/src/compute_symmetrix_maced_atom.cpp
 
 # update lammps build instructions
 echo "
