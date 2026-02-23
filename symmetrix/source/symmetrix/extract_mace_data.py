@@ -503,6 +503,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     readout_1_weights = np.linalg.inv(weights_to_fuse[0,:,:]) @ readout_1_weights
     output['readout_1_weights'] = (readout_1_weights * model.scale_shift.scale.item()).tolist()
 
+    # store inverse of l=0 block for descriptor postprocessing in Symmetrix
+    W0_inv = np.linalg.inv(weights_to_fuse[0, :, :])
+    output["linear_up_l0_inv"] = W0_inv.flatten().tolist()
+
     # nonlinear readout
     #output["mlp_hidden_layers"] = 16 // TODO
     output["readout_2_weights_1"] = (

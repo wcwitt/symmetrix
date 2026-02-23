@@ -12,7 +12,8 @@
 
 #include <algorithm>
 #include <cmath>
-
+#include <iostream>
+#include "cblas.hpp"
 #include "mace.hpp"
 
 using namespace LAMMPS_NS;
@@ -33,7 +34,7 @@ ComputeSymmetrixMACEatom::ComputeSymmetrixMACEatom(LAMMPS *lmp, int narg, char *
 
   // compute outputs a per-atom ARRAY with num_channels columns (output is invariant features of final layer)
   peratom_flag = 1;
-  size_peratom_cols = num_channels;
+  size_peratom_cols = 2*num_channels;
 
   // only do forward comm of H1 for descriptors
   comm_forward = num_LM * num_channels;
@@ -76,7 +77,7 @@ void ComputeSymmetrixMACEatom::init()
     error->all(FLERR, "symmetrix/mace/atom requires 'atom_modify map yes|array|hash'");
 
   // same as the pair's mpi_message_passing mode: request full neighbor list
-  auto *req = neighbor->add_request(this, NeighConst::REQ_FULL | NeighConst::REQ_GHOST);
+  auto *req = neighbor->add_request(this, NeighConst::REQ_FULL);
   req->set_cutoff(r_cut);
 }
 
@@ -182,7 +183,7 @@ void ComputeSymmetrixMACEatom::compute_peratom()
   invoked_peratom = update->ntimestep;
   if (!list) error->all(FLERR, "Neighbour list not initialised for compute symmetrix/mace/atom");
 
-  // allocate output: [nmax][num_channels]
+  // allocate output: [nmax][2*num_channels]
   if (atom->nmax > nmax) {
     if (array_atom) memory->destroy(array_atom);
     nmax = atom->nmax;
@@ -191,7 +192,7 @@ void ComputeSymmetrixMACEatom::compute_peratom()
 
   // initialise per-atom output to 0.0 for atoms not in group (LAMMPS convention)
   for (int i = 0; i < atom->nlocal; ++i) {
-    for (int k = 0; k < num_channels; ++k) array_atom[i][k] = 0.0;
+    for (int k = 0; k < size_peratom_cols; ++k) array_atom[i][k] = 0.0;
   }
 
   int num_nodes = 0, num_edges = 0;
@@ -208,7 +209,6 @@ void ComputeSymmetrixMACEatom::compute_peratom()
 
   const int stride = num_LM * num_channels;
   H1_comm.assign((atom->nlocal + atom->nghost) * stride, 0.0);
-
   for (int ii = 0; ii < num_nodes; ++ii) {
     const int i = node_i[ii];
     const double *src = mace->H1.data() + ii * stride;
@@ -226,13 +226,35 @@ void ComputeSymmetrixMACEatom::compute_peratom()
   mace->compute_M1(num_nodes, node_types);
   mace->compute_H2(num_nodes, node_types);
 
-  // copy H2 (ii-indexed) to per-atom array (atom-indexed) for owned atoms in the compute group
   for (int ii = 0; ii < num_nodes; ++ii) {
-    const int i = node_i[ii];
+  const int i = node_i[ii];
+
     if (i < atom->nlocal && (atom->mask[i] & groupbit)) {
-      const double *src = mace->H2.data() + ii * num_channels;
-      for (int k = 0; k < num_channels; ++k){
-        array_atom[i][k] = src[k];
+      const double *srch2 = mace->H2.data() + ii * num_channels;
+
+      // take l=0 (lm=0) invariant block for atom i:
+      const double *h1_l0 = mace->H1.data() + i * num_channels * num_LM; // points to lm=0 block
+
+      // compute h1_restored = h1_l0 * W0_inv (row major)
+      std::vector<double> h1_restored(num_channels, 0.0);
+
+      cblas_dgemv(
+          CblasRowMajor,
+          CblasTrans,                    
+          num_channels,                  
+          num_channels,                  
+          1.0,
+          mace->linear_up_l0_inv.data(), 
+          num_channels,                 
+          h1_l0,                         
+          1,                             
+          0.0,
+          h1_restored.data(),               
+          1);                           
+
+      for (int k = 0; k < num_channels; ++k) {
+        array_atom[i][k] = h1_restored[k];           // corrected H1 invariants
+        array_atom[i][num_channels + k] = srch2[k];  // H2 invariants as before
       }
     }
   }

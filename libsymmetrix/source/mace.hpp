@@ -162,6 +162,7 @@ void reverse_H2(const int num_nodes, std::span<const int> node_types, bool zero_
 
 // Readouts
 std::vector<double> readout_1_weights;
+std::vector<double> linear_up_l0_inv;
 std::unique_ptr<MultilayerPerceptron> readout_2;
 void compute_readouts(const int num_nodes, std::span<const int> node_types);
 
