@@ -279,7 +279,7 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
 #error "here 2"
     sphericart::cuda::SphericalHarmonics<Precision> sphericart(l_max);
 #elif defined (SYMMETRIX_SPHERICART_SYCL)
-    sphericart::intel::SphericalHarmonics<Precision> sphericart(l_max);
+    sphericart::sycl::SphericalHarmonics<Precision> sphericart(l_max);
 #else 
 #error "NO GPU defined"
 #endif
