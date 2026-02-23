@@ -44,7 +44,7 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
   // Output: per-atom ARRAY with either 3 columns (VJP) or 3C columns per atom.
   peratom_flag = 1;
   if (use_vjp) size_peratom_cols = 3;
-  else         size_peratom_cols = 3 * num_channels;
+  else         size_peratom_cols = 3 * (2 * num_channels);
 
   comm_forward = num_LM * num_channels;
   comm_reverse = num_LM * num_channels;
@@ -112,9 +112,9 @@ void ComputeSymmetrixMACEdatom::init()
     if (!vjp_compute->vector_flag)
       error->all(FLERR, "VJP compute '{}' must provide a global vector", vjp_id);
 
-    if (vjp_compute->size_vector != num_channels)
+    if (vjp_compute->size_vector != 2*num_channels)
       error->all(FLERR, "VJP compute '{}' vector length {} != num_channels {}",
-                 vjp_id, vjp_compute->size_vector, num_channels);
+                 vjp_id, vjp_compute->size_vector, 2*num_channels);
   }
 }
 
@@ -300,7 +300,6 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
   // ----- end forward -----
 
   if (use_vjp) {
-
     // ----- VJP mode: single backward pass seeded by compute vector -----
 
     if (!(vjp_compute->invoked_flag & Compute::INVOKED_VECTOR)) {
@@ -308,13 +307,15 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
       vjp_compute->invoked_flag |= Compute::INVOKED_VECTOR;
     }
     const double *v = vjp_compute->vector;
+    const double *v1 = v;                 // length C
+    const double *v2 = v + num_channels;  // length C
 
     // set all channels for each atom in H2_adj to the vjp input vector
     // We will propagate this backwards via backprop. 
     mace->H2_adj.resize(num_nodes * num_channels);
     for (int ii = 0; ii < num_nodes; ++ii) {
       double *adj = mace->H2_adj.data() + ii * num_channels;
-      for (int k = 0; k < num_channels; ++k) adj[k] = v[k];
+      for (int k = 0; k < num_channels; ++k) adj[k] = v2[k];
     }
 
     mace->node_forces.resize(xyz.size());
@@ -325,6 +326,25 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
     mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
     mace->reverse_A1(num_nodes);
     mace->reverse_Phi1(num_nodes, num_neigh, neigh_j, xyz, r, false, false);
+
+    std::vector<double> seed_raw(num_channels, 0.0);
+
+    for (int row = 0; row < num_channels; ++row) {
+      double s = 0.0;
+      const double *Arow = mace->linear_up_l0_inv.data() + row * num_channels;
+      for (int col = 0; col < num_channels; ++col) s += Arow[col] * v1[col];
+      seed_raw[row] = s;
+    }
+
+    // Add to lm=0 block of H1_adj for each owned node (mapped to atom index i)
+    for (int ii = 0; ii < num_nodes; ++ii) {
+      const int i = node_i[ii];  // atom index
+      double *h1adj_i = mace->H1_adj.data() + i * stride;  // stride = num_LM*num_channels
+      for (int k = 0; k < num_channels; ++k) {
+        h1adj_i[k] += seed_raw[k]; // lm=0 block
+      }
+    }
+
 
     // reverse-comm H1_adj (exactly like pair)
     H1_adj_comm.assign((atom->nlocal + atom->nghost) * stride, 0.0);
@@ -375,12 +395,72 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
 
     // ----- SLOW FULL JACOBIAN MODE: C backward passes -----
     // Output layout: array_atom[i][{0,1,2}*num_channels + kc] = d q_k / d{x,y,z}_i
-    // matches snad/atom output layout.
+    // Layout matches snad/atom: [ x-subblock | y-subblock | z-subblock ], each subblock has K=2*num_channels cols
+
     
     mace->H2_adj.resize(num_nodes * num_channels);
 
+    // Handle H1 block of jac first
     for (int kc = 0; kc < num_channels; ++kc) {
+      
+      // Zero edge-force accumulator for this pass
+      mace->node_forces.resize(xyz.size());
+      std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
 
+
+      // Ensure H1_adj exists & zero it for this pass
+      mace->H1_adj.assign((atom->nlocal + atom->nghost) * stride, 0.0);
+
+      // seed lm=0 block with column kc of A for each owned node i
+      // note we need to undo a linear fusion here to get correct H1 gradients
+      for (int ii = 0; ii < num_nodes; ++ii) {
+        const int i = node_i[ii];
+        double *h1adj_i = mace->H1_adj.data() + i * stride;
+        for (int row = 0; row < num_channels; ++row) {
+          h1adj_i[row] += mace->linear_up_l0_inv[row * num_channels + kc];
+        }
+      }
+
+      // Zero edge forces accumulator for this pass
+      mace->node_forces.assign(xyz.size(), 0.0);
+
+      // only first-layer pipeline
+      mace->reverse_H1(num_nodes);
+      mace->reverse_M0(num_nodes, node_types);
+      mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+      mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+
+      // Scatter 'edge forces' (gradient components) into Jacobian columns:
+      const int col = 0 * num_channels + kc;
+      // flip signs as we want to output positive gradient 
+      // not negative as is standard for the node forces.
+      int ij = 0;
+      for (int ii = 0; ii < num_nodes; ++ii) {
+        const int i = node_i[ii];
+        for (int jj = 0; jj < num_neigh[ii]; ++jj) {
+          const int j = neigh_j[ij];
+
+          const double fx = mace->node_forces[3*ij + 0];
+          const double fy = mace->node_forces[3*ij + 1];
+          const double fz = mace->node_forces[3*ij + 2];
+
+          if (i < atom->nlocal) {
+            array_atom[i][0*(2*num_channels) + col] += fx;
+            array_atom[i][1*(2*num_channels) + col] += fy;
+            array_atom[i][2*(2*num_channels) + col] += fz;
+          }
+          if (j < atom->nlocal) {
+            array_atom[j][0*(2*num_channels) + col] -= fx;
+            array_atom[j][1*(2*num_channels) + col] -= fy;
+            array_atom[j][2*(2*num_channels) + col] -= fz;
+          }
+          ++ij;
+        }
+      }
+    }
+
+    // now handle H2 block
+    for (int kc = 0; kc < num_channels; ++kc) {
       // Seed: d/dH2_{i,kc} = 1 for all i (q_k = sum_i H2_{i,k})
       for (int ii = 0; ii < num_nodes; ++ii) {
         double *adj = mace->H2_adj.data() + ii * num_channels;
@@ -416,8 +496,6 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
       mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
       mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
-      // Layout matches snad/atom: [ x-subblock | y-subblock | z-subblock ], each subblock has K=num_channels cols
-
       int ij = 0;
       for (int ii = 0; ii < num_nodes; ++ii) {
         const int i = node_i[ii];
@@ -428,18 +506,16 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
           const double fy = mace->node_forces[3*ij + 1];
           const double fz = mace->node_forces[3*ij + 2];
 
-          // slow Jacobian pass writes only channel kc
-          // flip signs as we want to output positive gradient 
-          // not negative as is standard for the node forces.
+          const int col = num_channels + kc;
           if (i < atom->nlocal) {
-            array_atom[i][0*num_channels + kc] += fx;  // d q_kc / d x_i
-            array_atom[i][1*num_channels + kc] += fy;  // d q_kc / d y_i
-            array_atom[i][2*num_channels + kc] += fz;  // d q_kc / d z_i
+            array_atom[i][0*(2*num_channels) + col] += fx;  // d q_kc / d x_i
+            array_atom[i][1*(2*num_channels) + col] += fy;  // d q_kc / d y_i
+            array_atom[i][2*(2*num_channels) + col] += fz;  // d q_kc / d z_i
           }
           if (j < atom->nlocal) {
-            array_atom[j][0*num_channels + kc] -= fx;  // d q_kc / d x_j
-            array_atom[j][1*num_channels + kc] -= fy;  // d q_kc / d y_j
-            array_atom[j][2*num_channels + kc] -= fz;  // d q_kc / d z_j
+            array_atom[j][0*(2*num_channels) + col] -= fx;  // d q_kc / d x_j
+            array_atom[j][1*(2*num_channels) + col] -= fy;  // d q_kc / d y_j
+            array_atom[j][2*(2*num_channels) + col] -= fz;  // d q_kc / d z_j
           }
 
           ++ij;
