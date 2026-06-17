@@ -227,3 +227,20 @@ def do_grad_test(atoms, calc, check, ax=None, label=None, plot_factor=1.0):
 
     if check:
         assert passed_f and passed_s
+
+
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_isolated_atoms(model_cache, use_kokkos):
+    # Two atoms beyond the model cutoff produce an empty neighbor list.
+    # Regression test for https://github.com/wcwitt/symmetrix/issues/42
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"], use_kokkos=use_kokkos)
+    atoms = Atoms('OO', cell=[20] * 3, positions=[[0, 0, 0], [10, 0, 0]], pbc=[True] * 3)
+    atoms.calc = calc
+
+    energy = atoms.get_potential_energy()
+    forces = atoms.get_forces()
+
+    assert np.isfinite(energy)
+    assert forces.shape == (2, 3)
+    # isolated atoms feel no forces
+    assert np.allclose(forces, 0.0, atol=1e-8)

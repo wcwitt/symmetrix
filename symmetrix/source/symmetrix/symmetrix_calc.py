@@ -75,7 +75,10 @@ class Symmetrix(Calculator):
         ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
         mace_atomic_numbers = self.evaluator.atomic_numbers
         i_list, j_list, r, xyz = neighbor_list('ijdD', self.atoms, self.cutoff)
-        num_nodes = np.max(i_list) + 1
+        # `num_nodes` is the number of atoms; deriving it from `i_list` fails when
+        # the neighbor list is empty (e.g. isolated atoms beyond the cutoff) and
+        # under-counts if the highest-indexed atoms have no neighbors.
+        num_nodes = len(self.atoms)
         node_types = [mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)]
         num_neigh = np.bincount(j_list, minlength=num_nodes)
         neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
