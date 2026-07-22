@@ -747,7 +747,16 @@ void MACE<Precision>::load_from_json(
     const std::string filename)
 {
     std::ifstream f(filename);
-    nlohmann::json file = nlohmann::json::parse(f);
+    if (!f) {
+        throw std::runtime_error("Could not open model file: " + filename);
+    }
+    nlohmann::json file;
+    try {
+        file = nlohmann::json::parse(f);
+    } catch (const nlohmann::json::parse_error& e) {
+        throw std::runtime_error(
+            "Failed to parse model file '" + filename + "': " + e.what());
+    }
     if (file.value("format_version", 0) != 3)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (file.contains("model_type"))
