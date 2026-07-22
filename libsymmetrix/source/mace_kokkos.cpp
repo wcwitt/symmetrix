@@ -1,4 +1,5 @@
 #include <fstream>
+#include <stdexcept>
 #include <numbers>
 
 // TODO: remove some of these headers?
@@ -1545,7 +1546,16 @@ template <typename Precision>
 void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
-    nlohmann::json file = nlohmann::json::parse(f);
+    if (!f) {
+        throw std::runtime_error("Could not open model file: " + filename);
+    }
+    nlohmann::json file;
+    try {
+        file = nlohmann::json::parse(f);
+    } catch (const nlohmann::json::parse_error& e) {
+        throw std::runtime_error(
+            "Failed to parse model file '" + filename + "': " + e.what());
+    }
     
     // Basic model information
     num_elements = file["num_elements"];
