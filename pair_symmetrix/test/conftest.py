@@ -1,4 +1,4 @@
-import os, sys
+import os
 
 
 # Hacky, prevents bad exit due that doesn't seem directly related to the tests

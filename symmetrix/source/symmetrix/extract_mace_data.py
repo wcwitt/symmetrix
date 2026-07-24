@@ -1,21 +1,19 @@
 import torch
 
-torch.serialization.add_safe_globals([slice])
-
-import os
 import logging
 import itertools
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
 
-from e3nn.o3 import Irrep, Irreps, Linear, wigner_3j
+from e3nn.o3 import Irreps, Linear
 from mace.modules.radial import ZBLBasis
 from mace.tools.cg import U_matrix_real
 from mace.tools.scripts_utils import remove_pt_head
 
 from ase.data import chemical_symbols
+
+torch.serialization.add_safe_globals([slice])
 
 
 def extract_mace_data(model, species, head=None, num_spline_points=256):
@@ -424,7 +422,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
         for j in range(le):
             l1, l2 = (Phi1_l1[j], Phi1_l2[j])
             lelm1lm2 += (2 * l1 + 1) * (2 * l2 + 1)
-        l, l1, l2 = (Phi1_l[le], Phi1_l1[le], Phi1_l2[le])
+        _, l1, l2 = (Phi1_l[le], Phi1_l1[le], Phi1_l2[le])
         return lelm1lm2 + (l1 + m1) * (2 * l2 + 1) + l2 + m2
 
     tp = model.interactions[1].conv_tp.to(device)

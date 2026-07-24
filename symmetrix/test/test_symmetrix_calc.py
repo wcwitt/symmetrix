@@ -5,7 +5,6 @@ import pytest
 
 import os
 import time
-from pathlib import Path
 
 import numpy as np
 
@@ -27,9 +26,8 @@ except ModuleNotFoundError as exc:
 try:
     import mace
     from mace.calculators import MACECalculator
-    from mace.tools.utils import get_cache_dir
     from mace.calculators.foundations_models import download_mace_mp_checkpoint
-except ImportError as exc:
+except ImportError:
     mace = None
 
 
@@ -63,11 +61,11 @@ def test_calc_caching(model_cache, use_kokkos):
     atoms.calc = calc
 
     t0 = time.time()
-    E = atoms.get_potential_energy()
+    atoms.get_potential_energy()
     dt_E = time.time() - t0
 
     t0 = time.time()
-    E = atoms.get_forces()
+    atoms.get_forces()
     dt_F = time.time() - t0
 
     # without perturbation, forces are from cache
@@ -76,7 +74,7 @@ def test_calc_caching(model_cache, use_kokkos):
     atoms.positions[0, 0] += 0.1
 
     t0 = time.time()
-    E = atoms.get_forces()
+    atoms.get_forces()
     dt_F_pert = time.time() - t0
 
     # with perturbation, forces have to be recomputed

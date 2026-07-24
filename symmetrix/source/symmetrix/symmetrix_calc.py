@@ -12,13 +12,12 @@ import numpy as np
 
 try:
     from matscipy.neighbours import neighbour_list as neighbor_list
-except:
+except ImportError:
     logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
     from ase.neighborlist import neighbor_list
 
 from ase.calculators.calculator import (
     Calculator,
-    PropertyNotImplementedError,
     all_changes,
 )
 from ase.stress import full_3x3_to_voigt_6_stress

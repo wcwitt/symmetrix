@@ -1,9 +1,7 @@
 import itertools
 import numpy as np
 from numpy.random import randint
-import os
 from scipy.special import binom
-import sys
 
 import symmetrix
 

@@ -3,7 +3,6 @@ from ase.neighborlist import neighbor_list
 import numpy as np
 import os
 import pytest
-import sys
 from urllib.request import urlretrieve
 
 import symmetrix

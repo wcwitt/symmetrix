@@ -1,7 +1,5 @@
-import os
 import numpy as np
 import pytest
-import sys
 
 from symmetrix import MultilayerPerceptron
 

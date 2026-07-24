@@ -15,3 +15,10 @@ description = "Symmetrix — a package for functions equivariant under: translat
 
 [project.scripts]
 symmetrix_extract_mace = "symmetrix.cli.extract_mace:main"
+
+[tool.ruff]
+lint.ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F403", "E402"]
+"test_*.py" = ["F811"]

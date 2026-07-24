@@ -1,9 +1,6 @@
 import numpy as np
-import os
-import pytest
 from pytest import approx
 from scipy.interpolate import CubicSpline
-import sys
 
 import symmetrix
 

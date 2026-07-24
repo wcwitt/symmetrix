@@ -17,15 +17,13 @@ except ModuleNotFoundError as exc:
         raise
 
 try:
-    import lammps
+    import lammps  # noqa: F401
 except ImportError:
     pytest.skip("No lammps python package available", allow_module_level=True)
 from ase.calculators.lammpslib import LAMMPSlib
 
 
 def test_lammpslib_map(model_cache):
-    rng = np.random.default_rng(3)
-
     calc_symmetrix = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
     species = ["H", "O"]
 
@@ -55,8 +53,6 @@ def test_lammpslib_map(model_cache):
 
 
 def test_lammpslib_default_header(model_cache):
-    rng = np.random.default_rng(3)
-
     calc_symmetrix = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"])
     species = ["H", "O"]
 
