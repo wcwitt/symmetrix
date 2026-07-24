@@ -22,6 +22,8 @@ ln -sf $(pwd)/compute_symmetrix_mace_atom_kokkos.h ${lammps}/src/KOKKOS/compute_
 ln -sf $(pwd)/compute_symmetrix_mace_atom_kokkos.cpp ${lammps}/src/KOKKOS/compute_symmetrix_mace_atom_kokkos.cpp
 ln -sf $(pwd)/compute_symmetrix_maced_atom.h ${lammps}/src/compute_symmetrix_maced_atom.h
 ln -sf $(pwd)/compute_symmetrix_maced_atom.cpp ${lammps}/src/compute_symmetrix_maced_atom.cpp
+ln -sf $(pwd)/compute_symmetrix_maced_atom_kokkos.h ${lammps}/src/KOKKOS/compute_symmetrix_maced_atom_kokkos.h
+ln -sf $(pwd)/compute_symmetrix_maced_atom_kokkos.cpp ${lammps}/src/KOKKOS/compute_symmetrix_maced_atom_kokkos.cpp
 
 # update lammps build instructions
 echo "
