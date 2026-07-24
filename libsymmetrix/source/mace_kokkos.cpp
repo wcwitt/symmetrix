@@ -9,6 +9,11 @@
 #include "nlohmann/json.hpp"
 #include "sphericart.hpp"
 #include "sphericart_cuda.hpp"
+
+#ifdef SYMMETRIX_SPHERICART_SYCL
+#include "sphericart_sycl.hpp"
+#endif
+
 #include "tools_kokkos.hpp"
 
 using Kokkos::ALL;
@@ -174,7 +179,7 @@ void MACEKokkos<Precision>::compute_R1(const int num_nodes, Kokkos::View<const i
 
 template <typename Precision>
 void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
-#ifndef SYMMETRIX_SPHERICART_CUDA
+#if !defined(SYMMETRIX_SPHERICART_CUDA) && !defined(SYMMETRIX_SPHERICART_SYCL)
 
     const int num = xyz.extent(0) / 3;
     if (Y.extent(0) < num * num_lm) {
@@ -234,7 +239,7 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
         KOKKOS_LAMBDA(int i) { Y_grad(i) *= 2 * std::sqrt(M_PI); });
     Kokkos::fence();
 
-#else  // SYMMETRIX_SPHERICART_CUDA
+#else  // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
 
     const int num = xyz.extent(0) / 3;
     const int num_lm = (l_max + 1) * (l_max + 1);
@@ -257,7 +262,11 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::fence();
 
     // call sphericart
+#if defined(SYMMETRIX_SPHERICART_CUDA)
     sphericart::cuda::SphericalHarmonics<Precision> sphericart(l_max);
+#elif defined(SYMMETRIX_SPHERICART_SYCL)
+    sphericart::sycl::SphericalHarmonics<Precision> sphericart(l_max);
+#endif
     sphericart.compute_with_gradients(xyz_shuffled.data(), num, Y.data(), Y_grad.data());
 
     // unshuffle gradient
