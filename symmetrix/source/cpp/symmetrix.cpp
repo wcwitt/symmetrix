@@ -1,6 +1,6 @@
-#include <pybind11/pybind11.h>
 #include <pybind11/complex.h>
 #include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
@@ -20,13 +20,12 @@ void bind_cubic_spline_set_kokkos(py::module_ &m);
 void bind_mace_kokkos(py::module_ &m);
 void bind_multilayer_perceptron_kokkos(py::module_ &m);
 void bind_multivariate_polynomial_kokkos(py::module_ &m);
-//void bind_spherical_harmonic(py::module_ &m);
+// void bind_spherical_harmonic(py::module_ &m);
 void bind_tools_kokkos(py::module_ &m);
 void bind_zbl_kokkos(py::module_ &m);
 #endif
 
-PYBIND11_MODULE(symmetrix, m)
-{
+PYBIND11_MODULE(symmetrix, m) {
     m.doc() = "symmetrix";
 
     bind_cubic_spline(m);
@@ -44,7 +43,7 @@ PYBIND11_MODULE(symmetrix, m)
     bind_mace_kokkos(m);
     bind_multilayer_perceptron_kokkos(m);
     bind_multivariate_polynomial_kokkos(m);
-    //bind_spherical_harmonic_kokkos(m);
+    // bind_spherical_harmonic_kokkos(m);
     bind_tools_kokkos(m);
     bind_zbl_kokkos(m);
 #endif

@@ -1,36 +1,22 @@
-#include <cmath>
-
 #include "zbl.hpp"
 
-ZBL::ZBL()
-{
-}
+#include <cmath>
 
-ZBL::ZBL(double a_exp,
-         double a_prefactor,
-         std::vector<double> c,
-         std::vector<double> covalent_radii,
-         int p)
-    : a_exp(a_exp),
-      a_prefactor(a_prefactor),
-      c(c),
-      covalent_radii(covalent_radii),
-      p(p)
-{
-}
+ZBL::ZBL() {}
 
-double ZBL::compute(const int Z_u, const int Z_v, const double r)
-{
+ZBL::ZBL(double a_exp, double a_prefactor, std::vector<double> c,
+         std::vector<double> covalent_radii, int p)
+    : a_exp(a_exp), a_prefactor(a_prefactor), c(c), covalent_radii(covalent_radii), p(p) {}
+
+double ZBL::compute(const int Z_u, const int Z_v, const double r) {
     const double cov_rad_u = covalent_radii[Z_u];
     const double cov_rad_v = covalent_radii[Z_v];
 
     double Z_u_f = Z_u, Z_v_f = Z_v;
     double a = a_prefactor * 0.529 / (std::pow(Z_u_f, a_exp) + std::pow(Z_v_f, a_exp));
     double r_over_a = r / a;
-    double phi = c[0] * std::exp(c_exps_0 * r_over_a) +
-                 c[1] * std::exp(c_exps_1 * r_over_a) +
-                 c[2] * std::exp(c_exps_2 * r_over_a) +
-                 c[3] * std::exp(c_exps_3 * r_over_a);
+    double phi = c[0] * std::exp(c_exps_0 * r_over_a) + c[1] * std::exp(c_exps_1 * r_over_a) +
+                 c[2] * std::exp(c_exps_2 * r_over_a) + c[3] * std::exp(c_exps_3 * r_over_a);
     double v_edges = v_prefactor * Z_u_f * Z_v_f / r * phi;
     double r_max = cov_rad_u + cov_rad_v;
     double envelope = compute_envelope(r, r_max, p);
@@ -39,8 +25,7 @@ double ZBL::compute(const int Z_u, const int Z_v, const double r)
     return v_edges;
 }
 
-double ZBL::compute_gradient(const int Z_u, const int Z_v, const double r)
-{
+double ZBL::compute_gradient(const int Z_u, const int Z_v, const double r) {
     const double cov_rad_u = covalent_radii[Z_u];
     const double cov_rad_v = covalent_radii[Z_v];
 
@@ -75,9 +60,9 @@ double ZBL::compute_envelope(const double r, const double r_max, const int p) {
         return 0.0;
     }
     double r_over_r_max = r / r_max;
-    double v = (1.0 - ((p + 1.0) * (p + 2.0) / 2.0) * std::pow(r_over_r_max, p)
-                    + p * (p + 2.0) * std::pow(r_over_r_max, p + 1)
-                    - (p * (p + 1.0) / 2.0) * std::pow(r_over_r_max, p + 2));
+    double v = (1.0 - ((p + 1.0) * (p + 2.0) / 2.0) * std::pow(r_over_r_max, p) +
+                p * (p + 2.0) * std::pow(r_over_r_max, p + 1) -
+                (p * (p + 1.0) / 2.0) * std::pow(r_over_r_max, p + 2));
     return v;
 }
 
@@ -86,29 +71,23 @@ double ZBL::compute_envelope_gradient(const double r, const double r_max, const 
         return 0.0;
     }
     double r_over_r_max = r / r_max;
-    double v = (- ((p + 1.0) * (p + 2.0) / 2.0) * p * std::pow(r_over_r_max, p - 1)
-                + p * (p + 2.0) * (p + 1.0) * std::pow(r_over_r_max, p)
-                - (p * (p + 1.0) / 2.0) * (p + 2.0) * std::pow(r_over_r_max, p + 1));
+    double v = (-((p + 1.0) * (p + 2.0) / 2.0) * p * std::pow(r_over_r_max, p - 1) +
+                p * (p + 2.0) * (p + 1.0) * std::pow(r_over_r_max, p) -
+                (p * (p + 1.0) / 2.0) * (p + 2.0) * std::pow(r_over_r_max, p + 1));
     v /= r_max;
     return v;
 }
 
-void ZBL::compute_ZBL(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const int> atomic_numbers,
-    std::span<const double> r,
-    std::span<const double> xyz,
-    std::span<double> node_energies,
-    std::span<double> node_forces)
-{
+void ZBL::compute_ZBL(const int num_nodes, std::span<const int> node_types,
+                      std::span<const int> num_neigh, std::span<const int> neigh_types,
+                      std::span<const int> atomic_numbers, std::span<const double> r,
+                      std::span<const double> xyz, std::span<double> node_energies,
+                      std::span<double> node_forces) {
     int ij = 0;
-    for (int i=0; i<num_nodes; ++i) {
+    for (int i = 0; i < num_nodes; ++i) {
         const int type_i = node_types[i];
         const int Z_i = atomic_numbers[type_i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int j = 0; j < num_neigh[i]; ++j) {
             const int type_j = neigh_types[ij];
             const int Z_j = atomic_numbers[type_j];
             // energy
@@ -116,9 +95,9 @@ void ZBL::compute_ZBL(
             node_energies[i] += f;
             // forces
             const double g = compute_gradient(Z_i, Z_j, r[ij]);
-            node_forces[3*ij]   -= xyz[3*ij]   / r[ij] * g;
-            node_forces[3*ij+1] -= xyz[3*ij+1] / r[ij] * g;
-            node_forces[3*ij+2] -= xyz[3*ij+2] / r[ij] * g;
+            node_forces[3 * ij] -= xyz[3 * ij] / r[ij] * g;
+            node_forces[3 * ij + 1] -= xyz[3 * ij + 1] / r[ij] * g;
+            node_forces[3 * ij + 2] -= xyz[3 * ij + 2] / r[ij] * g;
             ij += 1;
         }
     }

@@ -74,4 +74,3 @@ if (SYMMETRIX_SPHERICART_CUDA)
     message(STATUS "Symmetrix: Will use CUDA version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_CUDA)
 endif()
-

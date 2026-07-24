@@ -1,13 +1,12 @@
-#include <pybind11/pybind11.h>
-#include <pybind11/complex.h>
-#include <pybind11/stl.h>
-
 #include "spherical_harmonic.hpp"
+
+#include <pybind11/complex.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
 
-void bind_spherical_harmonic(py::module_ &m)
-{
+void bind_spherical_harmonic(py::module_ &m) {
     m.def("sph_harm", &sph_harm, "Spherical harmonic.");
     m.def("sph_harm_xyz", &sph_harm_xyz, "Spherical harmonic.");
     m.def("real_sph_harm", &real_sph_harm, "Spherical harmonic.");
