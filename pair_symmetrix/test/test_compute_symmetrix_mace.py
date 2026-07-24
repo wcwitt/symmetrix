@@ -6,17 +6,19 @@ the same pattern test_mace.py in symmetrix/test/ uses for the raw
 forward/reverse layer values, just carried through to the final
 [h1_restored | H2] descriptor these computes expose.
 
-Parametrized over cmdargs exactly like test_pair_symmetrix_mace.py: plain
-CPU vs `-k on -sf kk` (Kokkos/GPU). This is what actually exercises
-compute_symmetrix_mace_atom_kokkos / compute_symmetrix_maced_atom_kokkos --
-under -sf kk, `compute ... symmetrix/mace(d)/atom ...` auto-resolves to
-the /kk variant if one's registered.
+Parametrized over cmdargs: plain CPU vs `-k on g 1 -sf kk -pk kokkos
+newton on neigh half` (Kokkos/GPU, matching skmd.lammps_setup.make_lammps's
+cmdargs). This is what actually exercises compute_symmetrix_mace_atom_kokkos
+/ compute_symmetrix_maced_atom_kokkos -- under -sf kk, `compute ...
+symmetrix/mace(d)/atom ...` auto-resolves to the /kk variant if one's
+registered. The explicit `g 1` is required: on a LAMMPS build compiled
+with a GPU-enabled Kokkos backend, `-k on` alone errors with "Kokkos has
+been compiled with GPU-enabled backend but no GPUs are requested" --
+unlike test_pair_symmetrix_mace.py's bare `-k on -sf kk`, which only
+works on a host/serial-only Kokkos build.
 
 Not wired into CI -- run manually, e.g.:
     pytest test_compute_symmetrix_mace.py -v
-On a machine without a GPU, the "-k on -sf kk" cases will run Kokkos in
-whatever host/serial backend the LAMMPS build was configured with (still
-exercises the /kk code path, just not on-device).
 """
 
 import json
@@ -131,7 +133,11 @@ def build_lammps(cmdargs):
 
 CMDARGS = [
     pytest.param(["-screen", "none"], id="cpu"),
-    pytest.param(["-screen", "none", "-k", "on", "-sf", "kk"], id="kokkos"),
+    pytest.param(
+        ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
+         "-pk", "kokkos", "newton", "on", "neigh", "half"],
+        id="kokkos",
+    ),
 ]
 
 
