@@ -23,9 +23,12 @@ Not wired into CI -- run manually, e.g.:
 
 import json
 import os
+import tempfile
+from pathlib import Path
 from urllib.request import urlretrieve
 
 import ase
+from ase.io.lammpsdata import write_lammps_data
 from ase.neighborlist import neighbor_list
 import numpy as np
 import pytest
@@ -104,30 +107,39 @@ def reference_descriptor(positions):
 
 
 def build_lammps(cmdargs):
+    # A single read_data call, not multiple create_atoms calls: LAMMPS/Kokkos
+    # has a known, unresolved upstream bug where AtomKokkos::map_set_device()
+    # segfaults (cudaErrorIllegalAddress) when create_atoms is invoked more
+    # than once in a session with atom_modify map active --
+    # https://matsci.org/t/using-lammps-create-atoms-and-run-0-in-a-kokkos-cuda-interface/59054
+    # read_data doesn't hit this path, and it's also what
+    # skmd.lammps_setup.load_config_into_lammps actually uses in production,
+    # so this is a closer match to the real usage pattern anyway.
+    atoms = ATOMS.copy()
+    atoms.set_cell([20.0, 20.0, 20.0])
+    atoms.set_pbc(True)
+
     lmp = lammps(cmdargs=cmdargs)
-    lmp.commands_string(f"""
-        clear
-        units           metal
-        atom_style      atomic
-        atom_modify     map yes sort 0 0
-        boundary        p p p
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_path = str(Path(tmpdir) / "system.data")
+        write_lammps_data(data_path, atoms, atom_style="atomic", specorder=ELEMENTS)
+        lmp.commands_string(f"""
+            clear
+            units           metal
+            atom_style      atomic
+            atom_modify     map yes sort 0 0
+            boundary        p p p
 
-        region          box block -10 10 -10 10 -10 10
-        create_box      2 box
-        create_atoms    2 single  0.0 -2.0  0.0 units box
-        create_atoms    1 single  1.0  0.0  0.0 units box
-        create_atoms    1 single  0.0  1.0  0.0 units box
-        mass            1 1.008
-        mass            2 15.999
+            read_data       {data_path}
 
-        pair_style      symmetrix/mace
-        pair_coeff      * * {MODEL_FILE} H O
+            pair_style      symmetrix/mace
+            pair_coeff      * * {MODEL_FILE} H O
 
-        compute         macedesc all symmetrix/mace/atom {MODEL_FILE} H O
-        compute         macedescgrad all symmetrix/maced/atom {MODEL_FILE} H O
+            compute         macedesc all symmetrix/mace/atom {MODEL_FILE} H O
+            compute         macedescgrad all symmetrix/maced/atom {MODEL_FILE} H O
 
-        run 0
-    """)
+            run 0
+        """)
     return lmp
 
 
