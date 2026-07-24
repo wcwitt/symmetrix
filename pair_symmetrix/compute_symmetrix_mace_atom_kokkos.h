@@ -23,9 +23,19 @@
 
 #ifdef COMPUTE_CLASS
 // clang-format off
-ComputeStyle(symmetrix/mace/atom/kk,ComputeSymmetrixMACEatomKokkos<LMPDeviceType,double>);
-ComputeStyle(symmetrix/mace/atom/kk/device,ComputeSymmetrixMACEatomKokkos<LMPDeviceType,double>);
-ComputeStyle(symmetrix/mace/atom/kk/host,ComputeSymmetrixMACEatomKokkos<LMPHostType,double>);
+// The C preprocessor doesn't parse C++ templates -- a raw
+// Foo<LMPDeviceType,double> inside ComputeStyle(...) has its comma read as
+// an extra macro argument. Alias to a single token first, same trick
+// pair_symmetrix_mace_kokkos.h uses for PairStyle(...).
+#define ComputeSymmetrixMACEatomKokkosDeviceDouble ComputeSymmetrixMACEatomKokkos<LMPDeviceType,double>
+#define ComputeSymmetrixMACEatomKokkosHostDouble ComputeSymmetrixMACEatomKokkos<LMPHostType,double>
+
+ComputeStyle(symmetrix/mace/atom/kk,ComputeSymmetrixMACEatomKokkosDeviceDouble);
+ComputeStyle(symmetrix/mace/atom/kk/device,ComputeSymmetrixMACEatomKokkosDeviceDouble);
+ComputeStyle(symmetrix/mace/atom/kk/host,ComputeSymmetrixMACEatomKokkosHostDouble);
+
+#undef ComputeSymmetrixMACEatomKokkosDeviceDouble
+#undef ComputeSymmetrixMACEatomKokkosHostDouble
 // clang-format on
 #else
 
@@ -58,6 +68,12 @@ class ComputeSymmetrixMACEatomKokkos : public Compute, public KokkosBase {
   int pack_forward_comm_kokkos(int, DAT::tdual_int_1d, DAT::tdual_double_1d &, int, int *) override;
   void unpack_forward_comm(int, int, double *) override;
   void unpack_forward_comm_kokkos(int, int, DAT::tdual_double_1d &) override;
+
+  // Public (not protected) because each contains Kokkos device lambdas:
+  // nvcc requires the enclosing function of an extended __host__ __device__
+  // lambda to not be private/protected.
+  void compute_no_domain_decomposition(int num_nodes);
+  void compute_mpi_message_passing(int num_nodes);
 
  protected:
   class NeighList *list = nullptr;
@@ -93,9 +109,6 @@ class ComputeSymmetrixMACEatomKokkos : public Compute, public KokkosBase {
   int num_LM = 0;
   double r_cut = 0.0;
   int nmax = 0;
-
-  void compute_no_domain_decomposition(int num_nodes);
-  void compute_mpi_message_passing(int num_nodes);
 
   const std::array<std::string, 118> periodic_table = {
       "H",  "He", "Li", "Be", "B",  "C",  "N",  "O",  "F",  "Ne", "Na", "Mg", "Al", "Si",
