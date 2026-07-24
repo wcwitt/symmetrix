@@ -115,7 +115,14 @@ def build_lammps(cmdargs):
     # read_data doesn't hit this path, and it's also what
     # skmd.lammps_setup.load_config_into_lammps actually uses in production,
     # so this is a closer match to the real usage pattern anyway.
+    # ATOMS's positions (e.g. (0,-2,0)) were chosen for a box centered on
+    # the origin (the old create_atoms version used `region box block -10
+    # 10 -10 10 -10 10`). A cell of [20,20,20] implies a [0,20) box instead
+    # -- shifting by +10 in each dimension keeps every atom comfortably
+    # inside it, away from a periodic boundary (translation doesn't affect
+    # the descriptor, which only depends on relative positions).
     atoms = ATOMS.copy()
+    atoms.translate([10.0, 10.0, 10.0])
     atoms.set_cell([20.0, 20.0, 20.0])
     atoms.set_pbc(True)
 
