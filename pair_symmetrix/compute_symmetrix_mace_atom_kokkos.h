@@ -103,7 +103,12 @@ class ComputeSymmetrixMACEatomKokkos : public Compute, public KokkosBase {
   // descriptors). [num_channels][num_channels], row-major.
   Kokkos::View<double **> linear_up_l0_inv;
 
-  Kokkos::DualView<double **, DeviceType> k_array_atom;
+  // LayoutRight is required by memoryKK::create_kokkos/destroy_kokkos to
+  // alias with the legacy double** array_atom (see memory_kokkos.h's
+  // static_assert) -- the DualView's default layout for a 2D array
+  // depends on the execution space (LayoutLeft on CUDA), so it must be
+  // named explicitly rather than left to the DeviceType default.
+  Kokkos::DualView<double **, Kokkos::LayoutRight, DeviceType> k_array_atom;
 
   int num_channels = 0;
   int num_LM = 0;
