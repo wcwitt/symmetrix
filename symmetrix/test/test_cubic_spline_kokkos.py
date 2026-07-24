@@ -22,10 +22,11 @@ def test_invalid_input():
 
 
 def test_evaluate():
+
     # generate data
     r_cut = 5
     r, h = np.linspace(0, r_cut, 20, retstep=True)
-    f = np.sin(r) * r**2 * (r_cut - r) ** 2
+    f = np.sin(r) * r**2 * (r_cut-r)**2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
@@ -40,16 +41,14 @@ def test_evaluate():
     for r in [-1.0, r_cut + 1e-12, 9.0]:
         with raises(ValueError) as exception:
             spl.evaluate(r)
-        assert str(exception.value).startswith(
-            "Out of bounds in CubicSplineKokkos::evaluate."
-        )
-
+        assert str(exception.value).startswith("Out of bounds in CubicSplineKokkos::evaluate.")
 
 def test_evaluate_deriv():
+
     # generate data
     r_cut = 5
     r, h = np.linspace(0, r_cut, 20, retstep=True)
-    f = np.sin(r) * r**2 * (r_cut - r) ** 2
+    f = np.sin(r) * r**2 * (r_cut-r)**2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
@@ -66,16 +65,14 @@ def test_evaluate_deriv():
     for r in [-1.0, r_cut + 1e-12, 9.0]:
         with raises(ValueError) as exception:
             _ = spl.evaluate_deriv(r)
-        assert str(exception.value).startswith(
-            "Out of bounds in CubicSplineKokkos::evaluate_deriv."
-        )
-
+        assert str(exception.value).startswith("Out of bounds in CubicSplineKokkos::evaluate_deriv.")
 
 def test_evaluate_deriv_divided():
+
     # generate data
     r_cut = 5
     r, h = np.linspace(0, r_cut, 20, retstep=True)
-    f = np.sin(r) * r**2 * (r_cut - r) ** 2
+    f = np.sin(r) * r**2 * (r_cut-r)**2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
@@ -92,6 +89,4 @@ def test_evaluate_deriv_divided():
     for r in [-1.0, 0.0, r_cut + 1e-12, 9.0]:
         with raises(ValueError) as exception:
             _ = spl.evaluate_deriv_divided(r)
-        assert str(exception.value).startswith(
-            "Out of bounds in CubicSplineKokkos::evaluate_deriv_divided."
-        )
+        assert str(exception.value).startswith("Out of bounds in CubicSplineKokkos::evaluate_deriv_divided.")

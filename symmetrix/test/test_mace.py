@@ -9,26 +9,22 @@ from urllib.request import urlretrieve
 import symmetrix
 
 if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
-        "MACE-OFF23_small-1-8.json",
-    )
+    urlretrieve("https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
+                "MACE-OFF23_small-1-8.json")
 
 if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
-        "mace-mp-0b3-medium-1-8.json",
-    )
+    urlretrieve("https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
+                "mace-mp-0b3-medium-1-8.json")
 
 model = "mace-off-small"
-# model = "mace-off-medium"
-# model = "mace-off-large"
-# model = "mace-mp-small"
-# model = "mace-mp-medium"
-# model = "mace-mp-large"
-# model = "mace-mpa-medium"
-# model = "mace-mp-0b3-medium"
-# model = "mace-omat-0-medium"
+#model = "mace-off-medium"
+#model = "mace-off-large"
+#model = "mace-mp-small"
+#model = "mace-mp-medium"
+#model = "mace-mp-large"
+#model = "mace-mpa-medium"
+#model = "mace-mp-0b3-medium"
+#model = "mace-omat-0-medium"
 
 kokkos = False
 if kokkos:
@@ -37,7 +33,7 @@ if kokkos:
         symmetrix._init_kokkos()
 else:
     MACE = symmetrix.MACE
-
+    
 # load model
 if model == "mace-off-small":
     evaluator = MACE("MACE-OFF23_small-1-8.json")
@@ -59,21 +55,20 @@ elif model == "mace-omat-0-medium":
     evaluator = MACE("mace-omat-0-medium-1-8.json")
 
 # prepare for tests
-atoms = ase.Atoms("OHH", positions=[[0.0, -2.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+atoms = ase.Atoms('OHH',
+    positions=[[0.0, -2.0, 0.0],
+               [1.0, 0.0, 0.0],
+               [0.0, 1.0, 0.0]])
 ase_atomic_numbers = atoms.get_atomic_numbers().tolist()
 mace_atomic_numbers = evaluator.atomic_numbers
-i_list, j_list, r, xyz = neighbor_list("ijdD", atoms, 5.0)
-xyz = -xyz  # TODO: why exactly is this necessary!?
-num_nodes = np.max(i_list) + 1
-node_types = [
-    mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)
-]
+i_list, j_list, r, xyz = neighbor_list('ijdD', atoms, 5.0)
+xyz = -xyz # TODO: why exactly is this necessary!?
+num_nodes = np.max(i_list)+1
+node_types = [mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)]
 num_neigh = [sum(j_list == i) for i in range(num_nodes)]
 neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
 evaluator.compute_node_energies_forces(
-    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
-)
-
+    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
 
 def numerical_gradient(f, x):
     h = 1e-4
@@ -81,24 +76,24 @@ def numerical_gradient(f, x):
     for i in range(len(x)):
         x[i] += h
         fp = f(x)
-        x[i] -= 2 * h
+        x[i] -= 2*h
         fm = f(x)
         x[i] += h
-        grad[i] = (fp - fm) / (2 * h)
+        grad[i] = (fp-fm)/(2*h)
     f(x)  # reverts side effects of applying f(x+h)
     return grad
 
 
-# def test_Y():
-# TODO
+#def test_Y():
+    # TODO
 
 
-# def test_R0():
+#def test_R0():
 #
 #    ### FORWARD
 #    evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
 #    if model == "mace-off-small":
-#        R0_sum = 21.20435772182849
+#        R0_sum = 21.20435772182849 
 #    elif model == "mace-off-medium":
 #        R0_sum = -21.480436737535587
 #    elif model == "mace-off-large":
@@ -110,7 +105,7 @@ def numerical_gradient(f, x):
 #    elif model == "mace-mp-large":
 #        R0_sum = -132.59276393205272
 #    elif model == "mace-mpa-medium":
-#        R0_sum = -39.38919552881708
+#        R0_sum = -39.38919552881708 
 #    elif model == "mace-mp-0b3-medium":
 #        R0_sum = 72.27732642745596
 #    elif model == "mace-omat-0-medium":
@@ -122,6 +117,7 @@ def numerical_gradient(f, x):
 
 
 def test_A0():
+
     ### FORWARD
     if model == "mace-off-small":
         A0_sum = 0.5140705628937071
@@ -138,7 +134,7 @@ def test_A0():
     elif model == "mace-mpa-medium":
         A0_sum = -7.991043151569456
     elif model == "mace-mp-0b3-medium":
-        A0_sum = 10.329510160691235
+        A0_sum = 10.329510160691235 
     elif model == "mace-omat-0-medium":
         A0_sum = -21.88004976955362
     evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
@@ -147,21 +143,16 @@ def test_A0():
     assert sum(evaluator.A0) == pytest.approx(A0_sum, abs=1e-4)
 
     def f(xyz_flat):
-        r = np.sqrt(
-            np.sum(np.reshape(xyz_flat * xyz_flat, [xyz_flat.size // 3, 3]), axis=1)
-        )
+        r = np.sqrt(np.sum(np.reshape(xyz_flat*xyz_flat, [xyz_flat.size//3,3]), axis=1))
         evaluator.compute_R0(num_nodes, node_types, num_neigh, neigh_types, r)
         evaluator.compute_Y(xyz_flat)
         evaluator.compute_A0(num_nodes, node_types, num_neigh, neigh_types)
         return np.sum(evaluator.A0)
-
     # compute analytical forces
     f(xyz.flatten())
     evaluator.A0_adj = np.ones(len(evaluator.A0))
     evaluator.node_forces = np.zeros(xyz.size)
-    evaluator.reverse_A0(
-        num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r
-    )
+    evaluator.reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r)
     node_forces = evaluator.node_forces
     # compare with numerical forces
     node_forces_num = -numerical_gradient(f, xyz.flatten())
@@ -169,6 +160,7 @@ def test_A0():
 
 
 def test_A0_scaled():
+
     # store A0_unscaled
     evaluator.compute_A0(num_nodes, node_types, num_neigh, neigh_types)
     A0_unscaled = np.array(evaluator.A0)
@@ -191,51 +183,42 @@ def test_A0_scaled():
     elif model == "mace-mp-0b3-medium":
         A0_sum = 9.440126671650006
     elif model == "mace-omat-0-medium":
-        A0_sum = -20.379975414199357
+        A0_sum = -20.379975414199357 
     evaluator.compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
     assert sum(evaluator.A0) == pytest.approx(A0_sum, abs=1e-4)
 
     ### REVERSE
     # define f(xyz)=sum(A0), used to test dA0/dxyz
     def f(xyz_flat):
-        r = np.sqrt(
-            np.sum(np.reshape(xyz_flat * xyz_flat, [xyz_flat.size // 3, 3]), axis=1)
-        )
+        r = np.sqrt(np.sum(np.reshape(xyz_flat*xyz_flat, [xyz_flat.size//3,3]), axis=1))
         evaluator.A0 = A0_unscaled
         evaluator.compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
         return np.sum(evaluator.A0)
-
     # compute analytical forces
     f(xyz.flatten())
     evaluator.node_forces = np.zeros(len(xyz.flatten()))
     evaluator.A0_adj = np.ones(len(evaluator.A0))
-    evaluator.reverse_A0_scaled(
-        num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r
-    )
+    evaluator.reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r)
     node_forces = evaluator.node_forces
     # compare with numerical forces
     node_forces_num = -numerical_gradient(f, xyz.flatten())
     assert np.allclose(node_forces, node_forces_num, rtol=1e-4, atol=1e-6)
-
     # define f(A0)=sum(A0_scaled), used to test dA0_scaled/dA0
     def f(A0):
         evaluator.A0 = A0
         evaluator.compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
         return np.sum(evaluator.A0)
-
     # compute analytical gradient
     f(A0_unscaled)
     evaluator.A0_adj = np.ones(len(evaluator.A0))
-    evaluator.reverse_A0_scaled(
-        num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r
-    )
+    evaluator.reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r)
     g = evaluator.A0_adj
     # compare with numerical gradient
     g_num = numerical_gradient(f, A0_unscaled)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
 
-
 def test_M0():
+
     ### FORWARD
     if model == "mace-off-small":
         M0_sum = -0.22431147864930753
@@ -264,7 +247,6 @@ def test_M0():
         evaluator.A0 = A0
         evaluator.compute_M0(num_nodes, node_types)
         return np.sum(evaluator.M0)
-
     # compute analytical gradient
     f(evaluator.A0)
     evaluator.M0_adj = np.ones(len(evaluator.M0))
@@ -276,6 +258,7 @@ def test_M0():
 
 
 def test_H1():
+
     ### FORWARD
     if model == "mace-off-small":
         H1_sum = 3.030576444359059
@@ -305,7 +288,6 @@ def test_H1():
         evaluator.M0 = M0
         evaluator.compute_H1(num_nodes)
         return np.sum(evaluator.H1)
-
     # compute analytical gradient
     f(evaluator.M0)
     evaluator.H1_adj = np.ones(len(evaluator.H1))
@@ -317,9 +299,10 @@ def test_H1():
 
 
 def test_R1():
+
     ### FORWARD
     if model == "mace-off-small":
-        R1_sum = 35.985092839298346
+        R1_sum = 35.985092839298346 
     elif model == "mace-off-medium":
         R1_sum = -118.43918364181435
     elif model == "mace-off-large":
@@ -344,11 +327,12 @@ def test_R1():
 
 
 def test_Phi1():
+
     ### FORWARD
     if model == "mace-off-small":
         Phi1_sum = 1.414641743513294
     elif model == "mace-off-medium":
-        Phi1_sum = -11.473894785398894
+        Phi1_sum = -11.473894785398894 
     elif model == "mace-off-large":
         Phi1_sum = -5.03354101033154
     elif model == "mace-mp-small":
@@ -358,7 +342,7 @@ def test_Phi1():
     elif model == "mace-mp-large":
         Phi1_sum = -8.217173578481036
     elif model == "mace-mpa-medium":
-        Phi1_sum = 47.18438578544733
+        Phi1_sum = 47.18438578544733 
     elif model == "mace-mp-0b3-medium":
         Phi1_sum = 12.53997938705195
     elif model == "mace-omat-0-medium":
@@ -371,14 +355,11 @@ def test_Phi1():
     ### REVERSE
     # define f(xyz)=sum(Phi1), used to test dPhi1/dxyz
     def f(xyz_flat):
-        r = np.sqrt(
-            np.sum(np.reshape(xyz_flat * xyz_flat, [xyz_flat.size // 3, 3]), axis=1)
-        )
+        r = np.sqrt(np.sum(np.reshape(xyz_flat*xyz_flat, [xyz_flat.size//3,3]), axis=1))
         evaluator.compute_R1(num_nodes, node_types, num_neigh, neigh_types, r)
         evaluator.compute_Y(xyz_flat)
         evaluator.compute_Phi1(num_nodes, num_neigh, j_list)
         return np.sum(evaluator.Phi1)
-
     # compute analytical forces
     f(xyz.flatten())
     evaluator.Phi1_adj = np.ones(len(evaluator.Phi1))
@@ -388,13 +369,11 @@ def test_Phi1():
     # compare with numerical forces
     node_forces_num = -numerical_gradient(f, xyz.flatten())
     assert np.allclose(node_forces, node_forces_num, rtol=1e-4, atol=1e-6)
-
     # define f(H1)=sum(Phi1), used to test dPhi1/dH1
     def f(H1):
         evaluator.H1 = H1
         evaluator.compute_Phi1(num_nodes, num_neigh, j_list)
         return np.sum(evaluator.Phi1)
-
     # compute analytical gradient
     f(evaluator.H1)
     evaluator.Phi1_adj = np.ones(len(evaluator.Phi1))
@@ -407,9 +386,10 @@ def test_Phi1():
 
 
 def test_A1():
+
     ### FORWARD
     if model == "mace-off-small":
-        A1_sum = 0.2854230509340355
+        A1_sum = 0.2854230509340355 
     elif model == "mace-off-medium":
         A1_sum = 1.0645744085666808
     elif model == "mace-off-large":
@@ -419,7 +399,7 @@ def test_A1():
     elif model == "mace-mp-medium":
         A1_sum = 4.865592770455143
     elif model == "mace-mp-large":
-        A1_sum = -2.9562330922326314
+        A1_sum = -2.9562330922326314 
     elif model == "mace-mpa-medium":
         A1_sum = -0.9342584160946092
     elif model == "mace-mp-0b3-medium":
@@ -435,7 +415,6 @@ def test_A1():
         evaluator.Phi1 = Phi1
         evaluator.compute_A1(num_nodes)
         return np.sum(evaluator.A1)
-
     # compute analytical gradient
     f(evaluator.Phi1)
     evaluator.A1_adj = np.ones(len(evaluator.A1))
@@ -445,15 +424,15 @@ def test_A1():
     g_num = numerical_gradient(f, evaluator.Phi1)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
 
-
 def test_A1_scaled():
+
     # store A1_unscaled
     evaluator.compute_A1(num_nodes)
     A1_unscaled = np.array(evaluator.A1)
 
     ### FORWARD
     if model == "mace-off-small":
-        A1_sum = 0.2854230509340355
+        A1_sum = 0.2854230509340355 
     elif model == "mace-off-medium":
         A1_sum = 1.0645744085666808
     elif model == "mace-off-large":
@@ -465,7 +444,7 @@ def test_A1_scaled():
     elif model == "mace-mp-large":
         A1_sum = -2.9306745971117203
     elif model == "mace-mpa-medium":
-        A1_sum = -0.7384077299498335
+        A1_sum = -0.7384077299498335 
     elif model == "mace-mp-0b3-medium":
         A1_sum = 5.1042645420231745
     elif model == "mace-omat-0-medium":
@@ -476,44 +455,35 @@ def test_A1_scaled():
     ### REVERSE
     # define f(xyz)=sum(A1), used to test dA1/dxyz
     def f(xyz_flat):
-        r = np.sqrt(
-            np.sum(np.reshape(xyz_flat * xyz_flat, [xyz_flat.size // 3, 3]), axis=1)
-        )
+        r = np.sqrt(np.sum(np.reshape(xyz_flat*xyz_flat, [xyz_flat.size//3,3]), axis=1))
         evaluator.A1 = A1_unscaled
         evaluator.compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
         return np.sum(evaluator.A1)
-
     # compute analytical forces
     f(xyz.flatten())
     evaluator.node_forces = np.zeros(len(xyz.flatten()))
     evaluator.A1_adj = np.ones(len(evaluator.A1))
-    evaluator.reverse_A1_scaled(
-        num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r
-    )
+    evaluator.reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r)
     node_forces = evaluator.node_forces
     # compare with numerical forces
     node_forces_num = -numerical_gradient(f, xyz.flatten())
     assert np.allclose(node_forces, node_forces_num, rtol=1e-4, atol=1e-6)
-
     # define f(A1)=sum(A1_scaled), used to test dA1_scaled/dA1
     def f(A1):
         evaluator.A1 = A1
         evaluator.compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r)
         return np.sum(evaluator.A1)
-
     # compute analytical gradient
     f(A1_unscaled)
     evaluator.A1_adj = np.ones(len(evaluator.A1))
-    evaluator.reverse_A1_scaled(
-        num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r
-    )
+    evaluator.reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz.flatten(), r)
     g = evaluator.A1_adj
     # compare with numerical gradient
     g_num = numerical_gradient(f, A1_unscaled)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
 
-
 def test_M1():
+
     ### FORWARD
     if model == "mace-off-small":
         M1_sum = -0.05168003793600238
@@ -526,9 +496,9 @@ def test_M1():
     elif model == "mace-mp-medium":
         M1_sum = -0.41865181071865554
     elif model == "mace-mp-large":
-        M1_sum = -0.8190295085983332
+        M1_sum = -0.8190295085983332 
     elif model == "mace-mp-large":
-        M1_sum = -0.8190295085983332
+        M1_sum = -0.8190295085983332 
     elif model == "mace-mpa-medium":
         M1_sum = 0.8098763169906235
     elif model == "mace-mp-0b3-medium":
@@ -554,7 +524,6 @@ def test_M1():
         evaluator.A1 = A1
         evaluator.compute_M1(num_nodes, node_types)
         return np.sum(evaluator.M1)
-
     # compute analytical gradient
     f(evaluator.A1)
     evaluator.M1_adj = np.ones(len(evaluator.M1))
@@ -566,6 +535,7 @@ def test_M1():
 
 
 def test_H2():
+
     ### FORWARD
     if model == "mace-off-small":
         H2_sum = 0.8844547738634937
@@ -605,7 +575,6 @@ def test_H2():
         evaluator.H1 = H1
         evaluator.compute_H2(num_nodes, node_types)
         return np.sum(evaluator.H2)
-
     # compute analytical gradient
     f(evaluator.H1)
     evaluator.H2_adj = np.ones(len(evaluator.H2))
@@ -614,13 +583,11 @@ def test_H2():
     # compare with numerical gradient
     g_num = numerical_gradient(f, evaluator.H1)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
-
     # define f(M1)=sum(H2), used to test dH2/dM1
     def f(M1):
         evaluator.M1 = M1
         evaluator.compute_H2(num_nodes, node_types)
         return np.sum(evaluator.H2)
-
     # compute analytical gradient
     f(evaluator.M1)
     evaluator.H2_adj = np.ones(len(evaluator.H2))
@@ -632,6 +599,7 @@ def test_H2():
 
 
 def test_readouts():
+
     ### FORWARD
     if model == "mace-off-small":
         readout = -2071.839005822318
@@ -640,9 +608,9 @@ def test_readouts():
     elif model == "mace-off-large":
         readout = -2074.154047738083
     elif model == "mace-mp-small":
-        readout = -5.998523387682857
+        readout = -5.998523387682857 
     elif model == "mace-mp-medium":
-        readout = -5.355659696240375
+        readout = -5.355659696240375 
     elif model == "mace-mp-large":
         readout = -5.766392385834781
     elif model == "mace-mpa-medium":
@@ -652,8 +620,7 @@ def test_readouts():
     elif model == "mace-omat-0-medium":
         readout = -5.356825090124245
     evaluator.compute_node_energies_forces(
-        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
-    )
+        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
     evaluator.node_energies = np.zeros(num_nodes)
     evaluator.compute_readouts(num_nodes, node_types)
     assert sum(evaluator.node_energies) == pytest.approx(readout, abs=1e-4)
@@ -665,21 +632,18 @@ def test_readouts():
         evaluator.node_energies = np.zeros(num_nodes)
         evaluator.compute_readouts(num_nodes, node_types)
         return sum(evaluator.node_energies)
-
     # compute analytical gradient
     f(evaluator.H1)
     g = evaluator.H1_adj
     # compare with numerical gradient
     g_num = numerical_gradient(f, evaluator.H1)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
-
     # define readout as function of H2
     def f(H2):
         evaluator.H2 = H2
         evaluator.node_energies = np.zeros(num_nodes)
         evaluator.compute_readouts(num_nodes, node_types)
         return sum(evaluator.node_energies)
-
     # compute analytical gradient
     f(evaluator.H2)
     g = evaluator.H2_adj
@@ -689,10 +653,10 @@ def test_readouts():
 
 
 def test_compute_node_energies_forces():
+
     ### FORWARD
     evaluator.compute_node_energies_forces(
-        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
-    )
+        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
     e = sum(evaluator.node_energies)
     f = evaluator.node_forces
     if model == "mace-off-small":
@@ -702,13 +666,13 @@ def test_compute_node_energies_forces():
     elif model == "mace-off-large":
         exact_e = -2074.154047738083
     elif model == "mace-mp-small":
-        exact_e = -5.998523387682857
+        exact_e = -5.998523387682857 
     elif model == "mace-mp-medium":
         exact_e = -5.355659696240375
     elif model == "mace-mp-large":
         exact_e = -5.766392385834781
     elif model == "mace-mpa-medium":
-        exact_e = -5.089426502695993
+        exact_e = -5.089426502695993 
     elif model == "mace-mp-0b3-medium":
         exact_e = -4.920488393882309
     elif model == "mace-omat-0-medium":
@@ -723,60 +687,45 @@ def test_compute_node_energies_forces():
     for i in range(num_nodes):
         for j in range(num_neigh[i]):
             for w in range(3):
-                xyz[ij, w] += h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
+                xyz[ij,w] += h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
                 evaluator.compute_node_energies_forces(
-                    num_nodes,
-                    node_types,
-                    num_neigh,
-                    j_list,
-                    neigh_types,
-                    xyz.flatten(),
-                    r,
-                )
+                    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
                 ep = sum(evaluator.node_energies)
-                xyz[ij, w] -= 2 * h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
+                xyz[ij,w] -= 2*h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
                 evaluator.compute_node_energies_forces(
-                    num_nodes,
-                    node_types,
-                    num_neigh,
-                    j_list,
-                    neigh_types,
-                    xyz.flatten(),
-                    r,
-                )
+                    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
                 em = sum(evaluator.node_energies)
-                xyz[ij, w] += h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
-                f_num[3 * ij + w] = -(ep - em) / (2 * h)
+                xyz[ij,w] += h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
+                f_num[3*ij+w] = -(ep-em)/(2*h)
             ij += 1
     assert np.allclose(f, f_num, rtol=1e-4, atol=1e-6)
 
 
 def test_zbl():
+
     evaluator = MACE("mace-mp-0b3-medium-1-8.json")
-    atoms = ase.Atoms(
-        "OHH", positions=[[0.0, -0.5, 0.0], [0.5, 0.0, 0.0], [0.0, 0.5, 0.0]]
-    )
+    atoms = ase.Atoms('OHH',
+        positions=[[0.0, -0.5, 0.0],
+                   [0.5, 0.0, 0.0],
+                   [0.0, 0.5, 0.0]])
     ase_atomic_numbers = atoms.get_atomic_numbers().tolist()
     mace_atomic_numbers = evaluator.atomic_numbers
-    i_list, j_list, r, xyz = neighbor_list("ijdD", atoms, 5.0)
-    xyz = -xyz  # TODO: why exactly is this necessary!?
-    num_nodes = np.max(i_list) + 1
-    node_types = [
-        mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)
-    ]
+    i_list, j_list, r, xyz = neighbor_list('ijdD', atoms, 5.0)
+    xyz = -xyz # TODO: why exactly is this necessary!?
+    num_nodes = np.max(i_list)+1
+    node_types = [mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)]
     num_neigh = [sum(j_list == i) for i in range(num_nodes)]
     neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
 
     ### FORWARD
     evaluator.compute_node_energies_forces(
-        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
-    )
+        num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
     e = sum(evaluator.node_energies)
     f = evaluator.node_forces
-    exact_e = -5.003106904473648
+    exact_e = -5.003106904473648 
     assert e == pytest.approx(exact_e, abs=1e-3)
 
     ### REVERSE
@@ -787,32 +736,18 @@ def test_zbl():
     for i in range(num_nodes):
         for j in range(num_neigh[i]):
             for w in range(3):
-                xyz[ij, w] += h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
+                xyz[ij,w] += h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
                 evaluator.compute_node_energies_forces(
-                    num_nodes,
-                    node_types,
-                    num_neigh,
-                    j_list,
-                    neigh_types,
-                    xyz.flatten(),
-                    r,
-                )
+                    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
                 ep = sum(evaluator.node_energies)
-                xyz[ij, w] -= 2 * h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
+                xyz[ij,w] -= 2*h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
                 evaluator.compute_node_energies_forces(
-                    num_nodes,
-                    node_types,
-                    num_neigh,
-                    j_list,
-                    neigh_types,
-                    xyz.flatten(),
-                    r,
-                )
+                    num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r)
                 em = sum(evaluator.node_energies)
-                xyz[ij, w] += h
-                r[ij] = np.sqrt(xyz[ij, :].dot(xyz[ij, :]))
-                f_num[3 * ij + w] = -(ep - em) / (2 * h)
+                xyz[ij,w] += h
+                r[ij] = np.sqrt(xyz[ij,:].dot(xyz[ij,:]))
+                f_num[3*ij+w] = -(ep-em)/(2*h)
             ij += 1
     assert np.allclose(f, f_num, rtol=1e-4, atol=1e-6)

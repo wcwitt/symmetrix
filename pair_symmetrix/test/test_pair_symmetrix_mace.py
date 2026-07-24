@@ -6,22 +6,16 @@ from urllib.request import urlretrieve
 
 
 if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/zbg122s1zeeb1j6ogheok/MACE-OFF23_small-1-8.json?rlkey=mqb7cje9y3l0smwf75cfoahr7&st=iabk9093&dl=1",
-        "MACE-OFF23_small-1-8.json",
-    )
+    urlretrieve("https://www.dropbox.com/scl/fi/zbg122s1zeeb1j6ogheok/MACE-OFF23_small-1-8.json?rlkey=mqb7cje9y3l0smwf75cfoahr7&st=iabk9093&dl=1",
+                "MACE-OFF23_small-1-8.json")
 
 if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/ymzotmy9nw2lp7pvv2awc/mace-mp-0b3-medium-1-8.json?rlkey=3y2y42ieo79ekjwpt8zbfjgoe&st=91o13eux&dl=1",
-        "mace-mp-0b3-medium-1-8.json",
-    )
+    urlretrieve("https://www.dropbox.com/scl/fi/ymzotmy9nw2lp7pvv2awc/mace-mp-0b3-medium-1-8.json?rlkey=3y2y42ieo79ekjwpt8zbfjgoe&st=91o13eux&dl=1",
+                "mace-mp-0b3-medium-1-8.json")
 
 if not os.path.exists("mace-mp-0b3-medium-hea.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
-        "mace-mp-0b3-medium-hea.json",
-    )
+    urlretrieve("https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
+                "mace-mp-0b3-medium-hea.json")
 
 
 @pytest.mark.parametrize(
@@ -29,7 +23,7 @@ if not os.path.exists("mace-mp-0b3-medium-hea.json"):
     [
         ["-screen", "none"],
         ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
-    ],
+    ]
 )
 @pytest.mark.parametrize(
     "pair_style",
@@ -41,10 +35,11 @@ if not os.path.exists("mace-mp-0b3-medium-hea.json"):
         "symmetrix/mace/float32",
         "symmetrix/mace/float32 no_domain_decomposition",
         "symmetrix/mace/float32 mpi_message_passing",
-        "symmetrix/mace/float32 no_mpi_message_passing",
-    ],
+        "symmetrix/mace/float32 no_mpi_message_passing"
+    ]
 )
 def test_h20(cmdargs, pair_style):
+
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
     if "float32" in pair_style and "kk" not in cmdargs:
@@ -52,8 +47,7 @@ def test_h20(cmdargs, pair_style):
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
-    lmp.commands_string(
-        """
+    lmp.commands_string("""
         clear
         units           metal
         atom_style      atomic
@@ -67,13 +61,12 @@ def test_h20(cmdargs, pair_style):
         create_atoms    2 single  0.0 -2.0  0.0 units box
         mass            1 1.008
         mass            2 15.999
-
+    
         pair_style      {}
         pair_coeff      * * MACE-OFF23_small-1-8.json H O
 
         run 0
-    """.format(pair_style)
-    )
+    """.format(pair_style))
 
     # ----- energy -----
     e = lmp.get_thermo("pe")
@@ -89,18 +82,18 @@ def test_h20(cmdargs, pair_style):
     h = 1e-4
     x = lmp.numpy.extract_atom("x", nelem=3, dim=3)
     f = lmp.numpy.extract_atom("f", nelem=3, dim=3)
-    f_num = np.zeros([3, 3])
-    for i in range(0, 3):
-        for j in range(0, 3):
-            x[i, j] += h
+    f_num = np.zeros([3,3])
+    for i in range(0,3):
+        for j in range(0,3):
+            x[i,j] += h
             lmp.command("run 0")
             ep = lmp.get_thermo("pe")
-            x[i, j] -= 2 * h
+            x[i,j] -= 2*h
             lmp.command("run 0")
             em = lmp.get_thermo("pe")
-            x[i, j] += h
+            x[i,j] += h
             lmp.command("run 0")
-            f_num[i, j] = -(ep - em) / (2 * h)
+            f_num[i,j] = -(ep-em)/(2*h)
     assert np.allclose(f, f_num, atol=1e-5)
 
     # ----- teardown -----
@@ -112,7 +105,7 @@ def test_h20(cmdargs, pair_style):
     [
         ["-screen", "none"],
         ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
-    ],
+    ]
 )
 @pytest.mark.parametrize(
     "pair_style",
@@ -124,10 +117,11 @@ def test_h20(cmdargs, pair_style):
         "symmetrix/mace/float32",
         "symmetrix/mace/float32 no_domain_decomposition",
         "symmetrix/mace/float32 mpi_message_passing",
-        "symmetrix/mace/float32 no_mpi_message_passing",
-    ],
+        "symmetrix/mace/float32 no_mpi_message_passing"
+    ]
 )
 def test_h20_zbl(cmdargs, pair_style):
+
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
     if "float32" in pair_style and "kk" not in cmdargs:
@@ -135,8 +129,7 @@ def test_h20_zbl(cmdargs, pair_style):
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
-    lmp.commands_string(
-        """
+    lmp.commands_string("""
         clear
         units           metal
         atom_style      atomic
@@ -155,8 +148,7 @@ def test_h20_zbl(cmdargs, pair_style):
         pair_coeff      * * mace-mp-0b3-medium-1-8.json H O
 
         run 0
-    """.format(pair_style)
-    )
+    """.format(pair_style))
 
     # ----- energy -----
     e = lmp.get_thermo("pe")
@@ -166,30 +158,29 @@ def test_h20_zbl(cmdargs, pair_style):
     h = 1e-4
     x = lmp.numpy.extract_atom("x", nelem=3, dim=3)
     f = lmp.numpy.extract_atom("f", nelem=3, dim=3)
-    f_num = np.zeros([3, 3])
-    for i in range(0, 3):
-        for j in range(0, 3):
-            x[i, j] += h
+    f_num = np.zeros([3,3])
+    for i in range(0,3):
+        for j in range(0,3):
+            x[i,j] += h
             lmp.command("run 0")
             ep = lmp.get_thermo("pe")
-            x[i, j] -= 2 * h
+            x[i,j] -= 2*h
             lmp.command("run 0")
             em = lmp.get_thermo("pe")
-            x[i, j] += h
+            x[i,j] += h
             lmp.command("run 0")
-            f_num[i, j] = -(ep - em) / (2 * h)
+            f_num[i,j] = -(ep-em)/(2*h)
     assert np.allclose(f, f_num, rtol=1e-4, atol=1e-6)
 
     # ----- teardown -----
     lmp.close()
-
 
 @pytest.mark.parametrize(
     "cmdargs",
     [
         ["-screen", "none"],
         ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
-    ],
+    ]
 )
 @pytest.mark.parametrize(
     "pair_style",
@@ -201,10 +192,11 @@ def test_h20_zbl(cmdargs, pair_style):
         "symmetrix/mace/float32",
         "symmetrix/mace/float32 no_domain_decomposition",
         "symmetrix/mace/float32 mpi_message_passing",
-        "symmetrix/mace/float32 no_mpi_message_passing",
-    ],
+        "symmetrix/mace/float32 no_mpi_message_passing"
+    ]
 )
 def test_water(cmdargs, pair_style):
+
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
     if "float32" in pair_style and "kk" not in cmdargs:
@@ -212,8 +204,7 @@ def test_water(cmdargs, pair_style):
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
-    lmp.commands_string(
-        """
+    lmp.commands_string("""
         clear
         units           metal
         boundary        p p p
@@ -261,26 +252,23 @@ def test_water(cmdargs, pair_style):
         compute         peratom all pe/atom
         fix             f1 all nve
         run             0
-    """.format(pair_style)
-    )
+    """.format(pair_style))
 
     # ----- test energy and stress -----
     assert lmp.get_thermo("pe") == pytest.approx(-16649.784441, abs=1e-6)
     assert lmp.get_thermo("pxx") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pyy") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pzz") == pytest.approx(18042.601669, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx( 18042.601669, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pxy") == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
 
     # ----- run 10 steps, test again -----
     lmp.command("run 10")
-    assert lmp.get_thermo("pe") == pytest.approx(
-        -16649.988675, abs=1e-4
-    )  # note lower tolerance
+    assert lmp.get_thermo("pe") == pytest.approx(-16649.988675, abs=1e-4)  # note lower tolerance
     assert lmp.get_thermo("pxx") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pyy") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pzz") == pytest.approx(17756.761767, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx( 17756.761767, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pxy") == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
     assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
@@ -294,7 +282,7 @@ def test_water(cmdargs, pair_style):
     [
         ["-screen", "none"],
         ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
-    ],
+    ]
 )
 @pytest.mark.parametrize(
     "pair_style",
@@ -306,10 +294,11 @@ def test_water(cmdargs, pair_style):
         "symmetrix/mace/float32",
         "symmetrix/mace/float32 no_domain_decomposition",
         "symmetrix/mace/float32 mpi_message_passing",
-        "symmetrix/mace/float32 no_mpi_message_passing",
-    ],
+        "symmetrix/mace/float32 no_mpi_message_passing"
+    ]
 )
 def test_hea(cmdargs, pair_style):
+
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
     if "float32" in pair_style and "kk" not in cmdargs:
@@ -317,8 +306,7 @@ def test_hea(cmdargs, pair_style):
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
-    lmp.commands_string(
-        """
+    lmp.commands_string("""
         clear
         units           metal
         boundary        p p p
@@ -380,8 +368,7 @@ def test_hea(cmdargs, pair_style):
         compute         peratom all pe/atom
         fix             f1 all nve
         run             0
-    """.format(pair_style)
-    )
+    """.format(pair_style))
 
     # ----- test energy and stress -----
     assert lmp.get_thermo("pe") == pytest.approx(-105.640759, abs=1e-3)
@@ -394,15 +381,13 @@ def test_hea(cmdargs, pair_style):
 
     # ----- run 10 steps, test again -----
     lmp.command("run 10")
-    assert lmp.get_thermo("pe") == pytest.approx(
-        -105.642334, abs=1e-3
-    )  # note lower tolerance
-    assert lmp.get_thermo("pxx") == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyy") == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pzz") == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pe") == pytest.approx(-105.642334, abs=1e-3)  # note lower tolerance
+    assert lmp.get_thermo("pxx")  == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyy")  == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pzz")  == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxy")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pxz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyz")  == pytest.approx(0.0, abs=1e-8, rel=1e-2)
 
     # ----- teardown -----
     lmp.close()

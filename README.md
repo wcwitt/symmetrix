@@ -15,10 +15,10 @@ See the `symmetrix` [README](symmetrix/README.md) to build and use the Python pa
 
 See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 
-### Formatting and linting
+### C++ formatting
 
-We use `pre-commit` with Ruff and clang-format to maintain Python and C++ code quality.
-The configured tool versions run in isolated environments, so they do not need to be installed
+We use `pre-commit` with clang-format to maintain consistent C++ formatting. The configured
+clang-format version runs in an isolated environment, so it does not need to be installed
 system-wide.
 
 ```bash
