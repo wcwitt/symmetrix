@@ -131,6 +131,8 @@ def build_lammps(cmdargs):
             boundary        p p p
 
             read_data       {data_path}
+            mass            1 1.008
+            mass            2 15.999
 
             pair_style      symmetrix/mace
             pair_coeff      * * {MODEL_FILE} H O
