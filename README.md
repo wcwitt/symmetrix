@@ -15,6 +15,20 @@ See the `symmetrix` [README](symmetrix/README.md) to build and use the Python pa
 
 See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 
+### Formatting and linting
+
+We use `pre-commit` with Ruff and clang-format to maintain Python and C++ code quality.
+The configured tool versions run in isolated environments, so they do not need to be installed
+system-wide.
+
+```bash
+# Install the Git hooks
+uvx pre-commit install
+
+# Run every check manually
+uvx pre-commit run --all-files
+```
+
 ### Citing Symmetrix
 
 The earliest `symmetrix` results are reported in:
