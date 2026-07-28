@@ -120,7 +120,7 @@ void MACEKokkos<Precision>::compute_R0(
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
         KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i); 
+            const int num_neigh_i = num_neigh(i);
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
@@ -166,9 +166,9 @@ void MACEKokkos<Precision>::compute_R0(
                 Kokkos::TeamVectorRange(team_member, (l_max+1)*num_channels),
                 [&] (const int lk) {
                     const double c0 = c(type_ij,n,0,lk);
-                    const double c1 = c(type_ij,n,1,lk); 
-                    const double c2 = c(type_ij,n,2,lk); 
-                    const double c3 = c(type_ij,n,3,lk); 
+                    const double c1 = c(type_ij,n,1,lk);
+                    const double c2 = c(type_ij,n,2,lk);
+                    const double c3 = c(type_ij,n,3,lk);
                     R0(ij,lk) = c0 + c1*x + c2*xx + c3*xxx;
                     R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
                 });
@@ -380,7 +380,7 @@ void MACEKokkos<Precision>::reverse_A0(
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
         KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i); 
+            const int num_neigh_i = num_neigh(i);
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
@@ -937,7 +937,7 @@ void MACEKokkos<Precision>::reverse_Phi1(
     bool zero_H1_adj)
 {
     if (dPhi1r.extent(0) < Phi1r.extent(0))
-        Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2)); 
+        Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2));
     if (node_forces.size() < xyz.size())
         Kokkos::resize(node_forces, xyz.size());
     if (H1_adj.extent(0) < H1.extent(0))
@@ -986,7 +986,7 @@ void MACEKokkos<Precision>::reverse_Phi1(
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
         KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i); 
+            const int num_neigh_i = num_neigh(i);
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
@@ -1011,7 +1011,7 @@ void MACEKokkos<Precision>::reverse_Phi1(
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
                             [=] (const int k, double& t1, double& t2) {
-                                t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k); 
+                                t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
                                 t2 += R1(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
                                 Kokkos::atomic_add(
                                     &H1_adj(neigh_indices(ij),lm2,k),
@@ -1285,7 +1285,7 @@ void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> n
     if (M1.extent(0) < num_nodes)
         Kokkos::realloc(M1, num_nodes, num_channels);
     if (M1_poly_values.extent(0) < num_nodes)
-        Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels); 
+        Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels);
     Kokkos::deep_copy(M1, 0.0);
 
     const auto A1 = this->A1;
@@ -1373,7 +1373,7 @@ void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> n
         Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
     Kokkos::deep_copy(A1_adj, 0.0);
     if (M1_poly_adjoints.extent(0) < num_nodes)
-        Kokkos::realloc(M1_poly_adjoints, num_nodes, M1_poly_coeff.extent(1), num_channels); 
+        Kokkos::realloc(M1_poly_adjoints, num_nodes, M1_poly_coeff.extent(1), num_channels);
 
     // TODO: prune
     const auto A1_adj = this->A1_adj;
@@ -1516,7 +1516,7 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     auto H1 = this->H1;
     auto H1_adj = this->H1_adj;
     auto readout_1_weights = this->readout_1_weights;
-    
+
     // atomic energies
     Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
         node_energies(i) += atomic_energies(node_types(i));
@@ -1531,9 +1531,9 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     });
     Kokkos::fence();
     // second readout
-    auto H2 = Kokkos::subview(this->H2, make_pair(0,num_nodes), Kokkos::ALL); 
+    auto H2 = Kokkos::subview(this->H2, make_pair(0,num_nodes), Kokkos::ALL);
     auto readout_2_output = Kokkos::subview(this->readout_2_output, make_pair(0,num_nodes));
-    auto H2_adj = Kokkos::subview(this->H2_adj, make_pair(0,num_nodes), Kokkos::ALL); 
+    auto H2_adj = Kokkos::subview(this->H2_adj, make_pair(0,num_nodes), Kokkos::ALL);
     readout_2.evaluate_gradient(H2, readout_2_output, H2_adj);
     Kokkos::parallel_for("Compute Readouts 2", num_nodes, KOKKOS_LAMBDA (const int i) {
         node_energies(i) += readout_2_output(i);
@@ -1554,7 +1554,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
-    
+
     // Basic model information
     num_elements = file["num_elements"];
     num_channels = file["num_channels"];
@@ -1607,9 +1607,9 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
                 for (int lk=0; lk<(l_max+1)*num_channels; ++lk) {
                     const int k = lk % num_channels;
                     h_c(ab,i,0,lk) *= H0_weights[b*num_channels+k];
-                    h_c(ab,i,1,lk) *= H0_weights[b*num_channels+k]; 
-                    h_c(ab,i,2,lk) *= H0_weights[b*num_channels+k]; 
-                    h_c(ab,i,3,lk) *= H0_weights[b*num_channels+k]; 
+                    h_c(ab,i,1,lk) *= H0_weights[b*num_channels+k];
+                    h_c(ab,i,2,lk) *= H0_weights[b*num_channels+k];
+                    h_c(ab,i,3,lk) *= H0_weights[b*num_channels+k];
                 }
             }
             // add A0_weights

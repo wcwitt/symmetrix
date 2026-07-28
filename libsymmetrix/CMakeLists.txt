@@ -79,4 +79,3 @@ if (SYMMETRIX_SPHERICART_SYCL)
     message(STATUS "Symmetrix: Will use SYCL version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_SYCL)
 endif()
-

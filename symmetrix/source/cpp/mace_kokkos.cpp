@@ -45,7 +45,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
                 self.compute_node_energies_forces(
-                    num_nodes, 
+                    num_nodes,
                     create_kokkos_view("node_types", node_types),
                     create_kokkos_view("num_neigh", num_neigh),
                     create_kokkos_view("neigh_indices", neigh_indices),
@@ -62,7 +62,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int total_num_neigh = R0.size()/((self.l_max+1)*self.num_channels);
                 set_kokkos_view(self.R0, R0, total_num_neigh, (self.l_max+1)*self.num_channels);
             })
-        .def("compute_R0", 
+        .def("compute_R0",
             [](MACEKokkos<Precision>& self,
                     const int num_nodes,
                     py::array_t<int> node_types,
@@ -86,7 +86,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int total_num_neigh = R1.size()/(num_le*self.num_channels);
                 set_kokkos_view(self.R1, R1, total_num_neigh, num_le*self.num_channels);
             })
-        .def("compute_R1", 
+        .def("compute_R1",
             [](MACEKokkos<Precision>& self,
                     const int num_nodes,
                     py::array_t<int> node_types,
@@ -271,7 +271,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     bool zero_dxyz,
                     bool zero_H1_adj) {
                 self.reverse_Phi1(
-                    num_nodes, 
+                    num_nodes,
                     create_kokkos_view("num_neigh", num_neigh),
                     create_kokkos_view("neigh_indices", neigh_indices),
                     create_kokkos_view("xyz", xyz),

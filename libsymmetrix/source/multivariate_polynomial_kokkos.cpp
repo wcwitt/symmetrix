@@ -7,7 +7,7 @@
 
 
 MultivariatePolynomialKokkos::MultivariatePolynomialKokkos(
-    int num_variables, 
+    int num_variables,
     std::vector<double> coefficients,
     std::vector<std::vector<int>> monomials)
 {

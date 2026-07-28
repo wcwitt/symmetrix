@@ -40,14 +40,14 @@ double CubicSplineKokkos::evaluate(double r)
     if (r<0 or r>h*num_coeffs/4 or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate. r=" + std::to_string(r));
     const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
-    
+
     const double x = r - h * i;
     const double xx = x * x;
     const double xxx = xx * x;
     const int i4 = 4 * i;
 
     auto h_c = Kokkos::create_mirror_view(c);
-    
+
     double ret = 0;
     const double c0 = h_c(i4);
     const double c1 = h_c(i4 + 1);
@@ -99,7 +99,7 @@ std::tuple<double,double> CubicSplineKokkos::evaluate_deriv_divided(double r)
     const double c1 = h_c(i4+1);
     const double c2=h_c(i4+2);
     const double c3=h_c(i4+3);
-    
+
     return {c0 + c1*x + c2*xx + c3*xxx, (c1 + 2*c2*x + 3*c3*xx) / r};
 }
 

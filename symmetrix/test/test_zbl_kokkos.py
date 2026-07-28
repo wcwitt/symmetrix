@@ -1,8 +1,4 @@
-import numpy as np
-import os
 import pytest
-from scipy.interpolate import CubicSpline
-import sys
 
 import symmetrix
 
@@ -17,12 +13,9 @@ r_max = covalent_radii[Z_u] + covalent_radii[Z_v]
 
 def make_zbl():
     return symmetrix.ZBLKokkos(
-        0.3,
-        0.4543,
-        [0.1818, 0.5099, 0.2802, 0.02817],
-        covalent_radii,
-        6)
-    
+        0.3, 0.4543, [0.1818, 0.5099, 0.2802, 0.02817], covalent_radii, 6
+    )
+
 
 def test_compute_envelope():
     zbl = make_zbl()
@@ -42,7 +35,10 @@ def test_compute_envelope_grad():
     v_p = zbl.compute_envelope(x + dx, r_max, 6)
     v_m = zbl.compute_envelope(x - dx, r_max, 6)
 
-    assert zbl.compute_envelope_gradient(x, r_max, 6) == pytest.approx((v_p - v_m) / (2.0 * dx))
+    assert zbl.compute_envelope_gradient(x, r_max, 6) == pytest.approx(
+        (v_p - v_m) / (2.0 * dx)
+    )
+
 
 def test_compute_ZBL():
     zbl = make_zbl()
