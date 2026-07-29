@@ -41,15 +41,8 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
   num_LM = mace->num_LM;
   r_cut = mace->r_cut;
 
-  // Output: per-atom ARRAY with either 3 columns (VJP) or 3C columns per atom.
-  peratom_flag = 1;
-  if (use_vjp) size_peratom_cols = 3;
-  else         size_peratom_cols = 3 * (2 * num_channels);
-
-  comm_forward = num_LM * num_channels;
-  comm_reverse = num_LM * num_channels;
-
-  // Parse optional args
+  // Parse optional args -- must run before the "Output" sizing block below,
+  // since size_peratom_cols depends on use_vjp.
   const int ntypes = atom->ntypes;
   const int base = 4 + ntypes;
   use_vjp = false;
@@ -66,6 +59,14 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
     vjp_id = arg[base + 1];
     use_vjp = true;
   }
+
+  // Output: per-atom ARRAY with either 3 columns (VJP) or 3C columns per atom.
+  peratom_flag = 1;
+  if (use_vjp) size_peratom_cols = 3;
+  else         size_peratom_cols = 3 * (2 * num_channels);
+
+  comm_forward = num_LM * num_channels;
+  comm_reverse = num_LM * num_channels;
 
   // Build mapping from LAMMPS types -> MACE types
   mace_types.clear();
