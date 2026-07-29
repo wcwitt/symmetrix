@@ -18,6 +18,7 @@
 #include "comm.h"
 #include "error.h"
 #include "memory_kokkos.h"
+#include "modify.h"
 #include "neigh_list_kokkos.h"
 #include "neigh_request.h"
 #include "neighbor.h"
@@ -67,19 +68,34 @@ ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEdato
     Kokkos::deep_copy(linear_up_l0_inv, h_linear_up_l0_inv);
   }
 
-  // Full-Jacobian mode only -- the VJP (single directional derivative)
-  // mode isn't ported by this Kokkos compute.
+  // arg[3] = model.json, arg[4..] = element symbol per LAMMPS type,
+  // optional trailing: "vjp" <compute-id> -- mirrors
+  // compute_symmetrix_maced_atom.cpp's parsing exactly.
   const int ntypes = atom->ntypes;
   const int base = 4 + ntypes;
-  if (narg != base)
+  if (narg < base)
     error->all(FLERR,
-               "compute symmetrix/maced/atom/kk requires exactly one element symbol per "
-               "LAMMPS atom type (VJP mode is not supported by this Kokkos port)");
+               "compute symmetrix/maced/atom/kk requires one element symbol per LAMMPS atom type");
 
-  // Output: per-atom ARRAY, [x|y|z] subblocks of 2*num_channels cols each
-  // -- H1-restored gradient columns [0,C), H2 gradient columns [C,2C).
+  use_vjp = false;
+  vjp_compute = nullptr;
+  if (narg > base) {
+    if (narg != base + 2)
+      error->all(FLERR,
+                 "Illegal compute symmetrix/maced/atom/kk optional args; expected: [vjp c_ID]");
+    if (std::string(arg[base]) != "vjp")
+      error->all(FLERR,
+                 "Illegal compute symmetrix/maced/atom/kk optional args; expected keyword 'vjp'");
+    vjp_id = arg[base + 1];
+    use_vjp = true;
+  }
+
+  // Output: per-atom ARRAY -- either 3 columns (VJP: d(v.q)/dr, [x|y|z])
+  // or [x|y|z] subblocks of 2*num_channels cols each (full Jacobian:
+  // H1-restored gradient columns [0,C), H2 gradient columns [C,2C)).
   peratom_flag = 1;
-  size_peratom_cols = 3 * (2 * num_channels);
+  if (use_vjp) size_peratom_cols = 3;
+  else         size_peratom_cols = 3 * (2 * num_channels);
 
   mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
   comm_forward = (mode == "mpi_message_passing") ? num_LM * num_channels : 0;
@@ -131,6 +147,19 @@ void ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::init()
   request->set_kokkos_host(std::is_same_v<DeviceType, LMPHostType> &&
                             !std::is_same_v<DeviceType, LMPDeviceType>);
   request->set_kokkos_device(std::is_same_v<DeviceType, LMPDeviceType>);
+
+  if (use_vjp) {
+    vjp_compute = modify->get_compute_by_id(vjp_id);
+
+    if (!vjp_compute) error->all(FLERR, "Compute ID {} does not exist", vjp_id);
+
+    if (!vjp_compute->vector_flag)
+      error->all(FLERR, "VJP compute '{}' must provide a global vector", vjp_id);
+
+    if (vjp_compute->size_vector != 2 * num_channels)
+      error->all(FLERR, "VJP compute '{}' vector length {} != 2*num_channels {}", vjp_id,
+                 vjp_compute->size_vector, 2 * num_channels);
+  }
 }
 
 template<class DeviceType, typename Precision>
@@ -423,7 +452,8 @@ void ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::compute_no_domain_d
   mace->compute_M1(num_nodes, node_types);
   mace->compute_H2(num_nodes, node_types);
 
-  run_channel_loop(num_nodes, num_edges, /*use_comm=*/false);
+  if (use_vjp) run_vjp(num_nodes, num_edges, /*use_comm=*/false);
+  else         run_channel_loop(num_nodes, num_edges, /*use_comm=*/false);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -555,7 +585,8 @@ void ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::compute_mpi_message
   mace->compute_M1(num_nodes, node_types);
   mace->compute_H2(num_nodes, node_types);
 
-  run_channel_loop(num_nodes, num_edges, /*use_comm=*/true);
+  if (use_vjp) run_vjp(num_nodes, num_edges, /*use_comm=*/true);
+  else         run_channel_loop(num_nodes, num_edges, /*use_comm=*/true);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -720,6 +751,141 @@ void ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::run_channel_loop(in
           });
         });
   }
+}
+
+/* ---------------------------------------------------------------------- */
+/* VJP mode: a single combined reverse pass seeded by an external global
+   vector v = [v1 | v2] (length 2*num_channels), producing
+   d(v1.h1_restored + v2.H2)/dr per atom (3 columns) instead of the full
+   2*num_channels x 3N Jacobian. Mirrors compute_symmetrix_maced_atom.cpp's
+   VJP branch exactly: v2 seeds H2_adj (broadcast to every node) and is
+   propagated back through the second layer (reverse_H2 -> reverse_M1 ->
+   reverse_A1_scaled -> reverse_A1 -> reverse_Phi1) into H1_adj; v1 is
+   separately contracted through linear_up_l0_inv into a l=0-block seed
+   that's added onto that SAME H1_adj (not a separate pass) -- so the
+   final reverse_H1 -> reverse_M0 -> reverse_A0_scaled -> reverse_A0 call
+   backpropagates both contributions together in one pass. */
+
+template<class DeviceType, typename Precision>
+void ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::run_vjp(int num_nodes, int num_edges,
+                                                                       bool use_comm)
+{
+  NeighListKokkos<DeviceType> *k_list = static_cast<NeighListKokkos<DeviceType> *>(list);
+  auto node_indices = Kokkos::subview(this->node_indices, Kokkos::make_pair(0, num_nodes));
+  auto node_types = Kokkos::subview(this->node_types, Kokkos::make_pair(0, num_nodes));
+  auto num_neigh = Kokkos::subview(this->num_neigh, Kokkos::make_pair(0, num_nodes));
+  auto first_neigh = Kokkos::subview(this->first_neigh, Kokkos::make_pair(0, num_nodes));
+  auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0, num_edges));
+  auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0, num_edges));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0, 3 * num_edges));
+  auto r = Kokkos::subview(this->r, Kokkos::make_pair(0, num_edges));
+
+  const int C = num_channels;
+  const int nlocal = atom->nlocal;
+
+  // Pull the seed vector off vjp_compute's host-side global vector and
+  // stage it on device -- refreshed every call since the seed compute's
+  // output can change step to step.
+  if (!(vjp_compute->invoked_flag & Compute::INVOKED_VECTOR)) {
+    vjp_compute->compute_vector();
+    vjp_compute->invoked_flag |= Compute::INVOKED_VECTOR;
+  }
+  if ((int) vjp_seed.extent(0) < 2 * C) Kokkos::realloc(vjp_seed, 2 * C);
+  auto h_vjp_seed = Kokkos::create_mirror_view(vjp_seed);
+  for (int k = 0; k < 2 * C; ++k) h_vjp_seed(k) = vjp_compute->vector[k];
+  Kokkos::deep_copy(vjp_seed, h_vjp_seed);
+  const auto vjp_seed = this->vjp_seed;
+
+  const int H1_adj_extent = use_comm ? (k_list->inum + atom->nghost) : num_nodes;
+  if (H1_adj.extent(0) < H1_adj_extent) Kokkos::realloc(H1_adj, H1_adj_extent, num_LM, C);
+  if ((int) mace->H2_adj.extent(0) < num_nodes || (int) mace->H2_adj.extent(1) < C)
+    Kokkos::realloc(mace->H2_adj, num_nodes, C);
+  if ((int) mace->node_forces.size() < 3 * num_edges) Kokkos::realloc(mace->node_forces, 3 * num_edges);
+
+  Kokkos::deep_copy(mace->node_forces, 0.0);
+
+  // ---- H2-path: seed H2_adj with v2 = vjp_seed[C, 2C), broadcast to
+  // every node, and propagate back through the second layer into H1_adj.
+  auto H2_adj_local = mace->H2_adj;
+  Kokkos::parallel_for(
+      "ComputeSymmetrixMACEdatomKokkos::vjp_seed_H2_adj", num_nodes,
+      KOKKOS_LAMBDA(const int ii) {
+        for (int k = 0; k < C; ++k) H2_adj_local(ii, k) = vjp_seed(C + k);
+      });
+
+  mace->reverse_H2(num_nodes, node_types, /*zero_H1_adj=*/true);
+  mace->reverse_M1(num_nodes, node_types);
+  mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_A1(num_nodes);
+  mace->reverse_Phi1(num_nodes, num_neigh, neigh_indices, xyz, r,
+                      /*zero_dxyz=*/false, /*zero_H1_adj=*/false);
+
+  // ---- H1-direct path: add the v1 = vjp_seed[0, C)-weighted l=0
+  // restoration seed onto the SAME H1_adj the H2-path just populated
+  // (accumulate, not overwrite) -- see compute_symmetrix_mace_atom_kokkos's
+  // extract_descriptors kernel for why linear_up_l0_inv(row, col) is the
+  // right orientation here (same matrix, same convention).
+  auto H1_adj_mace = mace->H1_adj;
+  const auto linear_up_l0_inv = this->linear_up_l0_inv;
+  Kokkos::parallel_for(
+      "ComputeSymmetrixMACEdatomKokkos::vjp_seed_H1_adj", num_nodes,
+      KOKKOS_LAMBDA(const int ii) {
+        const int i = node_indices(ii);
+        for (int row = 0; row < C; ++row) {
+          double s = 0.0;
+          for (int kc = 0; kc < C; ++kc) s += linear_up_l0_inv(row, kc) * vjp_seed(kc);
+          H1_adj_mace(i, 0, row) += s;
+        }
+      });
+
+  if (use_comm) {
+    H1_adj = mace->H1_adj;
+    Kokkos::fence();
+    comm->reverse_comm(this);
+    Kokkos::fence();
+    mace->H1_adj = H1_adj;
+  }
+
+  mace->reverse_H1(num_nodes);
+  mace->reverse_M0(num_nodes, node_types);
+  mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+
+  auto d_array_atom = k_array_atom.template view<DeviceType>();
+  const auto mace_node_forces = mace->node_forces;
+  Kokkos::parallel_for(
+      "ComputeSymmetrixMACEdatomKokkos::vjp_scatter",
+      Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
+      KOKKOS_LAMBDA(Kokkos::TeamPolicy<>::member_type team_member) {
+        const int ii = team_member.league_rank();
+        const int i = node_indices(ii);
+        double f_x, f_y, f_z;
+        Kokkos::parallel_reduce(
+            Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
+            [&](const int jj, double &f_x, double &f_y, double &f_z) {
+              const int ij = first_neigh(ii) + jj;
+              const int j = neigh_indices(ij);
+              const double fx = mace_node_forces(3 * ij);
+              const double fy = mace_node_forces(3 * ij + 1);
+              const double fz = mace_node_forces(3 * ij + 2);
+              f_x += fx;
+              f_y += fy;
+              f_z += fz;
+              if (j < nlocal) {
+                Kokkos::atomic_add(&d_array_atom(j, 0), -fx);
+                Kokkos::atomic_add(&d_array_atom(j, 1), -fy);
+                Kokkos::atomic_add(&d_array_atom(j, 2), -fz);
+              }
+            },
+            f_x, f_y, f_z);
+        Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
+          if (i < nlocal) {
+            Kokkos::atomic_add(&d_array_atom(i, 0), f_x);
+            Kokkos::atomic_add(&d_array_atom(i, 1), f_y);
+            Kokkos::atomic_add(&d_array_atom(i, 2), f_z);
+          }
+        });
+      });
 }
 
 /* ---------------------------------------------------------------------- */

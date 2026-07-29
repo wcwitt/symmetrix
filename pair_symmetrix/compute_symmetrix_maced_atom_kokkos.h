@@ -12,18 +12,19 @@
 ------------------------------------------------------------------------- */
 
 // Device port of compute_symmetrix_maced_atom (the full per-atom Jacobian
-// compute) -- the "SLOW FULL JACOBIAN MODE" only (the
-// VJP/single-directional-derivative mode isn't ported by this Kokkos
-// compute). Shares its graph-build
-// and forward-pass structure, and its two-mode
+// compute), including both of its output modes: the "SLOW FULL JACOBIAN
+// MODE" (run_channel_loop, one reverse pass per channel) and the VJP/
+// single-directional-derivative mode (run_vjp, one combined reverse pass
+// seeded by an external global-vector compute's output). Shares its
+// graph-build and forward-pass structure, and its two-mode
 // (no_domain_decomposition / mpi_message_passing) dispatch, with
 // compute_symmetrix_mace_atom_kokkos -- see that file's header comment
-// for the mode-selection rationale. The 2*num_channels reverse-pass
-// channel loop reuses MACEKokkos's existing reverse_H1/M0/A0_scaled/A0
-// (first layer) and reverse_H2/M1/A1_scaled/A1/Phi1 (second layer, plus
-// reverse-comm of H1_adj in mpi_message_passing mode) device methods --
-// no new backward-pass numerics, only device-resident orchestration of
-// what the CPU compute already does with plain C++ loops.
+// for the mode-selection rationale. Both run_channel_loop and run_vjp
+// reuse MACEKokkos's existing reverse_H1/M0/A0_scaled/A0 (first layer) and
+// reverse_H2/M1/A1_scaled/A1/Phi1 (second layer, plus reverse-comm of
+// H1_adj in mpi_message_passing mode) device methods -- no new
+// backward-pass numerics, only device-resident orchestration of what the
+// CPU compute already does with plain C++ loops.
 
 #ifdef COMPUTE_CLASS
 // clang-format off
@@ -80,6 +81,7 @@ class ComputeSymmetrixMACEdatomKokkos : public Compute, public KokkosBase {
   void compute_no_domain_decomposition(int num_nodes);
   void compute_mpi_message_passing(int num_nodes);
   void run_channel_loop(int num_nodes, int num_edges, bool use_comm);
+  void run_vjp(int num_nodes, int num_edges, bool use_comm);
 
  protected:
   class NeighList *list = nullptr;
@@ -87,6 +89,16 @@ class ComputeSymmetrixMACEdatomKokkos : public Compute, public KokkosBase {
   std::string mode;
   std::unique_ptr<MACEKokkos<Precision>> mace;
   Kokkos::View<int *> mace_types;
+
+  // Optional VJP seed compute (global vector length 2*num_channels) --
+  // mirrors compute_symmetrix_maced_atom.h's use_vjp/vjp_id/vjp_compute.
+  bool use_vjp = false;
+  std::string vjp_id;
+  class Compute *vjp_compute = nullptr;
+  // Device staging buffer for vjp_compute->vector (host), refreshed each
+  // compute_peratom() call -- length 2*num_channels, [0,C) = v1 (seeds the
+  // H1-restored/l=0 block), [C,2C) = v2 (seeds the H2 block).
+  Kokkos::View<double *> vjp_seed;
 
   // atom-indexed [nlocal+nghost][num_LM][num_channels] -- only populated
   // (and only meaningful) in mpi_message_passing mode. H1 mirrors the

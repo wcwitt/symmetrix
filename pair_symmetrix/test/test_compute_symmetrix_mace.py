@@ -16,6 +16,12 @@ been compiled with GPU-enabled backend but no GPUs are requested" --
 unlike test_pair_symmetrix_mace.py's bare `-k on -sf kk`, which only
 works on a host/serial-only Kokkos build.
 
+The kokkos id is skipped (not failed) when this LAMMPS build's KOKKOS
+package wasn't compiled with a GPU-capable backend -- e.g. a GitHub
+Actions runner's CPU-only build -- via a check at collection time (see
+_kokkos_gpu_available()), rather than letting LAMMPS hard-error on `-k on
+g 1` when the build can't honor it.
+
 Not wired into CI -- run manually, e.g.:
     pytest test_compute_symmetrix_mace.py -v
 """
@@ -105,7 +111,7 @@ def reference_descriptor(positions):
     return np.concatenate([h1_restored, H2], axis=1)    # (num_nodes, 2*num_channels)
 
 
-def build_lammps(cmdargs, group_subset_ids=None):
+def build_lammps(cmdargs, group_subset_ids=None, vjp_seed=None):
     # A single read_data call, not multiple create_atoms calls: LAMMPS/Kokkos
     # has a known, unresolved upstream bug where AtomKokkos::map_set_device()
     # segfaults (cudaErrorIllegalAddress) when create_atoms is invoked more
@@ -137,6 +143,30 @@ def build_lammps(cmdargs, group_subset_ids=None):
             compute         macedesc_sub sub symmetrix/mace/atom {MODEL_FILE} H O
         """
 
+    # Optionally seed compute symmetrix/maced/atom(/kk)'s VJP mode with an
+    # arbitrary fixed global vector -- used by test_vjp. There's no built-in
+    # LAMMPS compute for "a constant vector I chose in Python", so this
+    # builds one out of two primitives that are: one atom-style variable
+    # per seed entry, holding that constant (atom-style variables can be a
+    # plain constant expression -- it just means the value doesn't vary
+    # per atom), and `compute reduce ave` over all of them, which averages
+    # each input over the atoms in the group -- since every atom's value is
+    # identical, the average is exactly that constant, for any atom count.
+    # `compute reduce`'s vector_flag/size_vector make it a valid VJP seed
+    # compute (compute_symmetrix_maced_atom(_kokkos)'s only two
+    # requirements) without needing any dedicated test-only C++ compute.
+    vjp_cmds = ""
+    if vjp_seed is not None:
+        var_lines = "\n".join(
+            f"            variable        vjp_seed_{k} atom {float(v)!r}" for k, v in enumerate(vjp_seed)
+        )
+        var_names = " ".join(f"v_vjp_seed_{k}" for k in range(len(vjp_seed)))
+        vjp_cmds = f"""
+{var_lines}
+            compute         vjpseed all reduce ave {var_names}
+            compute         macedescvjp all symmetrix/maced/atom {MODEL_FILE} H O vjp vjpseed
+        """
+
     lmp = lammps(cmdargs=cmdargs)
     with tempfile.TemporaryDirectory() as tmpdir:
         data_path = str(Path(tmpdir) / "system.data")
@@ -158,10 +188,32 @@ def build_lammps(cmdargs, group_subset_ids=None):
             compute         macedesc all symmetrix/mace/atom {MODEL_FILE} H O
             compute         macedescgrad all symmetrix/maced/atom {MODEL_FILE} H O
             {group_cmds}
+            {vjp_cmds}
 
             run 0
         """)
     return lmp
+
+
+def _kokkos_gpu_available():
+    """True if *this LAMMPS build* has the KOKKOS package compiled in with
+    a GPU-capable backend (cuda/hip/sycl) -- used to skip (not fail) the
+    kokkos cmdargs id when the build itself can't honor `-k on g 1`, e.g.
+    a CI runner's CPU-only/host-Kokkos LAMMPS build. Checked via a
+    throwaway lammps instance's accelerator_config, which reports what the
+    library was actually compiled with -- not by probing for physical GPU
+    hardware (nvidia-smi etc.), which only catches "GPU-capable build, no
+    device present" and would still let a host-only Kokkos build blow up
+    on `-k on g 1` on a machine that happens to have a GPU.
+    """
+    lmp = lammps(cmdargs=["-screen", "none"])
+    try:
+        if not lmp.has_package("KOKKOS"):
+            return False
+        gpu_apis = {"cuda", "hip", "sycl"}
+        return bool(gpu_apis & set(lmp.accelerator_config["KOKKOS"]["api"]))
+    finally:
+        lmp.close()
 
 
 CMDARGS = [
@@ -170,6 +222,10 @@ CMDARGS = [
         ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
          "-pk", "kokkos", "newton", "on", "neigh", "half"],
         id="kokkos",
+        marks=pytest.mark.skipif(
+            not _kokkos_gpu_available(),
+            reason="LAMMPS not built with a GPU-capable Kokkos backend -- skipping Kokkos GPU test",
+        ),
     ),
 ]
 
@@ -225,6 +281,52 @@ def test_descriptor_group_subset(cmdargs):
                 assert np.allclose(desc[row], 0.0, atol=1e-12), (
                     f"atom id {atom_id} is outside the compute's group and should be zero, "
                     f"got {desc[row]}"
+                )
+    finally:
+        lmp.close()
+
+
+@pytest.mark.parametrize("cmdargs", CMDARGS)
+def test_vjp(cmdargs):
+    """compute symmetrix/maced/atom(/kk) ... vjp <compute-id> -- the single
+    combined reverse pass seeded by an external global vector v = [v1|v2]
+    (length 2*num_channels), as opposed to test_jacobian's full
+    2*num_channels x 3*num_atoms Jacobian (one reverse pass per channel).
+
+    Ground truth: v . q(positions), where q = reference_descriptor(positions)
+    summed over atoms (the same global descriptor test_jacobian's finite
+    differences use) -- the VJP output for atom i, direction w should be
+    exactly d(v.q)/dpos[i,w], i.e. the full Jacobian contracted with v.
+    Runs on both CPU (compute_symmetrix_maced_atom.cpp's `if (use_vjp)`
+    branch) and Kokkos (compute_symmetrix_maced_atom_kokkos.cpp's run_vjp).
+    """
+    two_c = 2 * NUM_CHANNELS
+    seed = np.random.default_rng(12345).uniform(-1.0, 1.0, two_c)
+
+    lmp = build_lammps(cmdargs, vjp_seed=seed)
+    try:
+        vjp = lmp.numpy.extract_compute(
+            "macedescvjp", lmpmod.LMP_STYLE_ATOM, lmpmod.LMP_TYPE_ARRAY)
+        ids = lmp.numpy.extract_atom("id")
+        order = np.argsort(ids)
+        vjp = np.array(vjp, copy=True)[order]
+        assert vjp.shape == (len(ATOMS), 3)
+
+        h = 1e-4
+        positions = ATOMS.get_positions()
+        for atom_idx in range(len(ATOMS)):
+            for w in range(3):
+                pos_p = positions.copy()
+                pos_p[atom_idx, w] += h
+                pos_m = positions.copy()
+                pos_m[atom_idx, w] -= h
+                q_p = reference_descriptor(pos_p).sum(axis=0)
+                q_m = reference_descriptor(pos_m).sum(axis=0)
+                dq_dw_num = (q_p - q_m) / (2 * h)
+                expected = seed @ dq_dw_num
+                got = vjp[atom_idx, w]
+                assert got == pytest.approx(expected, rel=1e-3, abs=1e-4), (
+                    f"atom={atom_idx} dir={w}: lammps={got}, numerical={expected}"
                 )
     finally:
         lmp.close()
