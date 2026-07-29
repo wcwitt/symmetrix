@@ -42,7 +42,7 @@ ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEatomK
   kokkosable = 1;
   atomKK = (AtomKokkos *) atom;
   execution_space = ExecutionSpaceFromDevice<DeviceType>::space;
-  datamask_read = X_MASK | TYPE_MASK | TAG_MASK;
+  datamask_read = X_MASK | TYPE_MASK | TAG_MASK | MASK_MASK;
   datamask_modify = EMPTY_MASK;
 
   const std::string model_file = arg[3];
@@ -233,8 +233,6 @@ void ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::compute_peratom()
   auto d_array_atom = k_array_atom.template view<DeviceType>();
   Kokkos::deep_copy(d_array_atom, 0.0);
 
-  // Assumes group "all" (matches every current caller in skmd/lammps_setup.py)
-  // -- unlike the CPU compute, no per-atom groupbit check is applied.
   if (mode == "no_domain_decomposition")
     compute_no_domain_decomposition(num_nodes);
   else
@@ -257,10 +255,11 @@ void ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::compute_no_domain_de
   auto d_neighbors = k_list->d_neighbors;
   auto d_ilist = k_list->d_ilist;
 
-  atomKK->sync(execution_space, X_MASK | TYPE_MASK | TAG_MASK);
+  atomKK->sync(execution_space, X_MASK | TYPE_MASK | TAG_MASK | MASK_MASK);
   auto x = atomKK->k_x.view<DeviceType>();
   auto tag = atomKK->k_tag.view<DeviceType>();
   auto type = atomKK->k_type.view<DeviceType>();
+  auto mask = atomKK->k_mask.view<DeviceType>();
 
   auto map_style = atom->map_style;
   auto k_map_array = atomKK->k_map_array;
@@ -374,10 +373,12 @@ void ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::compute_no_domain_de
   const auto mace_H1 = mace->H1;
   const auto mace_H2 = mace->H2;
   const auto num_channels = this->num_channels;
+  const auto groupbit = this->groupbit;
   Kokkos::parallel_for(
       "ComputeSymmetrixMACEatomKokkos::extract_descriptors", num_nodes,
       KOKKOS_LAMBDA(const int ii) {
         const int i = node_indices(ii);
+        if (!(mask(i) & groupbit)) return;
         for (int row = 0; row < num_channels; ++row) {
           double s = 0.0;
           for (int col = 0; col < num_channels; ++col)
@@ -401,9 +402,10 @@ void ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::compute_mpi_message_
   auto d_neighbors = k_list->d_neighbors;
   auto d_ilist = k_list->d_ilist;
 
-  atomKK->sync(execution_space, X_MASK | TYPE_MASK);
+  atomKK->sync(execution_space, X_MASK | TYPE_MASK | MASK_MASK);
   auto x = atomKK->k_x.view<DeviceType>();
   auto type = atomKK->k_type.view<DeviceType>();
+  auto mask = atomKK->k_mask.view<DeviceType>();
 
   if (node_indices.size() < num_nodes) Kokkos::realloc(node_indices, num_nodes);
   if (node_types.size() < num_nodes) Kokkos::realloc(node_types, num_nodes);
@@ -525,10 +527,12 @@ void ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::compute_mpi_message_
   const auto H1_atom_indexed = this->H1;
   const auto mace_H2 = mace->H2;
   const auto num_channels_out = this->num_channels;
+  const auto groupbit = this->groupbit;
   Kokkos::parallel_for(
       "ComputeSymmetrixMACEatomKokkos::extract_descriptors_mpi", num_nodes,
       KOKKOS_LAMBDA(const int ii) {
         const int i = node_indices(ii);
+        if (!(mask(i) & groupbit)) return;
         for (int row = 0; row < num_channels_out; ++row) {
           double s = 0.0;
           for (int col = 0; col < num_channels_out; ++col)

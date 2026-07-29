@@ -11,10 +11,10 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-// Device port of compute_symmetrix_maced_atom (the "macedescgrad" full
-// per-atom Jacobian compute) -- the "SLOW FULL JACOBIAN MODE" only (the
-// VJP/single-directional-derivative mode isn't ported: fix_skmd always
-// needs the complete Jacobian and never uses VJP). Shares its graph-build
+// Device port of compute_symmetrix_maced_atom (the full per-atom Jacobian
+// compute) -- the "SLOW FULL JACOBIAN MODE" only (the
+// VJP/single-directional-derivative mode isn't ported by this Kokkos
+// compute). Shares its graph-build
 // and forward-pass structure, and its two-mode
 // (no_domain_decomposition / mpi_message_passing) dispatch, with
 // compute_symmetrix_mace_atom_kokkos -- see that file's header comment

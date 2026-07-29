@@ -7,8 +7,7 @@ forward/reverse layer values, just carried through to the final
 [h1_restored | H2] descriptor these computes expose.
 
 Parametrized over cmdargs: plain CPU vs `-k on g 1 -sf kk -pk kokkos
-newton on neigh half` (Kokkos/GPU, matching skmd.lammps_setup.make_lammps's
-cmdargs). This is what actually exercises compute_symmetrix_mace_atom_kokkos
+newton on neigh half` (Kokkos/GPU). This is what actually exercises compute_symmetrix_mace_atom_kokkos
 / compute_symmetrix_maced_atom_kokkos -- under -sf kk, `compute ...
 symmetrix/mace(d)/atom ...` auto-resolves to the /kk variant if one's
 registered. The explicit `g 1` is required: on a LAMMPS build compiled
@@ -106,15 +105,14 @@ def reference_descriptor(positions):
     return np.concatenate([h1_restored, H2], axis=1)    # (num_nodes, 2*num_channels)
 
 
-def build_lammps(cmdargs):
+def build_lammps(cmdargs, group_subset_ids=None):
     # A single read_data call, not multiple create_atoms calls: LAMMPS/Kokkos
     # has a known, unresolved upstream bug where AtomKokkos::map_set_device()
     # segfaults (cudaErrorIllegalAddress) when create_atoms is invoked more
     # than once in a session with atom_modify map active --
     # https://matsci.org/t/using-lammps-create-atoms-and-run-0-in-a-kokkos-cuda-interface/59054
-    # read_data doesn't hit this path, and it's also what
-    # skmd.lammps_setup.load_config_into_lammps actually uses in production,
-    # so this is a closer match to the real usage pattern anyway.
+    # read_data doesn't hit this path, and it's also a closer match to
+    # real production usage patterns anyway.
     # ATOMS's positions (e.g. (0,-2,0)) were chosen for a box centered on
     # the origin (the old create_atoms version used `region box block -10
     # 10 -10 10 -10 10`). A cell of [20,20,20] implies a [0,20) box instead
@@ -125,6 +123,19 @@ def build_lammps(cmdargs):
     atoms.translate([10.0, 10.0, 10.0])
     atoms.set_cell([20.0, 20.0, 20.0])
     atoms.set_pbc(True)
+
+    # Optionally define a subgroup containing only some atoms and attach a
+    # second compute to it, scoped by LAMMPS atom id -- used by
+    # test_descriptor_group_subset to check that the compute honors its
+    # group (rather than every atom in the neighbor list) the same way on
+    # both the CPU and Kokkos code paths.
+    group_cmds = ""
+    if group_subset_ids is not None:
+        ids_str = " ".join(str(i) for i in group_subset_ids)
+        group_cmds = f"""
+            group           sub id {ids_str}
+            compute         macedesc_sub sub symmetrix/mace/atom {MODEL_FILE} H O
+        """
 
     lmp = lammps(cmdargs=cmdargs)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -146,6 +157,7 @@ def build_lammps(cmdargs):
 
             compute         macedesc all symmetrix/mace/atom {MODEL_FILE} H O
             compute         macedescgrad all symmetrix/maced/atom {MODEL_FILE} H O
+            {group_cmds}
 
             run 0
         """)
@@ -175,6 +187,45 @@ def test_descriptor(cmdargs):
         ref = reference_descriptor(ATOMS.get_positions())
         assert desc.shape == ref.shape
         assert np.allclose(desc, ref, rtol=1e-4, atol=1e-6)
+    finally:
+        lmp.close()
+
+
+@pytest.mark.parametrize("cmdargs", CMDARGS)
+def test_descriptor_group_subset(cmdargs):
+    """compute symmetrix/mace/atom(/kk) restricted to a group smaller than
+    "all" -- regression test for a real CPU/Kokkos divergence:
+    compute_symmetrix_mace_atom.cpp zeroes descriptor output for atoms
+    outside its group (`i < atom->nlocal && (atom->mask[i] & groupbit)`,
+    the standard LAMMPS per-atom-compute convention), but
+    compute_symmetrix_mace_atom_kokkos.cpp used to skip that check entirely
+    and write real descriptor values for every atom in the neighbor list
+    regardless of group. Attaches the compute to a 2-of-3-atom subgroup and
+    checks both that the in-group atoms still match the reference
+    descriptor and that the excluded atom's row comes back exactly zero.
+    """
+    subset_ids = [2, 3]    # exclude atom id 1 (the O atom) from the group
+    lmp = build_lammps(cmdargs, group_subset_ids=subset_ids)
+    try:
+        desc = lmp.numpy.extract_compute(
+            "macedesc_sub", lmpmod.LMP_STYLE_ATOM, lmpmod.LMP_TYPE_ARRAY)
+        ids = lmp.numpy.extract_atom("id")
+        order = np.argsort(ids)
+        desc = np.array(desc, copy=True)[order]
+        sorted_ids = np.array(ids, copy=True)[order].astype(int)
+
+        ref = reference_descriptor(ATOMS.get_positions())
+        assert desc.shape == ref.shape
+        for row, atom_id in enumerate(sorted_ids):
+            if atom_id in subset_ids:
+                assert np.allclose(desc[row], ref[row], rtol=1e-4, atol=1e-6), (
+                    f"in-group atom id {atom_id} should still match the reference descriptor"
+                )
+            else:
+                assert np.allclose(desc[row], 0.0, atol=1e-12), (
+                    f"atom id {atom_id} is outside the compute's group and should be zero, "
+                    f"got {desc[row]}"
+                )
     finally:
         lmp.close()
 

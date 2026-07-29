@@ -68,7 +68,7 @@ ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEdato
   }
 
   // Full-Jacobian mode only -- the VJP (single directional derivative)
-  // mode isn't ported: fix_skmd always needs the complete Jacobian.
+  // mode isn't ported by this Kokkos compute.
   const int ntypes = atom->ntypes;
   const int base = 4 + ntypes;
   if (narg != base)
