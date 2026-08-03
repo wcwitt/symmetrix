@@ -32,6 +32,7 @@
 #include "neigh_request.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 using namespace LAMMPS_NS;
 
@@ -48,6 +49,7 @@ PairSymmetrixMACEKokkos<DeviceType, Precision>::PairSymmetrixMACEKokkos(LAMMPS *
   no_virial_fdotr_compute = 1;
   comm_forward = 0;  // possibly changed below
   comm_reverse = 0;  // possibly changed below
+  electric_field_set = false;
 
   kokkosable = 1;
   reverse_comm_device = 1;
@@ -110,14 +112,35 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::allocate()
 template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::settings(int narg, char **arg)
 {
-  if (narg == 0) {
-    mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
-  } else if (narg == 1) {
-    mode = std::string(arg[0]);
-    if (mode != "no_domain_decomposition" and mode != "mpi_message_passing" and mode != "no_mpi_message_passing")
-      error->all(FLERR, "The command \'pair_style symmetrix/mace/kk {}\' is invalid", mode);
-  } else {
-    error->all(FLERR, "Too many pair_style arguments for symmetrix/mace/kk");
+  mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
+  electric_field_set = false;
+
+  for (int i=0; i<narg; ++i) {
+    const std::string token(arg[i]);
+    if (token == "no_domain_decomposition" || token == "mpi_message_passing" || token == "no_mpi_message_passing") {
+      mode = token;
+    } else if (token == "electric_field") {
+      if (i+3 >= narg)
+        error->all(FLERR, "pair_style symmetrix/mace/kk electric_field requires three components");
+      std::array<double,3> field_values;
+      try {
+        field_values[0] = std::stod(arg[i+1]);
+        field_values[1] = std::stod(arg[i+2]);
+        field_values[2] = std::stod(arg[i+3]);
+      } catch (const std::exception&) {
+        error->all(FLERR, "pair_style symmetrix/mace/kk electric_field components must be numeric");
+      }
+      electric_field = Kokkos::View<double*>("symmetrix_mace_electric_field", 3);
+      auto h_electric_field = Kokkos::create_mirror_view(electric_field);
+      h_electric_field(0) = field_values[0];
+      h_electric_field(1) = field_values[1];
+      h_electric_field(2) = field_values[2];
+      Kokkos::deep_copy(electric_field, h_electric_field);
+      electric_field_set = true;
+      i += 3;
+    } else {
+      error->all(FLERR, "The command \'pair_style symmetrix/mace/kk {}\' is invalid", token);
+    }
   }
 
   if (mode == "no_domain_decomposition" and comm->nprocs != 1)
@@ -132,15 +155,21 @@ template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
+  if (narg != atom->ntypes + 3)
+    error->all(FLERR, "Incorrect args for pair coefficients");
 
   utils::logmesg(lmp, "Loading MACEKokkos model from \'{}\' ... ", arg[2]);
   mace = std::make_unique<MACEKokkos<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
+  if (mace->has_field_coupling && !electric_field_set)
+    error->all(FLERR, "MACEField models require pair_style symmetrix/mace/kk electric_field Ex Ey Ez");
 
   // extract atomic numbers from pair_coeff
-  mace_types = Kokkos::View<int*>("mace_types", mace->atomic_numbers.size());
-  auto h_mace_types = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), mace_types);
+  mace_types = Kokkos::View<int*>("mace_types", atom->ntypes);
+  auto h_mace_types = Kokkos::create_mirror_view(mace_types);
   auto h_mace_atomic_numbers = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), mace->atomic_numbers);
+  auto active_mace_types = std::vector<int>();
+  active_mace_types.reserve(atom->ntypes);
   for (int i=3; i<narg; ++i) {
     // find atomic number for element in arg[i]
     auto iter1 = std::find(periodic_table.begin(), periodic_table.end(), arg[i]);
@@ -152,10 +181,14 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
     for (int j=0; j<mace->atomic_numbers.size(); ++j)
         if (h_mace_atomic_numbers(j) == atomic_number)
             mace_index = j;
+    if (mace_index < 0)
+      error->all(FLERR, "Problem matching LAMMPS types to MACEKokkos types.");
     utils::logmesg(lmp, "  mapping LAMMPS type {} ({}) to MACEKokkos type {}\n",
                    i-2, arg[i], mace_index);
     h_mace_types(i-3) = mace_index;
+    active_mace_types.push_back(mace_index);
   }
+  mace->prepare_active_types(active_mace_types);
   Kokkos::deep_copy(mace_types, h_mace_types);
 
   // set message size
@@ -487,7 +520,11 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
       }
   });
 
-  mace->compute_node_energies_forces(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
+  if (mace->has_field_coupling)
+    mace->compute_node_energies_forces_field(
+      num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r, electric_field);
+  else
+    mace->compute_node_energies_forces(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
 
   if (eflag_global) {
     auto node_energies = mace->node_energies;
@@ -710,11 +747,15 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   mace->compute_A0(num_nodes, node_types, num_neigh, neigh_types);
   mace->compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M0(num_nodes, node_types);
-  mace->compute_H1(num_nodes);
+  if (mace->has_field_coupling)
+    mace->compute_H1_product(num_nodes);
+  else
+    mace->compute_H1(num_nodes);
 
   // sort H1 contributions by i (rather than ii)
-  if (H1.extent(0) < k_list->inum+atom->nghost)
-    Kokkos::realloc(H1, (k_list->inum+atom->nghost), mace->num_LM, mace->num_channels);
+  const int num_h1_nodes = k_list->inum + atom->nghost;
+  if (H1.extent(0) < num_h1_nodes)
+    Kokkos::realloc(H1, num_h1_nodes, mace->num_LM, mace->num_channels);
   auto num_LM = mace->num_LM;
   auto num_channels = mace->num_channels;
   auto mace_H1 = mace->H1;
@@ -729,6 +770,10 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   comm->forward_comm(this);
   Kokkos::fence();
   mace->H1 = H1;
+  if (mace->has_field_coupling) {
+    mace->compute_field_H1(num_h1_nodes, electric_field);
+    mace->compute_H1_linear_up(num_h1_nodes);
+  }
 
   mace->compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_Phi1(num_nodes, num_neigh, neigh_indices);
@@ -745,12 +790,19 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   mace->reverse_A1(num_nodes);
   mace->reverse_Phi1(num_nodes, num_neigh, neigh_indices, xyz, r, false, false);
 
+  if (mace->has_field_coupling) {
+    mace->reverse_H1_linear_up(num_h1_nodes);
+    mace->reverse_field_H1(num_h1_nodes, electric_field);
+  }
   H1_adj = mace->H1_adj;
   Kokkos::fence();
   comm->reverse_comm(this);
   Kokkos::fence();
 
-  mace->reverse_H1(num_nodes);
+  if (mace->has_field_coupling)
+    mace->reverse_H1_product(num_nodes);
+  else
+    mace->reverse_H1(num_nodes);
   mace->reverse_M0(num_nodes, node_types);
   mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
@@ -1061,7 +1113,13 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
   mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types);
   mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->compute_H1(num_local_nodes+num_ghost_nodes);
+  if (mace->has_field_coupling) {
+    mace->compute_H1_product(num_local_nodes+num_ghost_nodes);
+    mace->compute_field_H1(num_local_nodes+num_ghost_nodes, electric_field);
+    mace->compute_H1_linear_up(num_local_nodes+num_ghost_nodes);
+  } else {
+    mace->compute_H1(num_local_nodes+num_ghost_nodes);
+  }
 
   mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
   mace->compute_Phi1(num_local_nodes, num_neigh, neigh_ii_indices);
@@ -1078,7 +1136,13 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
   mace->reverse_A1(num_local_nodes);
   mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_ii_indices, xyz, r, false, false);
 
-  mace->reverse_H1(num_local_nodes+num_ghost_nodes);
+  if (mace->has_field_coupling) {
+    mace->reverse_H1_linear_up(num_local_nodes+num_ghost_nodes);
+    mace->reverse_field_H1(num_local_nodes+num_ghost_nodes, electric_field);
+    mace->reverse_H1_product(num_local_nodes+num_ghost_nodes);
+  } else {
+    mace->reverse_H1(num_local_nodes+num_ghost_nodes);
+  }
   mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
   mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);

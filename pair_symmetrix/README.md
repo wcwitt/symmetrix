@@ -11,10 +11,30 @@ You will need a Python environment with a compatible `mace` module installed.
 The appropriate LAMMPS pair style commands are
 ```
 pair_style    symmetrix/mace
-pair_coeff    * * my-mace-1-8.json H O
+pair_coeff    * * my-mace-universal.json H O
 ```
 where the final `H O` assumes that `H` and `O` correspond to LAMMPS
-types `1` and `2`, respectively.
+types `1` and `2`, respectively. A compact universal JSON can be reused by a
+different input with another element mapping; active radial tables are built
+once during `pair_coeff` for that mapping.
+
+Compact universal files use Symmetrix format version 2 and require an updated
+pair style. Existing unversioned version 1 JSON remains supported. When an
+artifact must also work with an older Symmetrix/LAMMPS installation, generate
+it with `symmetrix_extract_mace --radial-format pair-splines` and an explicit
+element subset.
+
+For MACEField JSON models, use the Kokkos pair style with an explicit
+uniform electric field:
+```
+pair_style    symmetrix/mace/kk electric_field 0.01 0.0 0.0
+pair_coeff    * * my-macefield-universal.json Al N
+```
+Equivalently, LAMMPS can add the `/kk` suffix when launched with `-sf kk`.
+The field is currently a static graph-level vector in the active LAMMPS
+unit system. Per-atom fields, time-dependent fields, field-response
+properties, non-Kokkos MACEField LAMMPS runs, and atomic virials are not
+yet supported.
 
 ### Building LAMMPS
 

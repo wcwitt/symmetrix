@@ -115,6 +115,8 @@ void PairSymmetrixMACE::settings(int narg, char **arg)
 void PairSymmetrixMACE::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
+  if (narg != atom->ntypes + 3)
+    error->all(FLERR, "Incorrect args for pair coefficients");
 
   utils::logmesg(lmp, "Loading MACE model from \'{}\' ... ", arg[2]);
   mace = std::make_unique<MACE>(arg[2]);
@@ -137,6 +139,7 @@ void PairSymmetrixMACE::coeff(int narg, char **arg)
                    i-2, arg[i], mace_index);
     mace_types.push_back(mace_index);
   }
+  mace->prepare_active_types(mace_types);
 
   // set message size
   if (mode == "mpi_message_passing") {

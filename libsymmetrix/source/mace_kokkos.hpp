@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 #include <span>
+#include <array>
 
 #include "Kokkos_UnorderedMap.hpp"
 
+#include "compact_radial.hpp"
 #include "cubic_spline_kokkos.hpp"
 #include "cubic_spline_set_kokkos.hpp"
 #include "multilayer_perceptron_kokkos.hpp"
@@ -29,6 +31,9 @@ int l_max, num_lm;
 int L_max, num_LM;
 Kokkos::View<int*> atomic_numbers;
 Kokkos::View<double*> atomic_energies;
+std::vector<int> atomic_numbers_host;
+std::vector<int> active_atomic_numbers;
+void prepare_active_types(std::vector<int> node_types);
 
 // Node energies and forces
 Kokkos::View<double*> node_energies, node_forces;
@@ -39,13 +44,29 @@ void compute_node_energies_forces(const int num_nodes,
                                   Kokkos::View<const int*> neigh_types,
                                   Kokkos::View<const double*> xyz,
                                   Kokkos::View<const double*> r);
+void compute_node_energies_forces_field(const int num_nodes,
+                                        Kokkos::View<const int*> node_types,
+                                        Kokkos::View<const int*> num_neigh,
+                                        Kokkos::View<const int*> neigh_indices,
+                                        Kokkos::View<const int*> neigh_types,
+                                        Kokkos::View<const double*> xyz,
+                                        Kokkos::View<const double*> r,
+                                        Kokkos::View<const double*> electric_field);
 
 // ZBL
 bool has_zbl;
 ZBLKokkos zbl;
 
 // R0
+bool uses_compact_radial = false;
+std::unique_ptr<CompactRadialModel> compact_radial_model;
+std::vector<int> active_types;
+Kokkos::View<int*> type_to_active;
+int num_active_types = 0;
+std::vector<double> H0_weights_host;
+std::vector<std::vector<std::vector<double>>> A0_weights_host;
 double R0_spline_h;
+double R0_spline_min = 0.0;
 Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
 Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;
 void compute_R0(const int num_nodes,
@@ -113,10 +134,57 @@ void compute_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
 // H1
-Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
-Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj, H1_pre_linear_up;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights, H1_product_weights, H1_linear_up_weights;
 void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
+void compute_H1_product(const int num_nodes);
+void compute_H1_linear_up(const int num_nodes);
+void reverse_H1_linear_up(const int num_nodes);
+void reverse_H1_product(const int num_nodes);
+
+// MACEField coupling after H1 product
+bool has_field_coupling;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1_pre_field;
+Kokkos::View<Precision**,Kokkos::LayoutRight> field_delta_scalar;
+Kokkos::View<Precision***,Kokkos::LayoutRight> field_delta_vector;
+Kokkos::View<Precision**,Kokkos::LayoutRight> field_linear_scalar;
+Kokkos::View<Precision***,Kokkos::LayoutRight> field_linear_vector;
+Kokkos::View<Precision*> field_feats_weight;
+Kokkos::View<Precision*> field_feats_output_mask;
+Kokkos::View<Precision*> field_linear_weight;
+Kokkos::View<Precision*> field_linear_bias;
+Kokkos::View<Precision*> field_linear_output_mask;
+Kokkos::View<Precision**,Kokkos::LayoutRight> field_scalar_to_vector_up_matrix;
+Kokkos::View<Precision**,Kokkos::LayoutRight> field_vector_to_scalar_up_matrix;
+Kokkos::View<double*> electric_field_adj;
+Kokkos::View<double*> electric_field_hessian;
+Kokkos::View<double*> electric_field_force_derivative;
+Kokkos::View<Precision**,Kokkos::LayoutRight> field_delta_scalar_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> field_delta_vector_adj;
+Kokkos::View<Precision***,Kokkos::LayoutRight> field_H1_pre_adj;
+double field_feats_scalar_to_vector_path_weight;
+double field_feats_vector_to_scalar_path_weight;
+double field_linear_scalar_path_weight;
+double field_linear_vector_path_weight;
+void compute_field_H1(const int num_nodes, Kokkos::View<const double*> electric_field);
+void reverse_field_H1(const int num_nodes, Kokkos::View<const double*> electric_field);
+void compute_electric_field_hessian(const int num_nodes,
+                                    Kokkos::View<const int*> node_types,
+                                    Kokkos::View<const int*> num_neigh,
+                                    Kokkos::View<const int*> neigh_indices,
+                                    Kokkos::View<const int*> neigh_types,
+                                    Kokkos::View<const double*> xyz,
+                                    Kokkos::View<const double*> r,
+                                    Kokkos::View<const double*> electric_field);
+void compute_electric_field_force_derivative(const int num_nodes,
+                                             Kokkos::View<const int*> node_types,
+                                             Kokkos::View<const int*> num_neigh,
+                                             Kokkos::View<const int*> neigh_indices,
+                                             Kokkos::View<const int*> neigh_types,
+                                             Kokkos::View<const double*> xyz,
+                                             Kokkos::View<const double*> r,
+                                             Kokkos::View<const double*> electric_field);
 
 // Phi1
 int num_lelm1lm2, num_lme;

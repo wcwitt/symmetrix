@@ -15,7 +15,13 @@ from mace.tools.scripts_utils import remove_pt_head
 from ase.data import chemical_symbols
 
 
-def extract_mace_data(model, species, head=None, num_spline_points=256):
+def extract_mace_data(
+    model,
+    species=None,
+    head=None,
+    num_spline_points=256,
+    radial_format="compact",
+):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
@@ -23,12 +29,16 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     ----------
     model: str / Path
         path to pytorch model file
-    species: list(int / str)
-        list of atomic numbers or chemical symbols to extract
+    species: list(int / str), default None
+        list of atomic numbers or chemical symbols to extract. If omitted,
+        retain every element supported by the checkpoint.
     head: str, default None
         head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
     num_spline_points: int, default 256
         number of spline points to approximate various functions
+    radial_format: str, default "compact"
+        compact stores the shared radial model and materializes splines for
+        active compositions at runtime. pair-splines stores legacy pair tables.
 
     Returns
     -------
@@ -42,6 +52,13 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
 
     if species is None:
         species = []
+    if radial_format not in ("compact", "pair-splines"):
+        raise ValueError(
+            f"Unsupported radial_format '{radial_format}'. "
+            "Expected 'compact' or 'pair-splines'."
+        )
+    if radial_format == "compact" and num_spline_points < 4:
+        raise ValueError("Compact radial output requires at least 4 spline points.")
 
     # extract atomic numbers
     atomic_numbers = []
@@ -66,11 +83,26 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
         torch.set_default_dtype(next(model.parameters()).dtype)
         model = remove_pt_head(model, head).to(device=device, dtype=torch.float64)
         model.eval()
+    model_dtype = next(model.parameters()).dtype
 
     ### ----- CHECK FOR COMPATIBILITY -----
 
+    is_macefield = type(model).__name__ == "MACEField" or (
+        hasattr(model, "field_feats") and hasattr(model, "field_linear")
+    )
+
     if len(model.interactions) != 2:
         raise RuntimeError("Currently, symmetrix only supports two-layer MACE models.")
+
+    if is_macefield:
+        if not hasattr(model, "field_feats") or not hasattr(model, "field_linear"):
+            raise RuntimeError(
+                "MACEField models must have field_feats and field_linear modules."
+            )
+        if len(model.field_feats) != 1 or len(model.field_linear) != 1:
+            raise RuntimeError(
+                "Currently, symmetrix only supports MACEField models with one field coupling."
+            )
 
     from mace.modules.blocks import (
         RealAgnosticInteractionBlock,
@@ -115,17 +147,261 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
         simplified.bias = linear.bias
         return simplified.to(device=device, dtype=torch.float64)
 
+    def serialize_instruction(instruction):
+        serialized = {}
+        for name in (
+            "i_in",
+            "i_in1",
+            "i_in2",
+            "i_out",
+            "connection_mode",
+            "has_weight",
+            "path_weight",
+            "path_shape",
+        ):
+            if hasattr(instruction, name):
+                value = getattr(instruction, name)
+                if isinstance(value, tuple):
+                    value = list(value)
+                serialized[name] = value
+        return serialized
+
+    def serialize_field_coupling(field_feats, field_linear):
+        return {
+            "field_feats_irreps_in1": str(field_feats.irreps_in1),
+            "field_feats_irreps_in2": str(field_feats.irreps_in2),
+            "field_feats_irreps_out": str(field_feats.irreps_out),
+            "field_feats_instructions": [
+                serialize_instruction(instruction)
+                for instruction in field_feats.instructions
+            ],
+            "field_feats_weight": field_feats.weight.numpy(force=True).tolist(),
+            "field_feats_output_mask": field_feats.output_mask.numpy(
+                force=True
+            ).tolist(),
+            "field_linear_irreps_in": str(field_linear.irreps_in),
+            "field_linear_irreps_out": str(field_linear.irreps_out),
+            "field_linear_instructions": [
+                serialize_instruction(instruction)
+                for instruction in field_linear.instructions
+            ],
+            "field_linear_weight": field_linear.weight.numpy(force=True).tolist(),
+            "field_linear_bias": field_linear.bias.numpy(force=True).tolist(),
+            "field_linear_output_mask": field_linear.output_mask.numpy(
+                force=True
+            ).tolist(),
+        }
+
+    def serialize_e3nn_fully_connected_net(network, name):
+        if (
+            type(network).__module__ != "e3nn.nn._fc"
+            or type(network).__name__ != "FullyConnectedNet"
+        ):
+            raise RuntimeError(
+                f"Compact radial extraction does not support {name} network "
+                f"{type(network).__module__}.{type(network).__name__}. "
+                "Use radial_format='pair-splines' with an explicit species list."
+            )
+
+        layers = list(network._modules.values())
+        if len(layers) != len(network.hs) - 1:
+            raise RuntimeError(
+                f"Compact radial extraction found an invalid {name} network layout."
+            )
+
+        weights = []
+        activation_scale = None
+        for layer_index, layer in enumerate(layers):
+            if tuple(layer.weight.shape) != (layer.h_in, layer.h_out):
+                raise RuntimeError(
+                    f"Compact radial extraction found invalid {name} layer dimensions."
+                )
+            if getattr(layer, "bias", None) is not None:
+                raise RuntimeError(
+                    f"Compact radial extraction does not support biases in {name}. "
+                    "Use radial_format='pair-splines' with an explicit species list."
+                )
+            if layer.var_in != 1 or layer.var_out != 1:
+                raise RuntimeError(
+                    f"Compact radial extraction only supports unit e3nn variances in {name}. "
+                    "Use radial_format='pair-splines' with an explicit species list."
+                )
+
+            is_final = layer_index == len(layers) - 1
+            if is_final:
+                if layer.act is not None:
+                    raise RuntimeError(
+                        f"Compact radial extraction does not support an output activation in {name}."
+                    )
+            else:
+                act = layer.act
+                if (
+                    act is None
+                    or getattr(act, "f", None) is not torch.nn.functional.silu
+                ):
+                    raise RuntimeError(
+                        f"Compact radial extraction only supports normalized SiLU in {name}. "
+                        "Use radial_format='pair-splines' with an explicit species list."
+                    )
+                if activation_scale is None:
+                    activation_scale = float(act.cst)
+                elif not np.isclose(
+                    activation_scale, float(act.cst), rtol=0.0, atol=1e-15
+                ):
+                    raise RuntimeError(
+                        f"Compact radial extraction requires one activation scale across {name}."
+                    )
+
+            effective_weight = (
+                layer.weight.detach()
+                / np.sqrt(
+                    float(layer.h_in) * float(layer.var_in) / float(layer.var_out)
+                )
+            ).T
+            weights.append(effective_weight.numpy(force=True).flatten().tolist())
+
+        return {
+            "shape": [int(value) for value in network.hs],
+            "weights": weights,
+            "activation": "silu",
+            "activation_scale": 1.0 if activation_scale is None else activation_scale,
+        }
+
+    def serialize_compact_radial(model, atomic_numbers):
+        from mace.modules.blocks import RadialEmbeddingBlock
+        from mace.modules.radial import AgnesiTransform, BesselBasis, PolynomialCutoff
+
+        radial = model.radial_embedding
+        if not isinstance(radial, RadialEmbeddingBlock):
+            raise RuntimeError(
+                "Compact radial extraction requires mace.modules.blocks.RadialEmbeddingBlock. "
+                "Use radial_format='pair-splines' with an explicit species list."
+            )
+        if not isinstance(radial.bessel_fn, BesselBasis):
+            raise RuntimeError(
+                f"Compact radial extraction does not support basis {type(radial.bessel_fn).__name__}. "
+                "Use radial_format='pair-splines' with an explicit species list."
+            )
+        if not isinstance(radial.cutoff_fn, PolynomialCutoff) or not getattr(
+            radial, "apply_cutoff", True
+        ):
+            raise RuntimeError(
+                "Compact radial extraction requires an applied PolynomialCutoff. "
+                "Use radial_format='pair-splines' with an explicit species list."
+            )
+
+        transform = getattr(radial, "distance_transform", None)
+        if transform is None:
+            distance_transform = {"type": "none"}
+        else:
+            if not isinstance(transform, AgnesiTransform):
+                raise RuntimeError(
+                    f"Compact radial extraction does not support distance transform "
+                    f"{type(transform).__name__}. Use radial_format='pair-splines' "
+                    "with an explicit species list."
+                )
+            distance_transform = {
+                "type": "agnesi",
+                "a": float(transform.a),
+                "q": float(transform.q),
+                "p": float(transform.p),
+                "covalent_radii": [
+                    float(transform.covalent_radii[atomic_number])
+                    for atomic_number in atomic_numbers
+                ],
+            }
+
+        networks = {
+            "R0": serialize_e3nn_fully_connected_net(
+                model.interactions[0].conv_tp_weights, "R0"
+            ),
+            "R1": serialize_e3nn_fully_connected_net(
+                model.interactions[1].conv_tp_weights, "R1"
+            ),
+        }
+        if "Density" in type(model.interactions[0]).__name__:
+            networks["A0"] = serialize_e3nn_fully_connected_net(
+                model.interactions[0].density_fn, "A0"
+            )
+            networks["A0"]["postprocess"] = "tanh-square"
+        if "Density" in type(model.interactions[1]).__name__:
+            networks["A1"] = serialize_e3nn_fully_connected_net(
+                model.interactions[1].density_fn, "A1"
+            )
+            networks["A1"]["postprocess"] = "tanh-square"
+
+        return {
+            "spline_grid_min": 1e-12,
+            "num_spline_points": int(num_spline_points),
+            "basis": {
+                "type": "bessel",
+                "weights": radial.bessel_fn.bessel_weights.numpy(force=True).tolist(),
+                "prefactor": float(radial.bessel_fn.prefactor),
+            },
+            "cutoff": {
+                "type": "polynomial",
+                "r_max": float(radial.cutoff_fn.r_max),
+                "p": int(radial.cutoff_fn.p),
+            },
+            "distance_transform": distance_transform,
+            "networks": networks,
+        }
+
     ### ----- BASIC MODEL INFO -----
 
     num_channels = model.node_embedding.linear.irreps_out.count("0e")
     r_cut = model.r_max.item()
     l_max = model.spherical_harmonics._lmax
     L_max = model.products[0].linear.irreps_out.lmax
+    if is_macefield and L_max != 1:
+        raise RuntimeError(
+            "Currently, symmetrix only supports MACEField models whose first "
+            "layer contains scalar and vector features (L_max=1)."
+        )
     output = {}
     output["num_channels"] = num_channels
     output["r_cut"] = r_cut
     output["l_max"] = l_max
     output["L_max"] = L_max
+    output["model_type"] = "MACEField" if is_macefield else "MACE"
+    output["has_field_coupling"] = is_macefield
+    output["field_couplings"] = []
+
+    if is_macefield:
+        field_feats = model.field_feats[0]
+        field_linear = model.field_linear[0]
+        expected_hidden_dim = ((L_max + 1) ** 2) * num_channels
+        if field_feats.irreps_in1.dim != expected_hidden_dim:
+            raise RuntimeError(
+                "MACEField field_feats.0 input irreps do not match the extracted H1 layout."
+            )
+        if str(field_feats.irreps_in2) != "1x1o":
+            raise RuntimeError(
+                "Currently, symmetrix only supports MACEField electric-field irreps '1x1o'."
+            )
+        if field_feats.irreps_out != field_linear.irreps_in:
+            raise RuntimeError(
+                "MACEField field_feats.0 output irreps must match field_linear.0 input irreps."
+            )
+        if field_linear.irreps_out != field_feats.irreps_in1:
+            raise RuntimeError(
+                "MACEField field_linear.0 output irreps must match field_feats.0 input irreps."
+            )
+        if field_linear.irreps_out.dim != expected_hidden_dim:
+            raise RuntimeError(
+                "MACEField field_linear.0 output irreps do not match the extracted H1 layout."
+            )
+        if not torch.all(field_feats.output_mask == 1):
+            raise RuntimeError(
+                "Currently, symmetrix only supports MACEField field_feats.0 output masks of all ones."
+            )
+        if not torch.all(field_linear.output_mask == 1):
+            raise RuntimeError(
+                "Currently, symmetrix only supports MACEField field_linear.0 output masks of all ones."
+            )
+        output["field_couplings"] = [
+            serialize_field_coupling(field_feats, field_linear)
+        ]
 
     ### ----- ATOMIC NUMBERS AND ENERGIES -----
 
@@ -143,6 +419,11 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     output["atomic_numbers"] = atomic_numbers
     output["num_elements"] = len(atomic_numbers)
     output["atomic_energies"] = atomic_energies
+
+    if radial_format == "compact":
+        output["symmetrix_format_version"] = 2
+        output["radial_representation"] = "compact"
+        output["compact_radial"] = serialize_compact_radial(model, atomic_numbers)
 
     ### --- ZBL ---
 
@@ -163,50 +444,58 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
 
     ### ----- RADIAL SPLINES -----
 
-    logging.info("R0+R1")
-    r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
-    spline_values_0 = []
-    spline_derivatives_0 = []
-    spline_values_1 = []
-    spline_derivatives_1 = []
-    for a_i in atomic_numbers:
-        for a_j in atomic_numbers:
-            if a_j < a_i:
-                continue
-            model_i = model.atomic_numbers.tolist().index(a_i)
-            model_j = model.atomic_numbers.tolist().index(a_j)
-            bessels = model.radial_embedding(
-                torch.tensor(
-                    r, dtype=torch.get_default_dtype(), device=device
-                ).unsqueeze(-1),
-                torch.eye(len(model.atomic_numbers), device=device),
-                torch.tensor([[model_i], [model_j]], dtype=torch.int64, device=device),
-                model.atomic_numbers.to(device),
-            )
-            if isinstance(bessels, tuple):
-                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
-            # radial basis for interaction 0
-            R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
-            spl_0 = [
-                CubicSpline(r, R[:, k], bc_type=spline_bc_type)
-                for k in range(R.shape[1])
-            ]
-            spline_values_0.append([spl(r).tolist() for spl in spl_0])
-            spline_derivatives_0.append([spl.derivative()(r).tolist() for spl in spl_0])
-            # radial basis for interaction 1
-            R = model.interactions[1].conv_tp_weights(bessels).numpy(force=True)
-            spl_1 = [
-                CubicSpline(r, R[:, k], bc_type=spline_bc_type)
-                for k in range(R.shape[1])
-            ]
-            spline_values_1.append([spl(r).tolist() for spl in spl_1])
-            spline_derivatives_1.append([spl.derivative()(r).tolist() for spl in spl_1])
+    if radial_format == "pair-splines":
+        logging.info("R0+R1")
+        r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
+        spline_values_0 = []
+        spline_derivatives_0 = []
+        spline_values_1 = []
+        spline_derivatives_1 = []
+        for a_i in atomic_numbers:
+            for a_j in atomic_numbers:
+                if a_j < a_i:
+                    continue
+                model_i = model.atomic_numbers.tolist().index(a_i)
+                model_j = model.atomic_numbers.tolist().index(a_j)
+                bessels = model.radial_embedding(
+                    torch.tensor(r, dtype=model_dtype, device=device).unsqueeze(-1),
+                    torch.eye(
+                        len(model.atomic_numbers), dtype=model_dtype, device=device
+                    ),
+                    torch.tensor(
+                        [[model_i], [model_j]], dtype=torch.int64, device=device
+                    ),
+                    model.atomic_numbers.to(device),
+                )
+                if isinstance(bessels, tuple):
+                    bessels = bessels[0]  # newer versions return (bessels, cutoffs)
+                # radial basis for interaction 0
+                R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
+                spl_0 = [
+                    CubicSpline(r, R[:, k], bc_type=spline_bc_type)
+                    for k in range(R.shape[1])
+                ]
+                spline_values_0.append([spl(r).tolist() for spl in spl_0])
+                spline_derivatives_0.append(
+                    [spl.derivative()(r).tolist() for spl in spl_0]
+                )
+                # radial basis for interaction 1
+                R = model.interactions[1].conv_tp_weights(bessels).numpy(force=True)
+                spl_1 = [
+                    CubicSpline(r, R[:, k], bc_type=spline_bc_type)
+                    for k in range(R.shape[1])
+                ]
+                spline_values_1.append([spl(r).tolist() for spl in spl_1])
+                spline_derivatives_1.append(
+                    [spl.derivative()(r).tolist() for spl in spl_1]
+                )
 
-    output["radial_spline_h"] = float(h)
-    output["radial_spline_values_0"] = spline_values_0
-    output["radial_spline_derivs_0"] = spline_derivatives_0
-    output["radial_spline_values_1"] = spline_values_1
-    output["radial_spline_derivs_1"] = spline_derivatives_1
+        output["radial_spline_h"] = float(h)
+        output["radial_spline_min"] = float(r[0])
+        output["radial_spline_values_0"] = spline_values_0
+        output["radial_spline_derivs_0"] = spline_derivatives_0
+        output["radial_spline_values_1"] = spline_values_1
+        output["radial_spline_derivs_1"] = spline_derivatives_1
 
     ### ----- H0 -----
 
@@ -236,7 +525,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     logging.info("A0")
     A0_scaled = True if ("Density" in type(model.interactions[0]).__name__) else False
     output["A0_scaled"] = A0_scaled
-    if A0_scaled:
+    if A0_scaled and radial_format == "pair-splines":
         r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
         A0_spline_values = []
         A0_spline_derivs = []
@@ -247,10 +536,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 model_i = model.atomic_numbers.tolist().index(a_i)
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
-                    torch.tensor(
-                        r, dtype=torch.get_default_dtype(), device=device
-                    ).unsqueeze(-1),
-                    torch.eye(len(model.atomic_numbers), device=device),
+                    torch.tensor(r, dtype=model_dtype, device=device).unsqueeze(-1),
+                    torch.eye(
+                        len(model.atomic_numbers), dtype=model_dtype, device=device
+                    ),
                     torch.tensor(
                         [[model_i], [model_j]], dtype=torch.int64, device=device
                     ),
@@ -265,6 +554,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 A0_spline_values.append(spl(r).tolist())
                 A0_spline_derivs.append(spl.derivative()(r).tolist())
         output["A0_spline_h"] = float(h)
+        output["A0_spline_min"] = float(r[0])
         output["A0_spline_values"] = A0_spline_values
         output["A0_spline_derivs"] = A0_spline_derivs
     A0_weights = []
@@ -389,6 +679,9 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     for l in range(L_max + 1):
         H1_weights[l, :, :] = weights_0[l, :, :] @ weights_1[l, :, :]
     output["H1_weights"] = H1_weights.flatten().tolist()
+    if is_macefield:
+        output["H1_product_weights"] = weights_0.flatten().tolist()
+        output["H1_linear_up_weights"] = weights_1.flatten().tolist()
 
     ### ----- Phi1 -----
 
@@ -474,7 +767,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     logging.info("A1")
     A1_scaled = True if ("Density" in type(model.interactions[1]).__name__) else False
     output["A1_scaled"] = A1_scaled
-    if A1_scaled:
+    if A1_scaled and radial_format == "pair-splines":
         r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
         A1_spline_values = []
         A1_spline_derivs = []
@@ -485,10 +778,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 model_i = model.atomic_numbers.tolist().index(a_i)
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
-                    torch.tensor(
-                        r, dtype=torch.get_default_dtype(), device=device
-                    ).unsqueeze(-1),
-                    torch.eye(len(model.atomic_numbers), device=device),
+                    torch.tensor(r, dtype=model_dtype, device=device).unsqueeze(-1),
+                    torch.eye(
+                        len(model.atomic_numbers), dtype=model_dtype, device=device
+                    ),
                     torch.tensor(
                         [[model_i], [model_j]], dtype=torch.int64, device=device
                     ),
@@ -503,6 +796,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 A1_spline_values.append(spl(r).tolist())
                 A1_spline_derivs.append(spl.derivative()(r).tolist())
         output["A1_spline_h"] = float(h)
+        output["A1_spline_min"] = float(r[0])
         output["A1_spline_values"] = A1_spline_values
         output["A1_spline_derivs"] = A1_spline_derivs
     A1_weights = []

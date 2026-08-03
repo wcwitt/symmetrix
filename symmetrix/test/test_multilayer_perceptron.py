@@ -170,3 +170,28 @@ def test_evaluate_gradient_batch():
     f1, g1 = mlp.evaluate_gradient_batch(x.flatten(), 100)
     assert f.flatten() == pytest.approx(f1)
     assert g.flatten() == pytest.approx(g1)
+
+
+def test_evaluate_gradient_directional():
+    shape = [4, 7, 5, 2]
+    rng = np.random.default_rng(20260711)
+    weights = [
+        rng.normal(size=(7, 4)).flatten(),
+        rng.normal(size=(5, 7)).flatten(),
+        rng.normal(size=(2, 5)).flatten(),
+    ]
+    mlp = MultilayerPerceptron(shape, weights, 0.9)
+    x = rng.normal(size=4)
+    x_dot = rng.normal(size=4)
+
+    f, g, g_dot = mlp.evaluate_gradient_directional(x, x_dot)
+    expected_f, expected_g = mlp.evaluate_gradient(x)
+
+    step = 1e-6
+    _, g_plus = mlp.evaluate_gradient(x + step * x_dot)
+    _, g_minus = mlp.evaluate_gradient(x - step * x_dot)
+    expected_g_dot = (np.asarray(g_plus) - np.asarray(g_minus)) / (2.0 * step)
+
+    assert f == pytest.approx(expected_f)
+    assert np.allclose(g, expected_g)
+    assert np.allclose(g_dot, expected_g_dot, rtol=1e-5, atol=1e-7)

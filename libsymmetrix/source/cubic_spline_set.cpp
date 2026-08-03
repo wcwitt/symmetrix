@@ -1,14 +1,17 @@
 #include <vector>
+#include <cmath>
 
 #include "cubic_spline_set.hpp"
 
 CubicSplineSet::CubicSplineSet(
     double h,
     std::vector<std::vector<double>> nodal_values,
-    std::vector<std::vector<double>> nodal_derivs)
+    std::vector<std::vector<double>> nodal_derivs,
+    double x0)
 {
     // TODO: sanitize input
     this->h = h;
+    this->x0 = x0;
     num_nodes = nodal_values[0].size();
     num_splines = nodal_values.size();
     c = std::vector<double>(4*num_splines*(num_nodes-1), 0.0);
@@ -28,9 +31,15 @@ void CubicSplineSet::evaluate(
     double r,
     std::span<double> values)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    int i = static_cast<int>(std::floor((r-x0)/h));
+    double x = r-x0-h*i;
+    if (i < 0) {
+        i = 0;
+        x = 0.0;
+    } else if (i >= num_nodes-1) {
+        i = num_nodes-2;
+        x = h;
+    }
     const double xx = x*x;
     const double xxx = xx*x;
     double* c_i = c.data() + 4*i*num_splines;
@@ -51,9 +60,15 @@ void CubicSplineSet::evaluate_derivs(double r,
                                      std::span<double> values,
                                      std::span<double> derivs)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    int i = static_cast<int>(std::floor((r-x0)/h));
+    double x = r-x0-h*i;
+    if (i < 0) {
+        i = 0;
+        x = 0.0;
+    } else if (i >= num_nodes-1) {
+        i = num_nodes-2;
+        x = h;
+    }
     const double xx = x*x;
     const double xxx = xx*x;
     const double two_x = 2*x;

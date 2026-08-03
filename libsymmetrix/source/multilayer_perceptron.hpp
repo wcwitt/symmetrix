@@ -15,6 +15,10 @@ MultilayerPerceptron(
 
 auto evaluate(std::vector<double> input) -> std::vector<double>;
 auto evaluate_gradient(std::vector<double> input) -> std::tuple<std::vector<double>,std::vector<double>>;
+auto evaluate_gradient_directional(
+        std::vector<double> input,
+        std::vector<double> input_dot)
+        -> std::tuple<std::vector<double>,std::vector<double>,std::vector<double>>;
 auto evaluate_batch(std::vector<double> input, const int batch_size) -> std::vector<double>;
 auto evaluate_gradient_batch(std::vector<double> input, const int batch_size) -> std::tuple<std::vector<double>,std::vector<double>>;
 

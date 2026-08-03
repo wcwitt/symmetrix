@@ -1,3 +1,5 @@
+#include <stdexcept>
+
 #include "KokkosBlas.hpp"
 
 #include "multilayer_perceptron_kokkos.hpp"
@@ -37,6 +39,14 @@ MultilayerPerceptronKokkos::MultilayerPerceptronKokkos(
     this->node_derivatives = Kokkos::View<
         Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
             Kokkos::view_alloc("node_derivatives", Kokkos::SequentialHostInit), shape.size());
+
+    this->node_value_dots = Kokkos::View<
+        Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+            Kokkos::view_alloc("node_value_dots", Kokkos::SequentialHostInit), shape.size());
+
+    this->node_derivative_dots = Kokkos::View<
+        Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
+            Kokkos::view_alloc("node_derivative_dots", Kokkos::SequentialHostInit), shape.size());
 }
 
 MultilayerPerceptronKokkos::~MultilayerPerceptronKokkos()
@@ -46,6 +56,8 @@ MultilayerPerceptronKokkos::~MultilayerPerceptronKokkos()
     weights = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     node_values = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     node_derivatives = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    node_value_dots = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
+    node_derivative_dots = Kokkos::View<Kokkos::View<double**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 }
 
 void MultilayerPerceptronKokkos::evaluate(
@@ -169,4 +181,142 @@ void MultilayerPerceptronKokkos::evaluate_gradient(
     Kokkos::fence();
     Kokkos::deep_copy(f, Kokkos::subview(node_values(shape.size()-1), Kokkos::ALL, 0));
     Kokkos::deep_copy(g, node_derivatives(0));
+}
+
+void MultilayerPerceptronKokkos::evaluate_gradient_directional(
+    Kokkos::View<const double**,Kokkos::LayoutRight> x,
+    Kokkos::View<const double**,Kokkos::LayoutRight> x_dot,
+    Kokkos::View<double*,Kokkos::LayoutRight> f,
+    Kokkos::View<double**,Kokkos::LayoutRight> g,
+    Kokkos::View<double**,Kokkos::LayoutRight> g_dot)
+{
+    const int batch_size = x.extent(0);
+    if (x_dot.extent(0) != x.extent(0) || x_dot.extent(1) != x.extent(1))
+        throw std::invalid_argument(
+            "MultilayerPerceptronKokkos directional input shape mismatch.");
+    if (shape(shape.size()-1) != 1)
+        throw std::invalid_argument(
+            "MultilayerPerceptronKokkos directional gradients require scalar output.");
+
+    for (int l=0; l<shape.size(); ++l) {
+        if (node_values(l).extent(0) != batch_size
+            || node_values(l).extent(1) != shape(l))
+            Kokkos::realloc(Kokkos::WithoutInitializing,
+                            node_values(l), batch_size, shape(l));
+        if (node_derivatives(l).extent(0) != batch_size
+            || node_derivatives(l).extent(1) != shape(l))
+            Kokkos::realloc(Kokkos::WithoutInitializing,
+                            node_derivatives(l), batch_size, shape(l));
+        if (node_value_dots(l).extent(0) != batch_size
+            || node_value_dots(l).extent(1) != shape(l))
+            Kokkos::realloc(Kokkos::WithoutInitializing,
+                            node_value_dots(l), batch_size, shape(l));
+        if (node_derivative_dots(l).extent(0) != batch_size
+            || node_derivative_dots(l).extent(1) != shape(l))
+            Kokkos::realloc(Kokkos::WithoutInitializing,
+                            node_derivative_dots(l), batch_size, shape(l));
+        Kokkos::deep_copy(node_derivatives(l), 0.0);
+        Kokkos::deep_copy(node_derivative_dots(l), 0.0);
+    }
+    Kokkos::deep_copy(node_values(0), x);
+    Kokkos::deep_copy(node_value_dots(0), x_dot);
+
+    const auto activation_scale = this->activation_scale;
+    const auto shape = this->shape;
+    const auto weights = this->weights;
+    const auto values = this->node_values;
+    const auto value_dots = this->node_value_dots;
+    const auto derivatives = this->node_derivatives;
+    const auto derivative_dots = this->node_derivative_dots;
+
+    Kokkos::parallel_for(
+        "MultilayerPerceptronKokkos::evaluate_gradient_directional",
+        Kokkos::TeamPolicy<>(batch_size, Kokkos::AUTO),
+        KOKKOS_CLASS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+            const int batch = team_member.league_rank();
+
+            for (int l=0; l<shape.size()-1; ++l) {
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, weights(l).extent(0)),
+                    [=] (const int output) {
+                        double z = 0.0;
+                        double z_dot = 0.0;
+                        for (int input=0; input<weights(l).extent(1); ++input) {
+                            const double weight = weights(l)(output,input);
+                            z += weight*values(l)(batch,input);
+                            z_dot += weight*value_dots(l)(batch,input);
+                        }
+                        if (l == shape.size()-2) {
+                            values(l+1)(batch,output) = z;
+                            value_dots(l+1)(batch,output) = z_dot;
+                        } else {
+                            const double sigmoid = 1.0/(1.0+Kokkos::exp(-z));
+                            const double activation_derivative = activation_scale
+                                *(sigmoid + z*sigmoid*(1.0-sigmoid));
+                            values(l+1)(batch,output) = activation_scale*z*sigmoid;
+                            value_dots(l+1)(batch,output) =
+                                activation_derivative*z_dot;
+                        }
+                    });
+                team_member.team_barrier();
+            }
+
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(
+                    team_member, derivatives(shape.size()-2).extent(1)),
+                [=] (const int input) {
+                    derivatives(shape.size()-2)(batch,input) =
+                        weights(shape.size()-2)(0,input);
+                    derivative_dots(shape.size()-2)(batch,input) = 0.0;
+                });
+            team_member.team_barrier();
+
+            for (int l=shape.size()-3; l>=0; --l) {
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, weights(l).extent(0)),
+                    [=] (const int output) {
+                        double z = 0.0;
+                        double z_dot = 0.0;
+                        for (int input=0; input<weights(l).extent(1); ++input) {
+                            const double weight = weights(l)(output,input);
+                            z += weight*values(l)(batch,input);
+                            z_dot += weight*value_dots(l)(batch,input);
+                        }
+                        const double sigmoid = 1.0/(1.0+Kokkos::exp(-z));
+                        const double sigmoid_derivative = sigmoid*(1.0-sigmoid);
+                        const double activation_derivative = activation_scale
+                            *(sigmoid + z*sigmoid_derivative);
+                        const double activation_second_derivative = activation_scale
+                            *(2.0*sigmoid_derivative
+                              +z*sigmoid_derivative*(1.0-2.0*sigmoid));
+                        derivative_dots(l+1)(batch,output) =
+                            derivative_dots(l+1)(batch,output)*activation_derivative
+                            +derivatives(l+1)(batch,output)
+                                *activation_second_derivative*z_dot;
+                        derivatives(l+1)(batch,output) *= activation_derivative;
+                    });
+                team_member.team_barrier();
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, weights(l).extent(1)),
+                    [=] (const int input) {
+                        double derivative = 0.0;
+                        double derivative_dot = 0.0;
+                        for (int output=0; output<weights(l).extent(0); ++output) {
+                            derivative += weights(l)(output,input)
+                                *derivatives(l+1)(batch,output);
+                            derivative_dot += weights(l)(output,input)
+                                *derivative_dots(l+1)(batch,output);
+                        }
+                        derivatives(l)(batch,input) = derivative;
+                        derivative_dots(l)(batch,input) = derivative_dot;
+                    });
+                team_member.team_barrier();
+            }
+        });
+
+    Kokkos::deep_copy(f,
+        Kokkos::subview(node_values(shape.size()-1), Kokkos::ALL, 0));
+    Kokkos::deep_copy(g, node_derivatives(0));
+    Kokkos::deep_copy(g_dot, node_derivative_dots(0));
+    Kokkos::fence();
 }

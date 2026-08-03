@@ -1,13 +1,10 @@
 import pytest
 
-from pathlib import Path
-from urllib.request import urlretrieve
-
-
-MODEL_URLS = {
-    "MACE-OFF23_small-1-8.json": "https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
-    "mace-mp-0b3-medium-1-8.json": "https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
-}
+from model_downloads import (
+    MODEL_URLS,
+    cached_model_path,
+    macefield_model_path as cached_macefield_model_path,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -22,9 +19,20 @@ def finalize_kokkos_after_tests():
 
 @pytest.fixture(scope="session")
 def model_cache():
-    cache_dir = Path(__file__).parent / "model-cache"
-    cache_dir.mkdir(exist_ok=True)
-    return {
-        filename: Path(urlretrieve(url, cache_dir / Path(filename).name)[0])
-        for filename, url in MODEL_URLS.items()
-    }
+    models = {}
+    for filename, url in MODEL_URLS.items():
+        if not filename.endswith(".json"):
+            continue
+        try:
+            models[filename] = cached_model_path(filename, url)
+        except RuntimeError as exc:
+            pytest.skip(str(exc))
+    return models
+
+
+@pytest.fixture(scope="session")
+def macefield_model_path():
+    try:
+        return cached_macefield_model_path()
+    except (FileNotFoundError, RuntimeError) as exc:
+        pytest.skip(str(exc))

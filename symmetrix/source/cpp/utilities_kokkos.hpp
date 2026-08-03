@@ -11,10 +11,10 @@
 
 namespace py = pybind11;
 
-template<typename T>
+template<typename T, int ExtraFlags>
 Kokkos::View<const T*> create_kokkos_view(
     std::string label,
-    py::array_t<T> array)
+    py::array_t<T, ExtraFlags> array)
 {
     return create_mirror_view_and_copy(
         Kokkos::DefaultExecutionSpace(),
@@ -22,10 +22,10 @@ Kokkos::View<const T*> create_kokkos_view(
         label);
 }
 
-template<typename T>
+template<typename T, int ExtraFlags>
 void set_kokkos_view(
     Kokkos::View<T*>& view,
-    py::array_t<T> array)
+    py::array_t<T, ExtraFlags> array)
 {
     auto d_array = Kokkos::create_mirror_view_and_copy(
         Kokkos::DefaultExecutionSpace(),
@@ -37,10 +37,10 @@ void set_kokkos_view(
     Kokkos::deep_copy(view, d_array);
 }
 
-template<typename T>
+template<typename T, int ExtraFlags>
 void set_kokkos_view(
     Kokkos::View<T**,Kokkos::LayoutRight>& view,
-    py::array_t<T> array,
+    py::array_t<T, ExtraFlags> array,
     const int N0,
     const int N1)
 {
@@ -55,10 +55,10 @@ void set_kokkos_view(
     Kokkos::deep_copy(view, d_array);
 }
 
-template<typename T>
+template<typename T, int ExtraFlags>
 void set_kokkos_view(
     Kokkos::View<T***,Kokkos::LayoutRight>& view,
-    py::array_t<T> array,
+    py::array_t<T, ExtraFlags> array,
     const int N0,
     const int N1,
     const int N2)

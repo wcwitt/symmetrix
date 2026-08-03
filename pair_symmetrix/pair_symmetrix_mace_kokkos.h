@@ -69,8 +69,10 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
 
  protected:
   std::string mode;
+  bool electric_field_set;
   std::unique_ptr<MACEKokkos<Precision>> mace;
   Kokkos::View<int*> mace_types;
+  Kokkos::View<double*> electric_field;
   Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
 
   // neighbor list variables
