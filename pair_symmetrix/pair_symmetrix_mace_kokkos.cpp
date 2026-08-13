@@ -66,6 +66,7 @@ PairSymmetrixMACEKokkos<DeviceType, Precision>::~PairSymmetrixMACEKokkos()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
+    memory->destroy(cutghost);
     memoryKK->destroy_kokkos(k_eatom,eatom);
   }
 }
@@ -101,6 +102,8 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::allocate()
       setflag[i][j] = 0;
 
   memory->create(cutsq, atom->ntypes+1, atom->ntypes+1, "pair:cutsq");
+  if (ghostneigh)
+    memory->create(cutghost, atom->ntypes+1, atom->ntypes+1, "pair:cutghost");
 }
 
 /* ----------------------------------------------------------------------
@@ -122,6 +125,8 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::settings(int narg, char **a
 
   if (mode == "no_domain_decomposition" and comm->nprocs != 1)
     error->all(FLERR, "Cannot use no_domain_decomposition with multiple MPI processes");
+
+  ghostneigh = (mode == "no_mpi_message_passing");
 }
 
 /* ----------------------------------------------------------------------
@@ -181,6 +186,7 @@ double PairSymmetrixMACEKokkos<DeviceType, Precision>::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
+  if (ghostneigh) cutghost[i][j] = cutghost[j][i] = mace->r_cut;
   return mace->r_cut;
 }
 
