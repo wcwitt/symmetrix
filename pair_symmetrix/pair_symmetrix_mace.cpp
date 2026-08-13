@@ -328,7 +328,7 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   if (eflag_atom) {
     for (int ii=0; ii<num_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
   }
 
   ij = 0;
@@ -503,7 +503,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 
   if (eflag_atom) {
     for (int ii=0; ii<num_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
   }
 
   ij = 0;
@@ -705,7 +705,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 
   if (eflag_atom)
     for (int ii=0; ii<num_local_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
 
   ij = 0;
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {

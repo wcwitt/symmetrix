@@ -375,9 +375,12 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
-     memoryKK->destroy_kokkos(k_eatom,eatom);
-     memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+  if (eflag_atom) {
+    if (k_eatom.view<DeviceType>().extent(0)<maxeatom) {
+      memoryKK->destroy_kokkos(k_eatom,eatom);
+      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+    }
+    Kokkos::deep_copy(k_eatom.template view<DeviceType>(), 0.0);
   }
 
   const double r_cut_squared = mace->r_cut*mace->r_cut;
@@ -504,9 +507,10 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
     auto d_eatom = k_eatom.template view<DeviceType>();
     auto node_energies = mace->node_energies;
     Kokkos::parallel_for("PairSymmetrixMACEKokkos::extract_atomic_energies", num_nodes, KOKKOS_LAMBDA (const int ii) {
-        d_eatom(ii) += node_energies(ii);
+        d_eatom(node_indices(ii)) = node_energies(ii);
     });
     k_eatom.modify<DeviceType>();
+    k_eatom.sync_host();
   }
 
   auto mace_node_forces = mace->node_forces;
@@ -591,9 +595,12 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
-     memoryKK->destroy_kokkos(k_eatom,eatom);
-     memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+  if (eflag_atom) {
+    if (k_eatom.view<DeviceType>().extent(0)<maxeatom) {
+      memoryKK->destroy_kokkos(k_eatom,eatom);
+      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+    }
+    Kokkos::deep_copy(k_eatom.template view<DeviceType>(), 0.0);
   }
 
   NeighListKokkos<DeviceType>* k_list = static_cast<NeighListKokkos<DeviceType>*>(list);
@@ -770,9 +777,10 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
     auto d_eatom = k_eatom.template view<DeviceType>();
     auto node_energies = mace->node_energies;
     Kokkos::parallel_for("Extract Atomic Energies", num_nodes, KOKKOS_LAMBDA (const int ii) {
-        d_eatom(ii) += node_energies(ii);
+        d_eatom(node_indices(ii)) = node_energies(ii);
     });
     k_eatom.modify<DeviceType>();
+    k_eatom.sync_host();
   }
 
   auto mace_node_forces = mace->node_forces;
@@ -858,9 +866,12 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
 {
   ev_init(eflag, vflag, 0);
 
-  if (eflag_atom && k_eatom.view<DeviceType>().extent(0)<maxeatom) {
-     memoryKK->destroy_kokkos(k_eatom,eatom);
-     memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+  if (eflag_atom) {
+    if (k_eatom.view<DeviceType>().extent(0)<maxeatom) {
+      memoryKK->destroy_kokkos(k_eatom,eatom);
+      memoryKK->create_kokkos(k_eatom,eatom,maxeatom,"pair:eatom");
+    }
+    Kokkos::deep_copy(k_eatom.template view<DeviceType>(), 0.0);
   }
 
   NeighListKokkos<DeviceType>* k_list = static_cast<NeighListKokkos<DeviceType>*>(list);
@@ -1098,9 +1109,10 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
     auto d_eatom = k_eatom.template view<DeviceType>();
     auto node_energies = mace->node_energies;
     Kokkos::parallel_for("extract atomic energies", num_local_nodes, KOKKOS_LAMBDA (const int ii) {
-        d_eatom(ii) += node_energies(ii);
+        d_eatom(node_indices(ii)) = node_energies(ii);
     });
     k_eatom.modify<DeviceType>();
+    k_eatom.sync_host();
   }
 
   auto mace_node_forces = mace->node_forces;
