@@ -3,7 +3,7 @@ requires = ["scikit-build-core", "pybind11", "cmake>=3.27"]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
-cmake.minimum-version = "3.27"
+cmake.version = ">=3.27"
 build-dir = "build"
 wheel.exclude = ["lib/", "include/"]
 wheel.packages = ["source/symmetrix"]
