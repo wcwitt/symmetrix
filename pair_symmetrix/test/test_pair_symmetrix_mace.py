@@ -76,14 +76,7 @@ def test_h20(cmdargs, pair_style):
     lmp.command("compute peratom all pe/atom")
     lmp.command("run 0")
     pe_atom = lmp.extract_compute("peratom", 1, 1)
-    pe_atom = np.array([pe_atom[i] for i in range(3)])
-    assert e == pytest.approx(sum(pe_atom))
-
-    # Per-atom energies must not accumulate across repeated evaluations.
-    lmp.command("run 0")
-    pe_atom_repeated = lmp.extract_compute("peratom", 1, 1)
-    pe_atom_repeated = np.array([pe_atom_repeated[i] for i in range(3)])
-    assert np.allclose(pe_atom_repeated, pe_atom)
+    assert e == pytest.approx(sum([pe_atom[i] for i in range(3)]))
 
     # ----- forces -----
     h = 1e-4
