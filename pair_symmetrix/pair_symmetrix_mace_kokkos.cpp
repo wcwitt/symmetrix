@@ -296,8 +296,6 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_forward_comm_kokkos(
 template<class DeviceType, typename Precision>
 int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_reverse_comm(int n, int first, double *buf)
 {
-  // TODO: for some reason this does not work as expected, causing problems
-  //       for GPU simulations called with -pk kokkos comm/pair/reverse no
   auto h_H1_adj = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), H1_adj);
   for (int i=0; i<n; ++i) {
     for (int LM=0; LM<mace->num_LM; ++LM) {
