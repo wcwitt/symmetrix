@@ -261,7 +261,7 @@ int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_forward_comm_kokkos(
 template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_forward_comm(int n, int first, double *buf)
 {
-  auto h_H1 = Kokkos::create_mirror_view(H1);
+  auto h_H1 = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), H1);
   for (int i=0; i<n; ++i) {
     for (int LM=0; LM<mace->num_LM; ++LM) {
       for (int k=0; k<mace->num_channels; ++k) {
@@ -333,7 +333,7 @@ int PairSymmetrixMACEKokkos<DeviceType, Precision>::pack_reverse_comm_kokkos(
 template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::unpack_reverse_comm(int n, int *list, double *buf)
 {
-  auto h_H1_adj = Kokkos::create_mirror_view(H1_adj);
+  auto h_H1_adj = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), H1_adj);
   for (int ii=0; ii<n; ++ii) {
     const int i = list[ii];
     for (int LM=0; LM<mace->num_LM; ++LM) {
