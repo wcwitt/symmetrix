@@ -22,7 +22,8 @@ if not os.path.exists("mace-mp-0b3-medium-hea.json"):
     "cmdargs",
     [
         ["-screen", "none"],
-        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+        ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
+         "-pk", "kokkos", "newton", "on", "neigh", "half"],  # kokkos
     ]
 )
 @pytest.mark.parametrize(
@@ -104,7 +105,8 @@ def test_h20(cmdargs, pair_style):
     "cmdargs",
     [
         ["-screen", "none"],
-        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+        ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
+         "-pk", "kokkos", "newton", "on", "neigh", "half"],  # kokkos
     ]
 )
 @pytest.mark.parametrize(
@@ -179,7 +181,8 @@ def test_h20_zbl(cmdargs, pair_style):
     "cmdargs",
     [
         ["-screen", "none"],
-        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+        ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
+         "-pk", "kokkos", "newton", "on", "neigh", "half"],  # kokkos
     ]
 )
 @pytest.mark.parametrize(
@@ -281,7 +284,8 @@ def test_water(cmdargs, pair_style):
     "cmdargs",
     [
         ["-screen", "none"],
-        ["-screen", "none", "-k", "on", "-sf", "kk"],  # kokkos
+        ["-screen", "none", "-k", "on", "g", "1", "-sf", "kk",
+         "-pk", "kokkos", "newton", "on", "neigh", "half"],  # kokkos
     ]
 )
 @pytest.mark.parametrize(

@@ -1021,6 +1021,10 @@ void MACE::load_from_json(
     // Readouts
     // TODO! hardcoded 16
     readout_1_weights = file["readout_1_weights"].get<std::vector<double>>();
+    linear_up_l0_inv = file["linear_up_l0_inv"].get<std::vector<double>>();
+    if (static_cast<int>(linear_up_l0_inv.size()) != num_channels * num_channels) {
+        throw std::runtime_error("linear_up_l0_inv has wrong size");
+    }
     auto readout_2_weights_1 = file["readout_2_weights_1"].get<std::vector<double>>();
     auto readout_2_weights_2 = file["readout_2_weights_2"].get<std::vector<double>>();
     readout_2 = std::make_unique<MultilayerPerceptron>(
