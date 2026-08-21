@@ -80,19 +80,39 @@ class Symmetrix(Calculator):
                 self.evaluator = MACE(fout.name)
 
         self.cutoff = self.evaluator.r_cut
+        self.dtype = np.dtype(dtype)
+
+        # avoid slow .index calls in calculate
+        mace_atomic_numbers = np.asarray(self.evaluator.atomic_numbers, dtype=int)
+        self.mace_atomic_numbers_rev = np.full(
+            np.max(mace_atomic_numbers) + 1, -1, dtype=int
+        )
+        self.mace_atomic_numbers_rev[mace_atomic_numbers] = np.arange(
+            len(mace_atomic_numbers)
+        )
 
     def calculate(self, atoms=None, properties=["energy"], system_changes=all_changes):
         Calculator.calculate(self, atoms, properties, system_changes)
 
-        ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
-        mace_atomic_numbers = self.evaluator.atomic_numbers
+        ase_atomic_numbers = self.atoms.get_atomic_numbers()
+        atom_types = np.full(ase_atomic_numbers.shape, -1, dtype=int)
+        in_range = (ase_atomic_numbers >= 0) & (
+            ase_atomic_numbers < len(self.mace_atomic_numbers_rev)
+        )
+        atom_types[in_range] = self.mace_atomic_numbers_rev[
+            ase_atomic_numbers[in_range]
+        ]
+        if np.any(atom_types < 0):
+            unsupported = np.unique(ase_atomic_numbers[atom_types < 0]).tolist()
+            raise ValueError(
+                f"Atomic numbers {unsupported} are not supported by this model."
+            )
+
         i_list, j_list, r, xyz = neighbor_list("ijdD", self.atoms, self.cutoff)
         num_nodes = np.max(i_list) + 1
-        node_types = [
-            mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)
-        ]
+        node_types = atom_types[:num_nodes]
         num_neigh = np.bincount(j_list, minlength=num_nodes)
-        neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
+        neigh_types = atom_types[j_list]
         self.evaluator.compute_node_energies_forces(
             num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
         )
@@ -102,7 +122,9 @@ class Symmetrix(Calculator):
         )
         self.results["energies"] = np.asarray(self.evaluator.node_energies)
 
-        pair_forces = np.asarray(self.evaluator.node_forces).reshape((-1, 3))
+        pair_forces = np.fromiter(
+            self.evaluator.node_forces, dtype=self.dtype
+        ).reshape((-1, 3))
         pair_forces = pair_forces[
             : len(i_list), :
         ]  # currently, `evaluator.node_forces` is a container
