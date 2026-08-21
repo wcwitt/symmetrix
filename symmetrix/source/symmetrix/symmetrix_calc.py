@@ -94,7 +94,9 @@ class Symmetrix(Calculator):
         self.results['energy'] = self.results['free_energy'] = np.sum(self.evaluator.node_energies)
         self.results['energies'] = np.asarray(self.evaluator.node_energies)
 
-        pair_forces = np.fromiter(self.evaluator.node_forces, dtype=self.dtype).reshape((-1, 3))
+        # for some reason seems to faster than putting self.evaluator.node_forces as arg to fromiter
+        pair_forces_l = self.evaluator.node_forces
+        pair_forces = np.fromiter(pair_forces_l, dtype=self.dtype).reshape((-1, 3))
         pair_forces = pair_forces[:len(i_list), :]  # currently, `evaluator.node_forces` is a container
                                                     # which can grow larger than the actual number of pairs
 
