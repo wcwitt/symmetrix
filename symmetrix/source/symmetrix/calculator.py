@@ -122,9 +122,8 @@ class Symmetrix(Calculator):
         )
         self.results["energies"] = np.asarray(self.evaluator.node_energies)
 
-        pair_forces = np.fromiter(
-            self.evaluator.node_forces, dtype=self.dtype
-        ).reshape((-1, 3))
+        pair_forces_list = self.evaluator.node_forces
+        pair_forces = np.fromiter(pair_forces_list, dtype=self.dtype).reshape((-1, 3))
         pair_forces = pair_forces[
             : len(i_list), :
         ]  # currently, `evaluator.node_forces` is a container
