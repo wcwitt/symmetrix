@@ -56,6 +56,7 @@ PairSymmetrixMACE::~PairSymmetrixMACE()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
+    memory->destroy(cutghost);
   }
 }
 
@@ -86,6 +87,8 @@ void PairSymmetrixMACE::allocate()
       setflag[i][j] = 0;
 
   memory->create(cutsq, atom->ntypes+1, atom->ntypes+1, "pair:cutsq");
+  if (ghostneigh)
+    memory->create(cutghost, atom->ntypes+1, atom->ntypes+1, "pair:cutghost");
 }
 
 /* ----------------------------------------------------------------------
@@ -106,6 +109,8 @@ void PairSymmetrixMACE::settings(int narg, char **arg)
 
   if (mode == "no_domain_decomposition" and comm->nprocs != 1)
     error->all(FLERR, "Cannot use no_domain_decomposition with multiple MPI processes");
+
+  ghostneigh = (mode == "no_mpi_message_passing");
 }
 
 /* ----------------------------------------------------------------------
@@ -160,6 +165,7 @@ double PairSymmetrixMACE::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
+  if (ghostneigh) cutghost[i][j] = cutghost[j][i] = mace->r_cut;
   return mace->r_cut;
 }
 
@@ -328,7 +334,7 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
   if (eflag_atom) {
     for (int ii=0; ii<num_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
   }
 
   ij = 0;
@@ -503,7 +509,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 
   if (eflag_atom) {
     for (int ii=0; ii<num_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
   }
 
   ij = 0;
@@ -705,7 +711,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 
   if (eflag_atom)
     for (int ii=0; ii<num_local_nodes; ++ii)
-      eatom[ii] = mace->node_energies[ii];
+      eatom[node_i[ii]] = mace->node_energies[ii];
 
   ij = 0;
   for (int ii=0; ii<num_local_nodes+num_ghost_nodes; ++ii) {
