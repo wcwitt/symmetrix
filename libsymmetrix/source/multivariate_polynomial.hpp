@@ -9,7 +9,7 @@ class MultivariatePolynomial
 
 public:
 
-MultivariatePolynomial(int num_variables, 
+MultivariatePolynomial(int num_variables,
                        std::vector<double> coefficients,
                        std::vector<std::vector<int>> monomials);
 

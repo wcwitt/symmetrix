@@ -213,7 +213,7 @@ void MACE::reverse_A0(
 
         auto Phi0_adj_i = std::vector<double>(num_lm*num_channels);
 
-        // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k 
+        // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k
         for (int l=0; l<=l_max; ++l) {
             auto Phi0_adj_il = Phi0_adj_i.data()+l*l*num_channels;
             auto A0_adj_il = A0_adj.data()+(i*num_lm+l*l)*num_channels;

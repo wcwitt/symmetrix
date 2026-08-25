@@ -1,5 +1,8 @@
 #include <stdexcept>
 #include <vector>
+#include <string>
+#include <algorithm>
+#include <cmath>
 
 #include "cubic_spline.hpp"
 
@@ -14,10 +17,9 @@ CubicSpline::CubicSpline(
 
 double CubicSpline::evaluate(double r)
 {
-    const int i = static_cast<int>(r / h);
-    // TODO: something better with this bounds checking
-    if (i<0 or i>=c.size()/4)
-        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate.");
+    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -28,10 +30,9 @@ double CubicSpline::evaluate(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 {
-    const int i = static_cast<int>(r / h);
-    // TODO: something better with this bounds checking
-    if (i<0 or i>=c.size()/4)
-        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv.");
+    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -42,10 +43,9 @@ std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv_divided(double r)
 {
-    const int i = static_cast<int>(r / h);
-    // TODO: something better with this bounds checking
-    if (i<0 or i>=c.size()/4)
-        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv.");
+    if (r<=0 or r>h*c.size()/4 or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv_divided. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -60,6 +60,11 @@ auto CubicSpline::generate_coefficients(
     std::vector<double> nodal_derivs)
     -> std::vector<double>
 {
+    if (h<=0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSpline requires positive finite spacing.");
+    if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
+        throw std::invalid_argument("CubicSpline requires at least two values and matching derivatives.");
+
     auto c = std::vector<double>(4*(nodal_values.size()-1), 0.0);
     for (int i=0; i<nodal_values.size()-1; ++i) {
         c[4*i] = nodal_values[i];

@@ -46,7 +46,7 @@ double a_prefactor;
 Kokkos::View<double*> c;
 Kokkos::View<double*> covalent_radii;
 int p;
-    
+
 // values taken from mace/modules/radial.py
 static constexpr double c_exps_0 = -3.2;
 static constexpr double c_exps_1 = -0.9423;

@@ -14,4 +14,3 @@ void bind_zbl_kokkos(py::module_ &m)
         .def("compute_envelope", &ZBLKokkos::compute_envelope)
         .def("compute_envelope_gradient", &ZBLKokkos::compute_envelope_gradient);
 }
-

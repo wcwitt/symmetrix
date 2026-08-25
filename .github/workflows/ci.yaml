@@ -3,37 +3,40 @@ name: CI
 on: [pull_request, workflow_dispatch]
 
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone repo
+      uses: actions/checkout@v6
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.3.2
+    - name: Run pre-commit
+      run: uvx pre-commit run --all-files
 
   symmetrix:
     runs-on: ubuntu-latest
     steps:
     - name: Clone repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: recursive
     - name: Install dependencies
       run: |
-        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev
-    - name: Set up python
-      uses: actions/setup-python@v5
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev ninja-build
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.3.2
       with:
         python-version: '3.12'
-    - name: Create python venv
+    - name: Create python venv and install
       run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install ase cmake-build-extension[all] numpy pytest setuptools scipy wheel cmake-build-extension[all]
-        deactivate
-    - name: Build and package symmetrix
-      run: |
-        source venv/bin/activate
-        cd symmetrix
-        pip install .
-        cd ..
+        uv venv --clear
+        source .venv/bin/activate
+        uv pip install ./symmetrix[test]
         deactivate
     - name: Run tests
       run: |
-        source venv/bin/activate
+        source .venv/bin/activate
         python -c "import symmetrix; print(symmetrix.__version__)"
         cd symmetrix/test
         pytest
@@ -44,25 +47,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Clone repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: recursive
     - name: Install dependencies
       run: |
+        sudo apt-get update
         sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
-    - name: Set up python
-      uses: actions/setup-python@v5
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.3.2
       with:
         python-version: '3.12'
-    - name: Create python venv
+    - name: Create python venv and install
       run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install numpy pytest
+        uv venv --clear
+        source .venv/bin/activate
+        uv pip install pip numpy pytest
         deactivate
     - name: Clone and build LAMMPS
       run: |
-        source venv/bin/activate
+        source .venv/bin/activate
         git clone -b release --depth 1 https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
@@ -82,13 +86,13 @@ jobs:
             -D Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION=ON \
             -D SYMMETRIX_KOKKOS=ON \
             cmake
-        cmake --build build -j 2
+        cmake --build build -j 4
         cd build
         make install-python
         cd ../../..
     - name: Run tests
       run: |
-        source venv/bin/activate
+        source .venv/bin/activate
         cd pair_symmetrix/test/
         python -m pytest
 
@@ -97,42 +101,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mace-torch: ["mace-torch==0.3.10", "mace-torch"]
+        include:
+        - mace-torch: "mace-torch==0.3.10"
+          torch: "torch==2.5.*"
+        - mace-torch: "mace-torch"
+          torch: "torch"
     steps:
     - name: Clone repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: recursive
     - name: Install dependencies
       run: |
-        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev
-    - name: Set up python
-      uses: actions/setup-python@v5
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev ninja-build
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.3.2
       with:
         python-version: '3.12'
-    - name: Create python venv
+    - name: Create python venv and install
       run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install ${{ matrix.mace-torch }}
-        deactivate
-    - name: Build and package symmetrix
-      run: |
-        source venv/bin/activate
-        cd symmetrix
-        pip install .
-        cd ..
+        uv venv --clear
+        source .venv/bin/activate
+        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace]"
         deactivate
     - name: Test model extraction
       run: |
-        source venv/bin/activate
-        pip install mace-torch
+        source .venv/bin/activate
         # check for valid symmetrix json from atomic numbers and default filename
-        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model 
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model
         symmetrix_extract_mace --model MACE-OFF23_small.model --atomic-numbers 1 8
         python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('MACE-OFF23_small-1-8.json', species=[1, 8])"
         # check for valid symmetrix json from checmical symbols and specified filename
-        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model 
+        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model
         symmetrix_extract_mace --model MACE-OFF23_medium.model --chemical-symbols H O -o extract_test.json
         python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('extract_test.json', species=[1, 8])"
         deactivate

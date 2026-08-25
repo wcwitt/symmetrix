@@ -15,6 +15,18 @@ See the `symmetrix` [README](symmetrix/README.md) to build and use the Python pa
 
 See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 
+### Development Setup
+
+Use `uv` to create a virtual environment and install the package with its test dependencies:
+
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -e "./symmetrix[test]"
+```
+
+Run Python formatting and lint checks with `uvx pre-commit run --all-files`.
+
 ### Citing Symmetrix
 
 The earliest `symmetrix` results are reported in:

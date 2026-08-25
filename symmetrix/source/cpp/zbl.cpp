@@ -14,4 +14,3 @@ void bind_zbl(py::module_ &m)
         .def("compute_envelope", &ZBL::compute_envelope)
         .def("compute_envelope_gradient", &ZBL::compute_envelope_gradient);
 }
-

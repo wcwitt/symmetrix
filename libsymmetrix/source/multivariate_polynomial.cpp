@@ -49,7 +49,7 @@ MultivariatePolynomial::MultivariatePolynomial(
         node_set.insert({i});
     for (auto monomial : monomials)
         node_set.insert(monomial);
-    
+
     // add auxiliary nodes until all nodes have two upstream factors
     num_auxiliary_nodes = 0;
     auto find_parents = [](const std::vector<int>& node,
@@ -72,7 +72,7 @@ MultivariatePolynomial::MultivariatePolynomial(
         }
     }
     nodes = std::vector<std::vector<int>>(node_set.begin(), node_set.end());
-    
+
     // find edges
     for (auto node : node_set) {
         if (node.size() == 1)

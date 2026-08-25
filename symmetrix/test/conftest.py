@@ -10,6 +10,16 @@ MODEL_URLS = {
 }
 
 
+@pytest.fixture(scope="session", autouse=True)
+def finalize_kokkos_after_tests():
+    yield
+
+    import symmetrix
+
+    if symmetrix._kokkos_is_initialized():
+        symmetrix._finalize_kokkos()
+
+
 @pytest.fixture(scope="session")
 def model_cache():
     cache_dir = Path(__file__).parent / "model-cache"
