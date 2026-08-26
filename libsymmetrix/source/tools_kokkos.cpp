@@ -10,7 +10,6 @@
 void _init_kokkos()
 {
     Kokkos::InitializationSettings settings;
-    settings.set_num_threads(1);
     settings.set_disable_warnings(true);
     settings.set_map_device_id_by("random");
     Kokkos::initialize(settings);

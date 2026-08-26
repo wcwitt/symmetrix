@@ -13,9 +13,13 @@ MultivariatePolynomial(int num_variables,
                        std::vector<double> coefficients,
                        std::vector<std::vector<int>> monomials);
 
-auto evaluate(const std::vector<double>& x) -> double;
-auto evaluate_gradient(const std::vector<double>& x) -> std::tuple<double,std::vector<double>>;
-auto evaluate_batch(const std::vector<double>& x, const int batch_size) -> std::tuple<std::vector<double>,std::vector<double>>;
+    auto evaluate(const std::vector<double>& x) -> double;
+    auto evaluate_gradient(const std::vector<double>& x) -> std::tuple<double,std::vector<double>>;
+    auto evaluate_gradient_directional(
+        const std::vector<double>& x,
+        const std::vector<double>& x_dot)
+        -> std::tuple<double,std::vector<double>,std::vector<double>>;
+    auto evaluate_batch(const std::vector<double>& x, const int batch_size) -> std::tuple<std::vector<double>,std::vector<double>>;
 
 // polynomial specification
 int num_variables;

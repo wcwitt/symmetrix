@@ -14,6 +14,7 @@ void bind_multivariate_polynomial(py::module_ &m)
         .def("evaluate", &MultivariatePolynomial::evaluate)
         .def("evaluate_simple", &MultivariatePolynomial::evaluate_simple)
         .def("evaluate_gradient", &MultivariatePolynomial::evaluate_gradient)
+        .def("evaluate_gradient_directional", &MultivariatePolynomial::evaluate_gradient_directional)
         .def("evaluate_gradient_simple", &MultivariatePolynomial::evaluate_gradient_simple)
         .def("evaluate_batch", &MultivariatePolynomial::evaluate_batch)
         ;

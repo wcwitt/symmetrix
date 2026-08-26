@@ -30,6 +30,18 @@ def main():
         help="Head to keep, ignored unless model is multihead. "
         "Defaults to first non-PT head, same as mace.tools.script_utils.remove_pt_head",
     )
+    parser.add_argument(
+        "--radial-format",
+        choices=("compact", "pair-splines"),
+        default="compact",
+        help="Radial representation. Compact supports universal artifacts; pair-splines is legacy.",
+    )
+    parser.add_argument(
+        "--num-spline-points",
+        type=int,
+        default=256,
+        help="Number of radial spline grid points.",
+    )
     parser.add_argument("--output", "-o", help="Output filename.")
     args = parser.parse_args()
 
@@ -44,14 +56,25 @@ def main():
     species = (
         args.atomic_numbers if args.chemical_symbols == [] else args.chemical_symbols
     )
-    output = extract_mace_data(args.model, species, args.head)
+    output = extract_mace_data(
+        args.model,
+        species=species,
+        head=args.head,
+        num_spline_points=args.num_spline_points,
+        radial_format=args.radial_format,
+    )
 
     ### ----- WRITE JSON -----
 
     if args.output is None:
-        args.output = (
-            model_name + "-" + "-".join(str(a) for a in sorted(species)) + ".json"
+        suffix = (
+            "universal" if not species else "-".join(str(a) for a in sorted(species))
         )
+        args.output = model_name + "-" + suffix + ".json"
     print("WRITING JSON TO", args.output)
     with open(args.output, "w") as f:
-        json.dump(output, f, indent=4)
+        if args.radial_format == "compact":
+            json.dump(output, f, separators=(",", ":"))
+        else:
+            json.dump(output, f, indent=4)
+        f.write("\n")

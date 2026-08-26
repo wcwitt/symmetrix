@@ -1,23 +1,23 @@
 import ase
 from ase.neighborlist import neighbor_list
 import numpy as np
-import os
 import pytest
-from urllib.request import urlretrieve
 
 import symmetrix
+from model_downloads import MODEL_URLS, cached_model_path
 
-if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
-        "MACE-OFF23_small-1-8.json",
-    )
 
-if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
-        "mace-mp-0b3-medium-1-8.json",
-    )
+def _cached_json_model(filename):
+    try:
+        return cached_model_path(filename, MODEL_URLS[filename])
+    except RuntimeError as exc:
+        pytest.skip(str(exc), allow_module_level=True)
+
+
+JSON_MODELS = {
+    filename: _cached_json_model(filename)
+    for filename in ("MACE-OFF23_small-1-8.json", "mace-mp-0b3-medium-1-8.json")
+}
 
 model = "mace-off-small"
 # model = "mace-off-medium"
@@ -39,7 +39,7 @@ else:
 
 # load model
 if model == "mace-off-small":
-    evaluator = MACE("MACE-OFF23_small-1-8.json")
+    evaluator = MACE(str(JSON_MODELS["MACE-OFF23_small-1-8.json"]))
 elif model == "mace-off-medium":
     evaluator = MACE("MACE-OFF23_medium-1-8.json")
 elif model == "mace-off-large":
@@ -53,7 +53,7 @@ elif model == "mace-mp-large":
 elif model == "mace-mpa-medium":
     evaluator = MACE("mace-mpa-0-medium-1-8.json")
 elif model == "mace-mp-0b3-medium":
-    evaluator = MACE("mace-mp-0b3-medium-1-8.json")
+    evaluator = MACE(str(JSON_MODELS["mace-mp-0b3-medium-1-8.json"]))
 elif model == "mace-omat-0-medium":
     evaluator = MACE("mace-omat-0-medium-1-8.json")
 
@@ -86,6 +86,28 @@ def numerical_gradient(f, x):
         grad[i] = (fp - fm) / (2 * h)
     f(x)  # reverts side effects of applying f(x+h)
     return grad
+
+
+@pytest.mark.parametrize("backend_name", ["MACE", "MACEKokkos", "MACEKokkosFloat"])
+def test_field_entry_point_rejects_standard_mace(backend_name):
+    if not hasattr(symmetrix, backend_name):
+        pytest.skip(f"{backend_name} is not available.")
+    if backend_name != "MACE" and not symmetrix._kokkos_is_initialized():
+        symmetrix._init_kokkos()
+
+    backend = getattr(symmetrix, backend_name)
+    standard = backend(str(JSON_MODELS["MACE-OFF23_small-1-8.json"]))
+    with pytest.raises(ValueError, match="requires field coupling"):
+        standard.compute_node_energies_forces_field(
+            num_nodes,
+            np.asarray(node_types, dtype=np.int32),
+            np.asarray(num_neigh, dtype=np.int32),
+            np.asarray(j_list, dtype=np.int32),
+            np.asarray(neigh_types, dtype=np.int32),
+            xyz.reshape(-1),
+            r,
+            np.zeros(3, dtype=np.float64),
+        )
 
 
 # def test_Y():
@@ -754,7 +776,7 @@ def test_compute_node_energies_forces():
 
 
 def test_zbl():
-    evaluator = MACE("mace-mp-0b3-medium-1-8.json")
+    evaluator = MACE(str(JSON_MODELS["mace-mp-0b3-medium-1-8.json"]))
     atoms = ase.Atoms(
         "OHH", positions=[[0.0, -0.5, 0.0], [0.5, 0.0, 0.0], [0.0, 0.5, 0.0]]
     )

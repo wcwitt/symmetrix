@@ -126,6 +126,51 @@ auto MultivariatePolynomial::evaluate_gradient(
     return {f, g};
 }
 
+auto MultivariatePolynomial::evaluate_gradient_directional(
+    const std::vector<double>& x,
+    const std::vector<double>& x_dot)
+    -> std::tuple<double,std::vector<double>,std::vector<double>>
+{
+    initialize_forward_pass(x);
+    auto node_value_dots = std::vector<double>(nodes.size(), 0.0);
+    for (int i=0; i<num_variables; ++i)
+        node_value_dots[i] = x_dot[i];
+
+    for (int i=0; i<edges.size(); ++i) {
+        const auto [i0, i1] = edges[i];
+        const int output_node = num_variables+i;
+        node_values[output_node] = node_values[i0] * node_values[i1];
+        node_value_dots[output_node] =
+            node_value_dots[i0] * node_values[i1]
+            + node_values[i0] * node_value_dots[i1];
+    }
+
+    auto f = cblas_ddot(node_coefficients.size(),
+                        node_coefficients.data(), 1,
+                        node_values.data(), 1);
+
+    initialize_backward_pass();
+    auto node_adjoints_dots = std::vector<double>(nodes.size(), 0.0);
+    for (int i=edges.size()-1; i>=0; --i) {
+        const auto [i0, i1] = edges[i];
+        const int output_node = num_variables+i;
+        node_adjoints[i0] += node_adjoints[output_node]*node_values[i1];
+        node_adjoints[i1] += node_adjoints[output_node]*node_values[i0];
+        node_adjoints_dots[i0] +=
+            node_adjoints_dots[output_node]*node_values[i1]
+            + node_adjoints[output_node]*node_value_dots[i1];
+        node_adjoints_dots[i1] +=
+            node_adjoints_dots[output_node]*node_values[i0]
+            + node_adjoints[output_node]*node_value_dots[i0];
+    }
+
+    auto g = extract_gradient_from_graph();
+    auto g_dot = std::vector<double>(num_variables, 0.0);
+    for (int i=0; i<num_variables; ++i)
+        g_dot[i] = node_adjoints_dots[i];
+    return {f, g, g_dot};
+}
+
 auto MultivariatePolynomial::evaluate_batch(
     const std::vector<double>& x,
     const int batch_size)

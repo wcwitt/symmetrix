@@ -62,8 +62,14 @@ jobs:
       run: |
         uv venv --clear
         source .venv/bin/activate
-        uv pip install pip numpy pytest
+        uv pip install pip pytest "./symmetrix" \
+          "mace-torch @ git+https://github.com/mdi-group/mace-field.git@1.0.2"
         deactivate
+    - name: Cache test models
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/symmetrix/test-models
+        key: symmetrix-test-models-macefield-1.0.2
     - name: Clone and build LAMMPS
       run: |
         source .venv/bin/activate
@@ -104,8 +110,10 @@ jobs:
         include:
         - mace-torch: "mace-torch==0.3.10"
           torch: "torch==2.5.*"
-        - mace-torch: "mace-torch"
+          field-aware: false
+        - mace-torch: "mace-torch @ git+https://github.com/mdi-group/mace-field.git@1.0.2"
           torch: "torch"
+          field-aware: true
     steps:
     - name: Clone repo
       uses: actions/checkout@v6
@@ -123,17 +131,65 @@ jobs:
       run: |
         uv venv --clear
         source .venv/bin/activate
-        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace]"
+        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace]" pytest
+        deactivate
+    - name: Cache test models
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/symmetrix/test-models
+        key: symmetrix-test-models-macefield-1.0.2
+    - name: Test MACEField model download
+      run: |
+        source .venv/bin/activate
+        PYTHONPATH=symmetrix/test python -c "from model_downloads import macefield_model_path; print(macefield_model_path())"
+        deactivate
+    - name: Test compact MACEField conversion and ASE integration
+      if: matrix.field-aware
+      run: |
+        source .venv/bin/activate
+        cd symmetrix/test
+        pytest -q \
+          test_extract_mace_data.py \
+          test_symmetrix_calc.py::test_compact_macefield_calculator_replaces_active_composition_cache \
+          test_symmetrix_calc.py::test_macefield_native_json_ase_response_properties_match_pytorch \
+          test_symmetrix_calc.py::test_macefield_json_kokkos_response_properties_match_native
         deactivate
     - name: Test model extraction
       run: |
         source .venv/bin/activate
-        # check for valid symmetrix json from atomic numbers and default filename
+        # check compact universal conversion and its default filename
         wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_small.model
-        symmetrix_extract_mace --model MACE-OFF23_small.model --atomic-numbers 1 8
-        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('MACE-OFF23_small-1-8.json', species=[1, 8])"
-        # check for valid symmetrix json from checmical symbols and specified filename
-        wget https://github.com/ACEsuit/mace-off/raw/refs/heads/main/mace_off23/MACE-OFF23_medium.model
-        symmetrix_extract_mace --model MACE-OFF23_medium.model --chemical-symbols H O -o extract_test.json
-        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('extract_test.json', species=[1, 8])"
+        symmetrix_extract_mace --model MACE-OFF23_small.model
+        python3 -c "from symmetrix import Symmetrix; calc = Symmetrix('MACE-OFF23_small-universal.json')"
+        # compare legacy pair splines from chemical symbols with compact output
+        symmetrix_extract_mace --model MACE-OFF23_small.model --chemical-symbols H O --radial-format pair-splines -o extract_test.json
+        python3 - <<'PY'
+        import numpy as np
+        from ase import Atoms
+        from symmetrix import Symmetrix
+
+        atoms = Atoms("OH", positions=[[0, 0, 0], [0, 0, 1]], cell=[10, 10, 10])
+        for dtype, energy_tolerance, force_tolerance in (
+            ("float64", 1e-10, 1e-9),
+            ("float32", 1e-4, 1e-4),
+        ):
+            compact_atoms = atoms.copy()
+            legacy_atoms = atoms.copy()
+            compact_atoms.calc = Symmetrix(
+                "MACE-OFF23_small-universal.json", use_kokkos=True, dtype=dtype,
+            )
+            legacy_atoms.calc = Symmetrix(
+                "extract_test.json", use_kokkos=True, dtype=dtype,
+            )
+            assert np.allclose(
+                compact_atoms.get_potential_energy(),
+                legacy_atoms.get_potential_energy(),
+                atol=energy_tolerance,
+            )
+            assert np.allclose(
+                compact_atoms.get_forces(),
+                legacy_atoms.get_forces(),
+                atol=force_tolerance,
+            )
+        PY
         deactivate

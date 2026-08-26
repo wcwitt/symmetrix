@@ -13,6 +13,7 @@ void bind_multilayer_perceptron(py::module_ &m)
         .def(py::init<std::vector<int>,std::vector<std::vector<double>>,double>())
         .def("evaluate", &MultilayerPerceptron::evaluate)
         .def("evaluate_gradient", &MultilayerPerceptron::evaluate_gradient)
+        .def("evaluate_gradient_directional", &MultilayerPerceptron::evaluate_gradient_directional)
         .def("evaluate_batch", &MultilayerPerceptron::evaluate_batch)
         .def("evaluate_gradient_batch", &MultilayerPerceptron::evaluate_gradient_batch);
 }
