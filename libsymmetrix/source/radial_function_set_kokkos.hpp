@@ -8,7 +8,7 @@ template <typename Precision>
 class RadialFunctionSetKokkos
 {
 public:
-    
+
     RadialFunctionSetKokkos();
     RadialFunctionSetKokkos(
         double h,
@@ -22,9 +22,9 @@ public:
         Kokkos::View<const double*> r,
         Kokkos::View<Precision**,Kokkos::LayoutRight> R,
         Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const;
-    
+
 private:
-    
+
     double h;
     int num_edge_types;
     int num_functions;

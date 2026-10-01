@@ -14,7 +14,7 @@ CubicSplineSetKokkos::CubicSplineSetKokkos(
 
     c = Kokkos::View<double***,Kokkos::LayoutRight>("coeffs", num_nodes-1, 4, num_splines);
     auto h_c = Kokkos::create_mirror_view(c);
-    
+
     for (int i=0; i<num_nodes-1; ++i) {
         for (int j=0; j<num_splines; ++j) {
             h_c(i,0,j) = nodal_values[j][i];
@@ -35,7 +35,7 @@ struct InitializeCoefficientsFunctor {
     Kokkos::View<double**> nodal_derivs;
     Kokkos::View<double***,Kokkos::LayoutRight> c;
 
-    InitializeCoefficientsFunctor(double h_, Kokkos::View<double**> nodal_values_, 
+    InitializeCoefficientsFunctor(double h_, Kokkos::View<double**> nodal_values_,
                                   Kokkos::View<double**> nodal_derivs_, Kokkos::View<double***,Kokkos::LayoutRight> c_)
         : h(h_), nodal_values(nodal_values_), nodal_derivs(nodal_derivs_), c(c_) {}
 
@@ -64,8 +64,8 @@ CubicSplineSetKokkos::CubicSplineSetKokkos(
 
     // Create and use the functor for initialization
     InitializeCoefficientsFunctor functor(h, nodal_values, nodal_derivs, c);
-    Kokkos::parallel_for("InitializeCoefficients", 
-                            Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_nodes - 1, num_splines}), 
+    Kokkos::parallel_for("InitializeCoefficients",
+                            Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_nodes - 1, num_splines}),
                             functor);
     //Kokkos::fence();
 }
@@ -79,11 +79,11 @@ void CubicSplineSetKokkos::evaluate(
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
-    
+
     // make a local copy
     //Kokkos::View<double***> local_c("local_c", c.extent(0), c.extent(1), c.extent(2));
     //Kokkos::deep_copy(local_c,this->c);
-    
+
     // Parallel computation of values
     Kokkos::parallel_for("EvaluateSpline", num_splines, KOKKOS_CLASS_LAMBDA(const int j) {
         values(j) = c(i, 0, j) + c(i, 1, j) * x + c(i, 2, j) * xx + c(i, 3, j) * xxx;
@@ -195,23 +195,23 @@ void CubicSplineSetKokkos::evaluate(
 {
     // create test device side view
     Kokkos::View<double*> test_view("test_view",values.size());
-    
+
     // test view's host mirror
     auto h_test_view = Kokkos::create_mirror_view(test_view);
-    
+
     // view to copy the values
     Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_value_view(values.data(),values.size());
-    
+
     // copy input values to host mirror
     Kokkos::deep_copy(h_test_view,input_value_view);
 
     //copy it back to device side view
     Kokkos::deep_copy(test_view,h_test_view);
-    
+
     evaluate(
         r,
         test_view);
-    
+
     // copy values back to host mirror
     Kokkos::deep_copy(h_test_view,test_view);
 
@@ -230,7 +230,7 @@ void CubicSplineSetKokkos::evaluate_derivs(
     // create test device side view
     Kokkos::View<double*> test_view_values("test_view_values",values.size());
     Kokkos::View<double*> test_view_derivs("test_view_derivs",derivs.size());
-    
+
     // test view's host mirror
     auto h_test_view_values = Kokkos::create_mirror_view(test_view_values);
     auto h_test_view_derivs = Kokkos::create_mirror_view(test_view_derivs);
@@ -239,7 +239,7 @@ void CubicSplineSetKokkos::evaluate_derivs(
     Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_values_view(values.data(),values.size());
     Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_derivs_view(derivs.data(),derivs.size());
 
-    
+
     // copy input values to host mirror
     Kokkos::deep_copy(h_test_view_values,input_values_view);
     Kokkos::deep_copy(h_test_view_derivs,input_derivs_view);

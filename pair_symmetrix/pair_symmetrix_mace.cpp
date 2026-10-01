@@ -39,9 +39,9 @@ PairSymmetrixMACE::PairSymmetrixMACE(LAMMPS *lmp)
   one_coeff = 1;
   manybody_flag = 1;
   no_virial_fdotr_compute = 1;
-  // WARNING: for mace, these variables are model-dependent, so i 
+  // WARNING: for mace, these variables are model-dependent, so i
   //          reset them after the model is loaded (in coeff).
-  //          however, i can't make them zero here, because that 
+  //          however, i can't make them zero here, because that
   //          confusingly yields seg faults with hybrid/overlay.
   //          so, i set them to a fairly big number here and hope.
   //          not a great solution.
@@ -691,7 +691,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   mace->compute_H2(num_local_nodes, node_types);
 
   mace->compute_readouts(num_local_nodes, node_types);
-  
+
   mace->reverse_H2(num_local_nodes, node_types, false);
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);

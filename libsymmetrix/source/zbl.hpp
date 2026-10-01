@@ -41,7 +41,7 @@ double a_prefactor;
 std::vector<double> c;
 std::vector<double> covalent_radii;
 int p;
-    
+
 // values taken from mace/modules/radial.py
 static constexpr double c_exps_0 = -3.2;
 static constexpr double c_exps_1 = -0.9423;

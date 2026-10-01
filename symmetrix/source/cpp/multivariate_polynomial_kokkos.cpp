@@ -3,7 +3,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
-#include "utilities_kokkos.hpp" 
+#include "utilities_kokkos.hpp"
 
 #include "multivariate_polynomial_kokkos.hpp"
 

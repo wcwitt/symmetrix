@@ -15,7 +15,7 @@ CubicSplineKokkos(double h,
 CubicSplineKokkos(double h,
                   Kokkos::View<double*> nodal_values,
                   Kokkos::View<double*> nodal_derivs);
-            
+
 double evaluate(double r);
 std::tuple<double,double> evaluate_deriv(double r);
 std::tuple<double,double> evaluate_deriv_divided(double r);

@@ -13,4 +13,3 @@ void bind_cubic_spline(py::module_ &m)
         .def("evaluate_deriv", &CubicSpline::evaluate_deriv)
         .def("evaluate_deriv_divided", &CubicSpline::evaluate_deriv_divided);
 }
-

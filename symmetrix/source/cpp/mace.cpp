@@ -41,7 +41,7 @@ void bind_mace(py::module_ &m)
                            py::array_t<double> xyz,
                            py::array_t<double> r) {
                 self.compute_node_energies_forces(
-                           num_nodes, 
+                           num_nodes,
                            std::span<const int>(node_types.data(), node_types.size()),
                            std::span<const int>(num_neigh.data(), num_neigh.size()),
                            std::span<const int>(neigh_indices.data(), neigh_indices.size()),
@@ -100,7 +100,7 @@ void bind_mace(py::module_ &m)
                            py::array_t<int> neigh_types,
                            py::array_t<double> xyz,
                            py::array_t<double> r) {
-                self.reverse_A0(num_nodes, 
+                self.reverse_A0(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()),
                                 std::span<const int>(num_neigh.data(), num_neigh.size()),
                                 std::span<const int>(neigh_types.data(), neigh_types.size()),
@@ -140,7 +140,7 @@ void bind_mace(py::module_ &m)
         .def("compute_M0",
             [](MACE& self, const int num_nodes,
                            py::array_t<int> node_types) {
-                self.compute_M0(num_nodes, 
+                self.compute_M0(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()));
             })
         .def("reverse_M0",
@@ -155,7 +155,7 @@ void bind_mace(py::module_ &m)
             [](MACE& self, const int num_nodes,
                            py::array_t<int> num_neigh,
                            py::array_t<int> neigh_indices) {
-                self.compute_Phi1(num_nodes, 
+                self.compute_Phi1(num_nodes,
                                   std::span<const int>(num_neigh.data(), num_neigh.size()),
                                   std::span<const int>(neigh_indices.data(), neigh_indices.size()));
             })
@@ -167,7 +167,7 @@ void bind_mace(py::module_ &m)
                            py::array_t<double> r,
                            bool zero_dxyz,
                            bool zero_H1_adj) {
-                self.reverse_Phi1(num_nodes, 
+                self.reverse_Phi1(num_nodes,
                                   std::span<const int>(num_neigh.data(), num_neigh.size()),
                                   std::span<const int>(neigh_indices.data(), neigh_indices.size()),
                                   std::span<const double>(xyz.data(), xyz.size()),
@@ -210,7 +210,7 @@ void bind_mace(py::module_ &m)
         .def("compute_M1",
             [](MACE& self, const int num_nodes,
                            py::array_t<int> node_types) {
-                self.compute_M1(num_nodes, 
+                self.compute_M1(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()));
             })
 
@@ -223,21 +223,21 @@ void bind_mace(py::module_ &m)
         .def("compute_H2",
             [](MACE& self, const int num_nodes,
                            py::array_t<int> node_types) {
-                self.compute_H2(num_nodes, 
+                self.compute_H2(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()));
             })
         .def("reverse_H2",
             [](MACE& self, const int num_nodes,
                            py::array_t<int> node_types,
                            bool zero_H1_adj) {
-                self.reverse_H2(num_nodes, 
+                self.reverse_H2(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()),
                                 zero_H1_adj);
             })
         .def("compute_readouts",
             [](MACE& self, const int num_nodes,
                            py::array_t<int> node_types) {
-                self.compute_readouts(num_nodes, 
+                self.compute_readouts(num_nodes,
                                       std::span<const int>(node_types.data(), node_types.size()));
             });
 }

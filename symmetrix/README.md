@@ -33,9 +33,16 @@ pip install --verbose . \
 
 ### Generating Symmetrix `.json` model files
 
-Once the Python package is installed, use
+Install the Python package with the optional MACE dependencies:
+
 ```
-symmetrix_extract_mace my-mace.model --atomic-numbers 1 8
+pip install ".[mace]"
+```
+
+Then use:
+
+```
+symmetrix_extract_mace --model my-mace.model --atomic-numbers 1 8
 ```
 from the command line to extract a `.json` file from a Torch-based model.
 The result will be `my-mace-1-8.json`, and this model is only suitable
@@ -47,5 +54,5 @@ One can import the ASE calculator with
 ```
 from symmetrix import Symmetrix
 ```
-See [the source code](source/symmetrix/symmetrix_calc.py) and [this test](test/test_symmetrix_calc.py)
+See [the source code](source/symmetrix/calculator.py) and [this test](test/test_symmetrix_calc.py)
 for additional details.

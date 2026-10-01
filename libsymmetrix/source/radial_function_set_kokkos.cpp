@@ -141,7 +141,7 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     Kokkos::parallel_scan("first_neigh",
         num_nodes,
         KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i); 
+            const int num_neigh_i = num_neigh(i);
             if (final)
                 first_neigh(i) = update;
             update += num_neigh_i;
