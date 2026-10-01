@@ -45,6 +45,9 @@ jobs:
 
   pair_symmetrix:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lammps-version: [patch_10Sep2025, stable_30Sep2026]
     steps:
     - name: Clone repo
       uses: actions/checkout@v6
@@ -67,7 +70,7 @@ jobs:
     - name: Clone and build LAMMPS
       run: |
         source .venv/bin/activate
-        git clone -b release --depth 1 https://github.com/lammps/lammps.git
+        git clone -b ${{ matrix.lammps-version }} --depth 1 https://github.com/lammps/lammps.git
         cd pair_symmetrix
         chmod +x install.sh
         ./install.sh ../lammps
