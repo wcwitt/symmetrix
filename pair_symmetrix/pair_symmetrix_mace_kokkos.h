@@ -101,6 +101,12 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   DAT::ttransform_kkacc_1d k_eatom;
 
 };
+
+using PairSymmetrixMACEKokkosDeviceDouble = PairSymmetrixMACEKokkos<LMPDeviceType,double>;
+using PairSymmetrixMACEKokkosHostDouble = PairSymmetrixMACEKokkos<LMPHostType,double>;
+using PairSymmetrixMACEKokkosDeviceFloat = PairSymmetrixMACEKokkos<LMPDeviceType,float>;
+using PairSymmetrixMACEKokkosHostFloat = PairSymmetrixMACEKokkos<LMPHostType,float>;
+
 }    // namespace LAMMPS_NS
 
 #endif
