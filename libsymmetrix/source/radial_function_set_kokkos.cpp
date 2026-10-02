@@ -1,5 +1,7 @@
-#include <vector>
 #include <cmath>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "radial_function_set_kokkos.hpp"
 
@@ -14,7 +16,19 @@ RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos(
     std::vector<std::vector<std::vector<double>>> node_values,
     std::vector<std::vector<std::vector<double>>> node_derivatives)
 {
-    // TODO: sanitize input
+    if (h<=0 or not std::isfinite(h))
+        throw std::invalid_argument("RadialFunctionSetKokkos requires positive finite spacing.");
+    if (node_values.size()<1 or node_values.size()!=node_derivatives.size())
+        throw std::invalid_argument("RadialFunctionSetKokkos requires at least one edge type and matching derivatives.");
+    for (int a=0; a<node_values.size(); ++a) {
+        if (node_values[a].size()<1 or node_values[a].size()!=node_values[0].size()
+                or node_values[a].size()!=node_derivatives[a].size())
+            throw std::invalid_argument("RadialFunctionSetKokkos requires at least one function per edge type, consistent across edge types, with matching derivatives.");
+        for (int j=0; j<node_values[a].size(); ++j)
+            if (node_values[a][j].size()<2 or node_values[a][j].size()!=node_values[0][0].size()
+                    or node_values[a][j].size()!=node_derivatives[a][j].size())
+                throw std::invalid_argument("RadialFunctionSetKokkos requires at least two values per function, consistent across functions, with matching derivatives.");
+    }
     this->h = h;
     num_edge_types = node_values.size();
     num_functions = node_values[0].size();
@@ -57,6 +71,7 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     const auto h = this->h;
     const auto num_functions = this->num_functions;
     const auto c = this->coefficients;
+    const int num_intervals = this->num_nodes - 1;
 
     Kokkos::parallel_for(
         "RadialFunctionSetKokkos::evaluate",
@@ -67,7 +82,7 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
         Kokkos::TeamPolicy<>(r.size(), 1, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            const int j = static_cast<int>(r(i)/h); // TODO: bounds checking?
+            const int j = Kokkos::clamp(static_cast<int>(r(i)/h), 0, num_intervals-1);
             const double x = r(i) - h*j;
             const double xx = x*x;
             const double xxx = xx*x;
@@ -134,6 +149,24 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     const auto h = this->h;
     const auto num_functions = this->num_functions;
     const auto c = this->coefficients;
+    const int num_intervals = this->num_nodes - 1;
+    const double r_max = h*num_intervals;
+
+    // bounds checking (cannot throw from device code, so reduce first)
+    int num_out_of_bounds = 0;
+    Kokkos::parallel_reduce(
+        "RadialFunctionSetKokkos::evaluate::bounds",
+        r.size(),
+        KOKKOS_LAMBDA (const int ij, int& count) {
+            const double r_ij = r(ij);
+            if (r_ij<0 or r_ij>r_max or Kokkos::isnan(r_ij))
+                count += 1;
+        },
+        num_out_of_bounds);
+    Kokkos::fence();
+    if (num_out_of_bounds>0)
+        throw std::invalid_argument("Out of bounds in RadialFunctionSetKokkos::evaluate for "
+                                    + std::to_string(num_out_of_bounds) + " distances.");
 
     // TODO: shouldn't need all this
     // Build i_list
@@ -177,7 +210,7 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
                 ? type_i*(2*num_unique_types-type_i-1)/2 + type_j
                 : type_j*(2*num_unique_types-type_j-1)/2 + type_i;
             // compute x, x^2, x^3
-            const int n = static_cast<int>(r(ij)/h); // TODO: bounds checking?
+            const int n = Kokkos::clamp(static_cast<int>(r(ij)/h), 0, num_intervals-1);
             const double x = r(ij) - h*n;
             const double xx = x*x;
             const double xxx = xx*x;

@@ -1,5 +1,7 @@
 #include <fstream>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 
 // TODO: remove some of these headers?
 #include "KokkosBatched_Util.hpp"
@@ -143,8 +145,26 @@ void MACEKokkos<Precision>::compute_R0(
     const auto num_types = atomic_numbers.size();
     const auto h = R0_spline_h;
     const auto c = R0_spline_coefficients;
+    const int num_intervals = c.extent(1);
+    const double r_max = h*num_intervals;
     auto R0 = this->R0;
     auto R0_deriv = this->R0_deriv;
+
+    // bounds checking (cannot throw from device code, so reduce first)
+    int num_out_of_bounds = 0;
+    Kokkos::parallel_reduce(
+        "Compute R0::bounds",
+        r.size(),
+        KOKKOS_LAMBDA (const int ij, int& count) {
+            const double r_ij = r(ij);
+            if (r_ij<0 or r_ij>r_max or Kokkos::isnan(r_ij))
+                count += 1;
+        },
+        num_out_of_bounds);
+    Kokkos::fence();
+    if (num_out_of_bounds>0)
+        throw std::invalid_argument("Out of bounds in MACEKokkos::compute_R0 for "
+                                    + std::to_string(num_out_of_bounds) + " distances.");
 
     Kokkos::parallel_for(
         "Compute R0",
@@ -155,7 +175,7 @@ void MACEKokkos<Precision>::compute_R0(
             const int type_j = neigh_types(ij);
             const int type_ij = type_i*num_types+type_j;
             // compute x, x^2, x^3
-            const int n = static_cast<int>(r(ij)/h); // TODO: bounds checking?
+            const int n = Kokkos::clamp(static_cast<int>(r(ij)/h), 0, num_intervals-1);
             const double x = r(ij) - h*n;
             const double xx = x*x;
             const double xxx = xx*x;

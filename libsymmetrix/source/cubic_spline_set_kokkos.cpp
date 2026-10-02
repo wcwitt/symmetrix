@@ -1,3 +1,7 @@
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "cubic_spline_set_kokkos.hpp"
@@ -7,7 +11,14 @@ CubicSplineSetKokkos::CubicSplineSetKokkos(
     std::vector<std::vector<double>> nodal_values,
     std::vector<std::vector<double>> nodal_derivs)
 {
-    // TODO: sanitize input
+    if (h<=0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineSetKokkos requires positive finite spacing.");
+    if (nodal_values.size()<1 or nodal_values.size()!=nodal_derivs.size())
+        throw std::invalid_argument("CubicSplineSetKokkos requires at least one spline and matching derivatives.");
+    for (int j=0; j<nodal_values.size(); ++j)
+        if (nodal_values[j].size()<2 or nodal_values[j].size()!=nodal_values[0].size()
+                or nodal_values[j].size()!=nodal_derivs[j].size())
+            throw std::invalid_argument("CubicSplineSetKokkos requires at least two values per spline, consistent across splines, with matching derivatives.");
     this->h = h;
     num_splines = nodal_values.size();
     num_nodes = nodal_values[0].size();
@@ -56,7 +67,12 @@ CubicSplineSetKokkos::CubicSplineSetKokkos(
     Kokkos::View<double**> nodal_values,
     Kokkos::View<double**> nodal_derivs)
 {
-    // TODO: sanitize input
+    if (h<=0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineSetKokkos requires positive finite spacing.");
+    if (nodal_values.extent(0)<1 or nodal_values.extent(1)<2
+            or nodal_values.extent(0)!=nodal_derivs.extent(0)
+            or nodal_values.extent(1)!=nodal_derivs.extent(1))
+        throw std::invalid_argument("CubicSplineSetKokkos requires at least one spline with at least two values, and matching derivatives.");
     this->h = h;
     num_splines = nodal_values.extent(0);
     num_nodes = nodal_values.extent(1);
@@ -74,8 +90,9 @@ void CubicSplineSetKokkos::evaluate(
     double r,
     Kokkos::View<double*> values)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
+    if (r<0 or r>h*(num_nodes-1) or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSplineSetKokkos::evaluate. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_nodes-2);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -96,8 +113,9 @@ void CubicSplineSetKokkos::evaluate_derivs(double r,
                                            Kokkos::View<double*> values,
                                            Kokkos::View<double*> derivs) const
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
+    if (r<0 or r>h*(num_nodes-1) or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSplineSetKokkos::evaluate_derivs. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_nodes-2);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -127,6 +145,24 @@ void CubicSplineSetKokkos::evaluate_derivs(Kokkos::View<const double*> r,
     const auto c = this->c;
     const auto h = this->h;
     const auto num_splines = this->num_splines;
+    const int num_intervals = this->num_nodes - 1;
+    const double r_max = h*num_intervals;
+
+    // bounds checking (cannot throw from device code, so reduce first)
+    int num_out_of_bounds = 0;
+    Kokkos::parallel_reduce(
+        "CubicSplineSet::evaluate_derivs::bounds",
+        r.size(),
+        KOKKOS_LAMBDA (const int i, int& count) {
+            const double r_i = r(i);
+            if (r_i<0 or r_i>r_max or Kokkos::isnan(r_i))
+                count += 1;
+        },
+        num_out_of_bounds);
+    Kokkos::fence();
+    if (num_out_of_bounds>0)
+        throw std::invalid_argument("Out of bounds in CubicSplineSetKokkos::evaluate_derivs for "
+                                    + std::to_string(num_out_of_bounds) + " distances.");
 
     Kokkos::parallel_for(
         "CubicSplineSet::evaluate_derivs",
@@ -137,7 +173,7 @@ void CubicSplineSetKokkos::evaluate_derivs(Kokkos::View<const double*> r,
         Kokkos::TeamPolicy<>(r.size(), 1, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            const int ii = static_cast<int>(r(i)/h); // TODO: bounds checking?
+            const int ii = Kokkos::clamp(static_cast<int>(r(i)/h), 0, num_intervals-1);
             const double x = r(i) - h*ii;
             const double xx = x*x;
             const double xxx = xx*x;
