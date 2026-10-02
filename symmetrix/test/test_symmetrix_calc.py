@@ -3,6 +3,7 @@
 
 import pytest
 
+import json
 import os
 import time
 
@@ -138,6 +139,39 @@ def test_symmetrix_vs_pytorch(mace_foundation_model, use_kokkos):
     )
     assert np.allclose(atoms_s.get_forces(), atoms_p.get_forces(), atol=0.002)
     assert np.allclose(atoms_s.get_stress(), atoms_p.get_stress(), atol=0.003)
+
+
+@pytest.mark.parametrize("use_kokkos", [True, False])
+def test_pair_at_cutoff(model_cache, use_kokkos):
+    # Regression test: a pair distance in the last radial spline interval, within
+    # roundoff of the final node, used to index one interval past the end of the
+    # spline tables, producing garbage energies and forces. Energies and forces
+    # must be continuous all the way to the final node.
+    model_file = model_cache["mace-mp-0b3-medium-1-8.json"]
+    with open(model_file) as fin:
+        model_data = json.load(fin)
+    h = model_data["radial_spline_h"]
+    num_nodes = len(model_data["radial_spline_values_0"][0][0])
+    r_last_node = h * (num_nodes - 1)
+
+    calc = Symmetrix(model_file, use_kokkos=use_kokkos)
+    assert r_last_node <= calc.cutoff
+
+    def dimer_energy_forces(d):
+        atoms = Atoms("HO", positions=[[0, 0, 0], [d, 0, 0]], cell=[20] * 3, pbc=True)
+        atoms.calc = calc
+        return atoms.get_potential_energy(), atoms.get_forces()
+
+    E_ref, F_ref = dimer_energy_forces(r_last_node - 1e-6)
+    for d in [
+        r_last_node - 1e-9,
+        r_last_node - 1e-12,
+        np.nextafter(r_last_node, 0),
+        r_last_node,
+    ]:
+        E, F = dimer_energy_forces(d)
+        assert np.allclose(E, E_ref, atol=1e-6), f"d={d!r}: E={E} vs E_ref={E_ref}"
+        assert np.allclose(F, F_ref, atol=1e-5), f"d={d!r}: F={F} vs F_ref={F_ref}"
 
 
 def do_grad_test(atoms, calc, check, ax=None, label=None, plot_factor=1.0):

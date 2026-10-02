@@ -1,11 +1,27 @@
 import numpy as np
-from pytest import approx
+from pytest import approx, raises
 from scipy.interpolate import CubicSpline
 
 import symmetrix
 
 if not symmetrix._kokkos_is_initialized():
     symmetrix._init_kokkos()
+
+
+def test_invalid_input():
+    for h in [0.0, -1.0]:
+        with raises(ValueError):
+            symmetrix.CubicSplineSetKokkos(h, [[0.0, 1.0]], [[0.0, 1.0]])
+
+    for values, derivs in [
+        ([], []),
+        ([[0.0]], [[0.0]]),
+        ([[0.0, 1.0]], [[0.0]]),
+        ([[0.0, 1.0], [0.0, 1.0]], [[0.0, 1.0]]),
+        ([[0.0, 1.0], [0.0, 1.0, 2.0]], [[0.0, 1.0], [0.0, 1.0, 2.0]]),
+    ]:
+        with raises(ValueError):
+            symmetrix.CubicSplineSetKokkos(1.0, values, derivs)
 
 
 def test_evaluate():
@@ -33,6 +49,16 @@ def test_evaluate():
     assert f1 == approx(spl1(r))
     assert f2 == approx(spl2(r))
     assert f3 == approx(spl3(r))
+    # the final node is in bounds and must use the last interval
+    for ri in [r_cut, np.nextafter(r_cut, 0), r_cut - 1e-12]:
+        spl_set.evaluate(ri, values)
+        assert np.allclose(values, [spl1(ri), spl2(ri), spl3(ri)], atol=1e-12)
+    # test out of bounds errors
+    for ri in [-1.0, r_cut + 1e-12, 9.0]:
+        with raises(
+            ValueError, match=r"^Out of bounds in CubicSplineSetKokkos::evaluate\."
+        ):
+            spl_set.evaluate(ri, values)
 
 
 def test_evaluate_derivs():
@@ -66,3 +92,19 @@ def test_evaluate_derivs():
     assert d2 == approx(spl2.derivative()(r))
     assert f3 == approx(spl3(r))
     assert d3 == approx(spl3.derivative()(r))
+    # the final node is in bounds and must use the last interval
+    for ri in [r_cut, np.nextafter(r_cut, 0), r_cut - 1e-12]:
+        spl_set.evaluate_derivs(ri, values, derivs)
+        assert np.allclose(values, [spl1(ri), spl2(ri), spl3(ri)], atol=1e-12)
+        assert np.allclose(
+            derivs,
+            [spl1.derivative()(ri), spl2.derivative()(ri), spl3.derivative()(ri)],
+            atol=1e-12,
+        )
+    # test out of bounds errors
+    for ri in [-1.0, r_cut + 1e-12, 9.0]:
+        with raises(
+            ValueError,
+            match=r"^Out of bounds in CubicSplineSetKokkos::evaluate_derivs\.",
+        ):
+            spl_set.evaluate_derivs(ri, values, derivs)
