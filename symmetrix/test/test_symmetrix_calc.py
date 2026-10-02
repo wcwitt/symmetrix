@@ -82,6 +82,17 @@ def test_calc_caching(model_cache, use_kokkos):
 
 
 @pytest.mark.parametrize("use_kokkos", [True, False])
+def test_calc_rejects_unsupported_atomic_numbers(model_cache, use_kokkos):
+    atoms = Atoms("He", cell=[2] * 3, pbc=[True] * 3)
+    calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"], use_kokkos=use_kokkos)
+
+    with pytest.raises(
+        ValueError, match=r"Atomic numbers \[2\] are not supported by this model"
+    ):
+        calc.calculate(atoms)
+
+
+@pytest.mark.parametrize("use_kokkos", [True, False])
 def test_symmetrix_calc_finite_diff(model_cache, use_kokkos):
     atoms = Atoms("O", cell=[2] * 3, pbc=[True] * 3)
     atoms *= 2
