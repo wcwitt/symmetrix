@@ -15,8 +15,8 @@ CubicSplineKokkos::CubicSplineKokkos(
         throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
     if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
         throw std::invalid_argument("CubicSplineKokkos requires at least two values and matching derivatives.");
-    num_coeffs = 4*(nodal_values.size() - 1);
-    c = Kokkos::View<double*>("coeffs",num_coeffs);
+    num_pieces = nodal_values.size() - 1;
+    c = Kokkos::View<double*>("coeffs",num_pieces*4);
     generate_coefficients(h, nodal_values, nodal_derivs);
 }
 
@@ -30,16 +30,16 @@ CubicSplineKokkos::CubicSplineKokkos(
         throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
     if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
         throw std::invalid_argument("CubicSplineKokkos requires at least two values and matching derivatives.");
-    num_coeffs = 4*(nodal_values.size() - 1);
-    c = Kokkos::View<double*>("coeffs",num_coeffs);
+    num_pieces = nodal_values.size() - 1;
+    c = Kokkos::View<double*>("coeffs",num_pieces*4);
     generate_coefficients(h, nodal_values, nodal_derivs);
 }
 
 double CubicSplineKokkos::evaluate(double r)
 {
-    if (r<0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r<0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
 
     const double x = r - h * i;
     const double xx = x * x;
@@ -60,9 +60,9 @@ double CubicSplineKokkos::evaluate(double r)
 
 std::tuple<double, double> CubicSplineKokkos::evaluate_deriv(double r)
 {
-    if (r<0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r<0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate_deriv. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
 
     const double x = r - h * i;
     const double xx = x * x;
@@ -84,9 +84,9 @@ std::tuple<double, double> CubicSplineKokkos::evaluate_deriv(double r)
 
 std::tuple<double,double> CubicSplineKokkos::evaluate_deriv_divided(double r)
 {
-    if (r<=0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r<=0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate_deriv_divided. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
 
     const double x = r - h*i;
     const double xx = x*x;

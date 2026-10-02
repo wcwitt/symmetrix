@@ -22,7 +22,7 @@ std::tuple<double,double> evaluate_deriv_divided(double r);
 
 double h;
 Kokkos::View<double*> c;
-size_t num_coeffs;
+size_t num_pieces;
 
 void generate_coefficients(
     double h,

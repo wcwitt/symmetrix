@@ -19,6 +19,7 @@ private:
 
 double h;
 std::vector<double> c;
+int num_pieces;
 
 auto generate_coefficients(
     double h,
