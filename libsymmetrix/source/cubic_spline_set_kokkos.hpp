@@ -9,7 +9,7 @@ class CubicSplineSetKokkos {
 
 public:
 double h;
-int num_nodes;
+int num_pieces;
 int num_splines;
 Kokkos::View<double***,Kokkos::LayoutRight> c;
 
@@ -20,7 +20,7 @@ CubicSplineSetKokkos(double h,
                      std::vector<std::vector<double>> nodal_values,
                      std::vector<std::vector<double>> nodal_derivs);
 static void initialize_coefficients(double h_local,
-                                    int num_nodes_local,
+                                    int num_pieces_local,
                                     int num_splines_local,
                                     Kokkos::View<double**> nodal_values,
                                     Kokkos::View<double**> nodal_derivs,

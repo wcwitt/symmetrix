@@ -1,4 +1,5 @@
 #include <vector>
+#include <algorithm>
 
 #include "cubic_spline_set.hpp"
 
@@ -9,10 +10,10 @@ CubicSplineSet::CubicSplineSet(
 {
     // TODO: sanitize input
     this->h = h;
-    num_nodes = nodal_values[0].size();
+    num_pieces = nodal_values[0].size() - 1;
     num_splines = nodal_values.size();
-    c = std::vector<double>(4*num_splines*(num_nodes-1), 0.0);
-    for (int i=0; i<num_nodes-1; ++i) {
+    c = std::vector<double>(4*num_splines*num_pieces, 0.0);
+    for (int i=0; i<num_pieces; ++i) {
         for (int j=0; j<num_splines; ++j) {
             c[(4*i)*num_splines+j] = nodal_values[j][i];
             c[(4*i+1)*num_splines+j] = nodal_derivs[j][i];
@@ -28,8 +29,9 @@ void CubicSplineSet::evaluate(
     double r,
     std::span<double> values)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
+    if (r<0 or r>h*num_pieces or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -51,8 +53,9 @@ void CubicSplineSet::evaluate_derivs(double r,
                                      std::span<double> values,
                                      std::span<double> derivs)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
+    if (r<0 or r>h*num_pieces or std::isnan(r))
+        throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate_derivs. r=" + std::to_string(r));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;

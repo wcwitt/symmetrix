@@ -11,15 +11,16 @@ CubicSpline::CubicSpline(
     std::vector<double> nodal_values,
     std::vector<double> nodal_derivs)
     : h(h),
-      c(generate_coefficients(h, nodal_values, nodal_derivs))
+      c(generate_coefficients(h, nodal_values, nodal_derivs)),
+      num_pieces(nodal_values.size() - 1)
 {
 }
 
 double CubicSpline::evaluate(double r)
 {
-    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+    if (r<0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -30,9 +31,9 @@ double CubicSpline::evaluate(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 {
-    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+    if (r<0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;
@@ -43,9 +44,9 @@ std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv_divided(double r)
 {
-    if (r<=0 or r>h*c.size()/4 or std::isnan(r))
+    if (r<=0 or r>h*num_pieces or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv_divided. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
+    const int i = std::clamp(static_cast<int>(r / h), 0, num_pieces - 1);
     const double x = r - h*i;
     const double xx = x*x;
     const double xxx = xx*x;

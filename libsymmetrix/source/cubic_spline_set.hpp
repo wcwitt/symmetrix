@@ -20,7 +20,7 @@ int num_splines;
 private:
 
 double h;
-int num_nodes;
+int num_pieces;
 std::vector<double> c;
 
 };
