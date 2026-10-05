@@ -952,8 +952,9 @@ void MACE::load_from_json(
         const double A0_spline_h = file["A0_spline_h"];
         auto A0_spline_values = file["A0_spline_values"].get<std::vector<std::vector<double>>>();
         auto A0_spline_derivs = file["A0_spline_derivs"].get<std::vector<std::vector<double>>>();
+        const double A0_spline_r_min = r_cut - A0_spline_h*(A0_spline_values[0].size()-1);
         for (int i=0; i<A0_spline_values.size(); ++i)
-            A0_splines.push_back(CubicSpline(A0_spline_h, A0_spline_values[i], A0_spline_derivs[i]));
+            A0_splines.push_back(CubicSpline(A0_spline_r_min, r_cut, A0_spline_values[i], A0_spline_derivs[i]));
     }
 
     // M0
@@ -997,8 +998,9 @@ void MACE::load_from_json(
         const double A1_spline_h = file["A1_spline_h"];
         auto A1_spline_values = file["A1_spline_values"].get<std::vector<std::vector<double>>>();
         auto A1_spline_derivs = file["A1_spline_derivs"].get<std::vector<std::vector<double>>>();
+        const double A1_spline_r_min = r_cut - A1_spline_h*(A1_spline_values[0].size()-1);
         for (int i=0; i<A1_spline_values.size(); ++i)
-            A1_splines.push_back(CubicSpline(A1_spline_h, A1_spline_values[i], A1_spline_derivs[i]));
+            A1_splines.push_back(CubicSpline(A1_spline_r_min, r_cut, A1_spline_values[i], A1_spline_derivs[i]));
     }
 
     // M1
