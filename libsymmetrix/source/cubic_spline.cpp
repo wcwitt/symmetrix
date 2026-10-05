@@ -7,20 +7,30 @@
 #include "cubic_spline.hpp"
 
 CubicSpline::CubicSpline(
-    double h,
+    double r_min,
+    double r_max,
     std::vector<double> nodal_values,
     std::vector<double> nodal_derivs)
-    : h(h),
-      c(generate_coefficients(h, nodal_values, nodal_derivs))
+    : r_min(r_min),
+      r_max(r_max)
 {
+    if (not std::isfinite(r_min) or not std::isfinite(r_max))
+        throw std::invalid_argument("CubicSpline requires finite r_min and r_max.");
+    if (r_min >= r_max)
+        throw std::invalid_argument("CubicSpline requires r_min < r_max.");
+    num_intervals = nodal_values.size() - 1;
+    h = (r_max - r_min) / num_intervals;
+    c = generate_coefficients(h, nodal_values, nodal_derivs);
 }
 
 double CubicSpline::evaluate(double r)
 {
-    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+    if (std::isnan(r))
+        throw std::invalid_argument("NaN input to CubicSpline::evaluate.");
+    if (r < r_min or r > r_max)
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
-    const double x = r - h*i;
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_intervals - 1);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const int i4 = 4*i;
@@ -30,10 +40,12 @@ double CubicSpline::evaluate(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 {
-    if (r<0 or r>h*c.size()/4 or std::isnan(r))
+    if (std::isnan(r))
+        throw std::invalid_argument("NaN input to CubicSpline::evaluate_deriv.");
+    if (r < r_min or r > r_max)
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
-    const double x = r - h*i;
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_intervals - 1);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const int i4 = 4*i;
@@ -43,10 +55,12 @@ std::tuple<double,double> CubicSpline::evaluate_deriv(double r)
 
 std::tuple<double,double> CubicSpline::evaluate_deriv_divided(double r)
 {
-    if (r<=0 or r>h*c.size()/4 or std::isnan(r))
+    if (std::isnan(r))
+        throw std::invalid_argument("NaN input to CubicSpline::evaluate_deriv_divided.");
+    if (r < r_min or r > r_max or r <= 0)
         throw std::invalid_argument("Out of bounds in CubicSpline::evaluate_deriv_divided. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(c.size()/4 - 1));
-    const double x = r - h*i;
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_intervals - 1);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const int i4 = 4*i;
@@ -60,9 +74,9 @@ auto CubicSpline::generate_coefficients(
     std::vector<double> nodal_derivs)
     -> std::vector<double>
 {
-    if (h<=0 or not std::isfinite(h))
+    if (h <= 0 or not std::isfinite(h))
         throw std::invalid_argument("CubicSpline requires positive finite spacing.");
-    if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
+    if (nodal_values.size() < 2 or nodal_values.size() != nodal_derivs.size())
         throw std::invalid_argument("CubicSpline requires at least two values and matching derivatives.");
 
     auto c = std::vector<double>(4*(nodal_values.size()-1), 0.0);
