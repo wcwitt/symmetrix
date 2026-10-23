@@ -264,6 +264,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 spl = CubicSpline(r, R[:, 0], bc_type=spline_bc_type)
                 A0_spline_values.append(spl(r).tolist())
                 A0_spline_derivs.append(spl.derivative()(r).tolist())
+        output["A0_spline_r_min"] = float(r[0])
         output["A0_spline_h"] = float(h)
         output["A0_spline_values"] = A0_spline_values
         output["A0_spline_derivs"] = A0_spline_derivs
@@ -502,6 +503,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 spl = CubicSpline(r, R[:, 0], bc_type=spline_bc_type)
                 A1_spline_values.append(spl(r).tolist())
                 A1_spline_derivs.append(spl.derivative()(r).tolist())
+        output["A1_spline_r_min"] = float(r[0])
         output["A1_spline_h"] = float(h)
         output["A1_spline_values"] = A1_spline_values
         output["A1_spline_derivs"] = A1_spline_derivs
