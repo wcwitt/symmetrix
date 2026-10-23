@@ -18,6 +18,8 @@ CubicSpline::CubicSpline(
         throw std::invalid_argument("CubicSpline requires finite r_min and r_max.");
     if (r_min >= r_max)
         throw std::invalid_argument("CubicSpline requires r_min < r_max.");
+    if (nodal_values.size() < 2 or nodal_values.size() != nodal_derivs.size())
+        throw std::invalid_argument("CubicSpline requires at least two values and matching derivatives.");
     num_intervals = nodal_values.size() - 1;
     h = (r_max - r_min) / num_intervals;
     c = generate_coefficients(h, nodal_values, nodal_derivs);
@@ -76,9 +78,6 @@ auto CubicSpline::generate_coefficients(
 {
     if (h <= 0 or not std::isfinite(h))
         throw std::invalid_argument("CubicSpline requires positive finite spacing.");
-    if (nodal_values.size() < 2 or nodal_values.size() != nodal_derivs.size())
-        throw std::invalid_argument("CubicSpline requires at least two values and matching derivatives.");
-
     auto c = std::vector<double>(4*(nodal_values.size()-1), 0.0);
     for (int i=0; i<nodal_values.size()-1; ++i) {
         c[4*i] = nodal_values[i];
