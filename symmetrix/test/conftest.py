@@ -1,3 +1,4 @@
+import gc
 import pytest
 
 from pathlib import Path
@@ -16,6 +17,7 @@ def finalize_kokkos_after_tests():
 
     import symmetrix
 
+    gc.collect()
     if symmetrix._kokkos_is_initialized():
         symmetrix._finalize_kokkos()
 

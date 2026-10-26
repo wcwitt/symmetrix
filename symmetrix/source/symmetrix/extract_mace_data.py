@@ -15,7 +15,7 @@ from mace.tools.scripts_utils import remove_pt_head
 from ase.data import chemical_symbols
 
 
-def extract_mace_data(model, species, head=None, num_spline_points=256):
+def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e-12):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
@@ -29,6 +29,8 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
         head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
     num_spline_points: int, default 256
         number of spline points to approximate various functions
+    r_min: float, default 1e-12
+        minimum distance covered by the splines
 
     Returns
     -------
@@ -164,7 +166,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     ### ----- RADIAL SPLINES -----
 
     logging.info("R0+R1")
-    r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
+    r = np.linspace(r_min, r_cut, num_spline_points)
     spline_values_0 = []
     spline_derivatives_0 = []
     spline_values_1 = []
@@ -202,7 +204,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
             spline_values_1.append([spl(r).tolist() for spl in spl_1])
             spline_derivatives_1.append([spl.derivative()(r).tolist() for spl in spl_1])
 
-    output["radial_spline_h"] = float(h)
+    output["radial_spline_r_min"] = float(r[0])
     output["radial_spline_values_0"] = spline_values_0
     output["radial_spline_derivs_0"] = spline_derivatives_0
     output["radial_spline_values_1"] = spline_values_1
@@ -237,7 +239,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     A0_scaled = True if ("Density" in type(model.interactions[0]).__name__) else False
     output["A0_scaled"] = A0_scaled
     if A0_scaled:
-        r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
+        r = np.linspace(r_min, r_cut, num_spline_points)
         A0_spline_values = []
         A0_spline_derivs = []
         for a_i in atomic_numbers:
@@ -265,7 +267,6 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 A0_spline_values.append(spl(r).tolist())
                 A0_spline_derivs.append(spl.derivative()(r).tolist())
         output["A0_spline_r_min"] = float(r[0])
-        output["A0_spline_h"] = float(h)
         output["A0_spline_values"] = A0_spline_values
         output["A0_spline_derivs"] = A0_spline_derivs
     A0_weights = []
@@ -476,7 +477,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
     A1_scaled = True if ("Density" in type(model.interactions[1]).__name__) else False
     output["A1_scaled"] = A1_scaled
     if A1_scaled:
-        r, h = np.linspace(1e-12, r_cut, num_spline_points, retstep=True)
+        r = np.linspace(r_min, r_cut, num_spline_points)
         A1_spline_values = []
         A1_spline_derivs = []
         for a_i in atomic_numbers:
@@ -504,7 +505,6 @@ def extract_mace_data(model, species, head=None, num_spline_points=256):
                 A1_spline_values.append(spl(r).tolist())
                 A1_spline_derivs.append(spl.derivative()(r).tolist())
         output["A1_spline_r_min"] = float(r[0])
-        output["A1_spline_h"] = float(h)
         output["A1_spline_values"] = A1_spline_values
         output["A1_spline_derivs"] = A1_spline_derivs
     A1_weights = []

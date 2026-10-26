@@ -1,7 +1,9 @@
 #include <vector>
 #include <cmath>
+#include <stdexcept>
 
 #include "radial_function_set_kokkos.hpp"
+#include "tools_kokkos.hpp"
 
 template <typename Precision>
 RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos()
@@ -10,15 +12,31 @@ RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos()
 
 template <typename Precision>
 RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos(
-    double h,
+    double r_min,
+    double r_max,
     std::vector<std::vector<std::vector<double>>> node_values,
     std::vector<std::vector<std::vector<double>>> node_derivatives)
+    : r_min(r_min), r_max(r_max)
 {
-    // TODO: sanitize input
-    this->h = h;
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("RadialFunctionSetKokkos requires finite r_min < r_max.");
+    if (node_values.empty() or node_values.size() != node_derivatives.size())
+        throw std::invalid_argument("RadialFunctionSetKokkos requires edge types and matching derivatives.");
+    for (int a=0; a<node_values.size(); ++a) {
+        if (node_values[a].empty() or node_values[a].size() != node_values[0].size()
+                or node_values[a].size() != node_derivatives[a].size())
+            throw std::invalid_argument("RadialFunctionSetKokkos requires consistent function counts.");
+        for (int j=0; j<node_values[a].size(); ++j)
+            if (node_values[a][j].size() < 2 or node_values[a][j].size() != node_values[0][0].size()
+                    or node_values[a][j].size() != node_derivatives[a][j].size())
+                throw std::invalid_argument("RadialFunctionSetKokkos requires consistent nodal arrays with at least two values.");
+    }
     num_edge_types = node_values.size();
     num_functions = node_values[0].size();
     num_nodes = node_values[0][0].size();
+    h = (r_max - r_min) / (num_nodes - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("RadialFunctionSetKokkos requires positive finite spacing.");
 
     auto c = Kokkos::View<Precision****, Kokkos::LayoutRight>(
         "coefficients", num_edge_types, num_nodes-1, 4, num_functions);
@@ -54,7 +72,10 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     Kokkos::View<Precision**,Kokkos::LayoutRight> R,
     Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const
 {
+    check_spline_bounds(r, r_min, r_max, "RadialFunctionSetKokkos::evaluate");
     const auto h = this->h;
+    const auto r_min = this->r_min;
+    const int num_intervals = this->num_nodes - 1;
     const auto num_functions = this->num_functions;
     const auto c = this->coefficients;
 
@@ -67,8 +88,8 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
         Kokkos::TeamPolicy<>(r.size(), 1, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            const int j = static_cast<int>(r(i)/h); // TODO: bounds checking?
-            const double x = r(i) - h*j;
+            const int j = Kokkos::clamp(static_cast<int>((r(i) - r_min)/h), 0, num_intervals - 1);
+            const double x = r(i) - (r_min + h*j);
             const double xx = x*x;
             const double xxx = xx*x;
             const double two_x = 2*x;
@@ -131,7 +152,10 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     Kokkos::View<Precision**,Kokkos::LayoutRight> R,
     Kokkos::View<Precision**,Kokkos::LayoutRight> R_deriv) const
 {
+    check_spline_bounds(r, r_min, r_max, "RadialFunctionSetKokkos::evaluate");
     const auto h = this->h;
+    const auto r_min = this->r_min;
+    const int num_intervals = this->num_nodes - 1;
     const auto num_functions = this->num_functions;
     const auto c = this->coefficients;
 
@@ -177,8 +201,8 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
                 ? type_i*(2*num_unique_types-type_i-1)/2 + type_j
                 : type_j*(2*num_unique_types-type_j-1)/2 + type_i;
             // compute x, x^2, x^3
-            const int n = static_cast<int>(r(ij)/h); // TODO: bounds checking?
-            const double x = r(ij) - h*n;
+            const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
+            const double x = r(ij) - (r_min + h*n);
             const double xx = x*x;
             const double xxx = xx*x;
             const double two_x = 2*x;

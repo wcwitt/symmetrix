@@ -1,5 +1,7 @@
 #include <fstream>
 #include <numbers>
+#include <cmath>
+#include <stdexcept>
 
 // TODO: remove some of these headers?
 #include "KokkosBatched_Util.hpp"
@@ -142,7 +144,10 @@ void MACEKokkos<Precision>::compute_R0(
     const int num_channels = this->num_channels;
     const auto num_types = atomic_numbers.size();
     const auto h = R0_spline_h;
+    const auto r_min = R0_spline_r_min;
     const auto c = R0_spline_coefficients;
+    const int num_intervals = c.extent(1);
+    check_spline_bounds(r, r_min, r_cut, "MACEKokkos::compute_R0");
     auto R0 = this->R0;
     auto R0_deriv = this->R0_deriv;
 
@@ -155,8 +160,8 @@ void MACEKokkos<Precision>::compute_R0(
             const int type_j = neigh_types(ij);
             const int type_ij = type_i*num_types+type_j;
             // compute x, x^2, x^3
-            const int n = static_cast<int>(r(ij)/h); // TODO: bounds checking?
-            const double x = r(ij) - h*n;
+            const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
+            const double x = r(ij) - (r_min + h*n);
             const double xx = x*x;
             const double xxx = xx*x;
             const double two_x = 2*x;
@@ -1577,9 +1582,25 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
             file["zbl_p"].get<int>());
 
     // R0
-    const double spl_h = file["radial_spline_h"];
+    const double spl_r_min = file.at("radial_spline_r_min");
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
+    if (not std::isfinite(spl_r_min) or not std::isfinite(r_cut) or spl_r_min >= r_cut)
+        throw std::invalid_argument("Radial splines require finite r_min < r_max.");
+    if (spl_values_0.empty() or spl_values_0.size() != atomic_numbers.size()*(atomic_numbers.size()+1)/2
+            or spl_values_0.size() != spl_derivs_0.size())
+        throw std::invalid_argument("R0 splines require matching arrays for every edge type.");
+    for (int a=0; a<spl_values_0.size(); ++a) {
+        if (spl_values_0[a].size() != (l_max+1)*num_channels or spl_values_0[a].size() != spl_derivs_0[a].size())
+            throw std::invalid_argument("R0 splines require consistent function counts.");
+        for (int j=0; j<spl_values_0[a].size(); ++j)
+            if (spl_values_0[a][j].size() < 2 or spl_values_0[a][j].size() != spl_values_0[0][0].size()
+                    or spl_values_0[a][j].size() != spl_derivs_0[a][j].size())
+                throw std::invalid_argument("R0 splines require consistent nodal arrays with at least two values.");
+    }
+    const double spl_h = (r_cut - spl_r_min) / (spl_values_0[0][0].size()-1);
+    if (spl_h <= 0 or not std::isfinite(spl_h))
+        throw std::invalid_argument("R0 splines require positive finite spacing.");
     auto c = Kokkos::View<Precision****,Kokkos::LayoutRight>(
         "c", atomic_numbers.size()*atomic_numbers.size(), spl_values_0[0][0].size()-1, 4, (l_max+1)*num_channels);
     auto h_c = Kokkos::create_mirror_view(c);
@@ -1637,25 +1658,26 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         }
     }
     Kokkos::deep_copy(c, h_c);
+    R0_spline_r_min = spl_r_min;
     R0_spline_h = spl_h;
     R0_spline_coefficients = c;
 
     // R1
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
-    radial_1 = RadialFunctionSetKokkos<Precision>(spl_h, spl_values_1, spl_derivs_1);
+    radial_1 = RadialFunctionSetKokkos<Precision>(spl_r_min, r_cut, spl_values_1, spl_derivs_1);
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
     if (A0_scaled) {
-        const double A0_spline_h = file["A0_spline_h"];
+        const double A0_spline_r_min = file.at("A0_spline_r_min");
         auto A0_spline_values = std::vector<std::vector<std::vector<double>>>();
         for (auto& values : file["A0_spline_values"].get<std::vector<std::vector<double>>>())
             A0_spline_values.push_back({values});  // adds dimension to reach 3d
         auto A0_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A0_spline_derivs"].get<std::vector<std::vector<double>>>())
             A0_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A0_splines = RadialFunctionSetKokkos<double>(A0_spline_h, A0_spline_values, A0_spline_derivs);
+        A0_splines = RadialFunctionSetKokkos<double>(A0_spline_r_min, r_cut, A0_spline_values, A0_spline_derivs);
     }
 
     // M0 weights and monomials
@@ -1812,14 +1834,14 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // A1 scaling
     A1_scaled = file["A1_scaled"].get<bool>();
     if (A1_scaled) {
-        const double A1_spline_h = file["A1_spline_h"];
+        const double A1_spline_r_min = file.at("A1_spline_r_min");
         auto A1_spline_values = std::vector<std::vector<std::vector<double>>>();
         for (auto& values : file["A1_spline_values"].get<std::vector<std::vector<double>>>())
             A1_spline_values.push_back({values});  // adds dimension to reach 3d
         auto A1_spline_derivs = std::vector<std::vector<std::vector<double>>>();
         for (auto& derivs : file["A1_spline_derivs"].get<std::vector<std::vector<double>>>())
             A1_spline_derivs.push_back({derivs});  // adds dimension to reach 3d
-        A1_splines = RadialFunctionSetKokkos<double>(A1_spline_h, A1_spline_values, A1_spline_derivs);
+        A1_splines = RadialFunctionSetKokkos<double>(A1_spline_r_min, r_cut, A1_spline_values, A1_spline_derivs);
     }
 
     // M1 weights and monomials

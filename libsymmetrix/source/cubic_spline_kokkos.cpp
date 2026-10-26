@@ -6,47 +6,55 @@
 #include "cubic_spline_kokkos.hpp"
 
 CubicSplineKokkos::CubicSplineKokkos(
-    double h,
+    double r_min,
+    double r_max,
     std::vector<double> nodal_values,
     std::vector<double> nodal_derivs)
-    : h(h)
+    : r_min(r_min), r_max(r_max)
 {
-    if (h<=0 or not std::isfinite(h))
-        throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("CubicSplineKokkos requires finite r_min < r_max.");
     if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
         throw std::invalid_argument("CubicSplineKokkos requires at least two values and matching derivatives.");
     num_coeffs = 4*(nodal_values.size() - 1);
+    h = (r_max - r_min) / (nodal_values.size() - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
     c = Kokkos::View<double*>("coeffs",num_coeffs);
     generate_coefficients(h, nodal_values, nodal_derivs);
 }
 
 CubicSplineKokkos::CubicSplineKokkos(
-    double h,
+    double r_min,
+    double r_max,
     Kokkos::View<double*> nodal_values,
     Kokkos::View<double*> nodal_derivs)
-    : h(h)
+    : r_min(r_min), r_max(r_max)
 {
-    if (h<=0 or not std::isfinite(h))
-        throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("CubicSplineKokkos requires finite r_min < r_max.");
     if (nodal_values.size()<2 or nodal_values.size()!=nodal_derivs.size())
         throw std::invalid_argument("CubicSplineKokkos requires at least two values and matching derivatives.");
     num_coeffs = 4*(nodal_values.size() - 1);
+    h = (r_max - r_min) / (nodal_values.size() - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineKokkos requires positive finite spacing.");
     c = Kokkos::View<double*>("coeffs",num_coeffs);
     generate_coefficients(h, nodal_values, nodal_derivs);
 }
 
 double CubicSplineKokkos::evaluate(double r)
 {
-    if (r<0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r < r_min or r > r_max or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, static_cast<int>(num_coeffs/4 - 1));
 
-    const double x = r - h * i;
+    const double x = r - (r_min + h*i);
     const double xx = x * x;
     const double xxx = xx * x;
     const int i4 = 4 * i;
 
-    auto h_c = Kokkos::create_mirror_view(c);
+    auto h_c = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), c);
 
     double ret = 0;
     const double c0 = h_c(i4);
@@ -60,16 +68,16 @@ double CubicSplineKokkos::evaluate(double r)
 
 std::tuple<double, double> CubicSplineKokkos::evaluate_deriv(double r)
 {
-    if (r<0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r < r_min or r > r_max or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate_deriv. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, static_cast<int>(num_coeffs/4 - 1));
 
-    const double x = r - h * i;
+    const double x = r - (r_min + h*i);
     const double xx = x * x;
     const double xxx = xx * x;
     const int i4 = 4 * i;
 
-    auto h_c = Kokkos::create_mirror_view(c);
+    auto h_c = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), c);
 
     const double c0 = h_c(i4);
     const double c1 = h_c(i4 + 1);
@@ -84,16 +92,16 @@ std::tuple<double, double> CubicSplineKokkos::evaluate_deriv(double r)
 
 std::tuple<double,double> CubicSplineKokkos::evaluate_deriv_divided(double r)
 {
-    if (r<=0 or r>h*num_coeffs/4 or std::isnan(r))
+    if (r <= 0 or r < r_min or r > r_max or std::isnan(r))
         throw std::invalid_argument("Out of bounds in CubicSplineKokkos::evaluate_deriv_divided. r=" + std::to_string(r));
-    const int i = std::clamp(static_cast<int>(r / h), 0, static_cast<int>(num_coeffs/4 - 1));
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, static_cast<int>(num_coeffs/4 - 1));
 
-    const double x = r - h*i;
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const int i4 = 4*i;
 
-    auto h_c = Kokkos::create_mirror_view(c);
+    auto h_c = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), c);
 
     const double c0 = h_c(i4);
     const double c1 = h_c(i4+1);
@@ -134,4 +142,5 @@ void CubicSplineKokkos::generate_coefficients(
         c(4*i+2) = (-3*nodal_values(i) - 2*h*nodal_derivs(i) + 3*nodal_values(i+1) - h*nodal_derivs(i+1)) / (h*h);
         c(4*i+3) = (2*nodal_values(i) + h*nodal_derivs(i) - 2*nodal_values(i+1) + h*nodal_derivs(i+1)) / (h*h*h);
     });
+    Kokkos::fence();
 }

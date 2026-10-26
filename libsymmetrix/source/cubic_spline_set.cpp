@@ -1,16 +1,31 @@
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "cubic_spline_set.hpp"
 
 CubicSplineSet::CubicSplineSet(
-    double h,
+    double r_min,
+    double r_max,
     std::vector<std::vector<double>> nodal_values,
     std::vector<std::vector<double>> nodal_derivs)
+    : r_min(r_min), r_max(r_max)
 {
-    // TODO: sanitize input
-    this->h = h;
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("CubicSplineSet requires finite r_min < r_max.");
+    if (nodal_values.empty() or nodal_values.size() != nodal_derivs.size())
+        throw std::invalid_argument("CubicSplineSet requires at least one spline and matching derivatives.");
+    for (int j=0; j<nodal_values.size(); ++j)
+        if (nodal_values[j].size() < 2 or nodal_values[j].size() != nodal_values[0].size()
+                or nodal_values[j].size() != nodal_derivs[j].size())
+            throw std::invalid_argument("CubicSplineSet requires consistent nodal arrays with at least two values.");
     num_nodes = nodal_values[0].size();
     num_splines = nodal_values.size();
+    h = (r_max - r_min) / (num_nodes - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineSet requires positive finite spacing.");
     c = std::vector<double>(4*num_splines*(num_nodes-1), 0.0);
     for (int i=0; i<num_nodes-1; ++i) {
         for (int j=0; j<num_splines; ++j) {
@@ -28,9 +43,12 @@ void CubicSplineSet::evaluate(
     double r,
     std::span<double> values)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    if (std::isnan(r) or r < r_min or r > r_max)
+        throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate. r=" + std::to_string(r));
+    if (values.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSet::evaluate requires space for all splines.");
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     double* c_i = c.data() + 4*i*num_splines;
@@ -51,9 +69,12 @@ void CubicSplineSet::evaluate_derivs(double r,
                                      std::span<double> values,
                                      std::span<double> derivs)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    if (std::isnan(r) or r < r_min or r > r_max)
+        throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate_derivs. r=" + std::to_string(r));
+    if (values.size() < num_splines or derivs.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSet::evaluate_derivs requires space for all splines.");
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const double two_x = 2*x;

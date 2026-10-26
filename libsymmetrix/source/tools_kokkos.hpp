@@ -10,6 +10,8 @@ void _finalize_kokkos();
 
 bool _kokkos_is_initialized();
 
+void check_spline_bounds(Kokkos::View<const double*> r, double r_min, double r_max, const char* name);
+
 using view_type = Kokkos::View<double*>;
 
 view_type generate_view(size_t);

@@ -383,23 +383,25 @@ def test_hea(cmdargs, pair_style):
     """.format(pair_style)
     )
 
-    # ----- test energy and stress -----
-    assert lmp.get_thermo("pe") == pytest.approx(-105.640759, abs=1e-3)
-    assert lmp.get_thermo("pxx") == pytest.approx(-85885.592975, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyy") == pytest.approx(-75802.712836, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pzz") == pytest.approx(-93772.295673, abs=1e-8, rel=1e-2)
+    # ----- 32-point splines on [1, 6] Å: energy and stress -----
+    # Torch: E=-105.64075900211412 eV; pressures (xx, yy, zz) in bar:
+    # (-85885.59297545509, -75802.7128355294, -93772.29567292641)
+    assert lmp.get_thermo("pe") == pytest.approx(-105.643076843, abs=1e-3)
+    assert lmp.get_thermo("pxx") == pytest.approx(-85689.505267, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyy") == pytest.approx(-75626.990718, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pzz") == pytest.approx(-93574.815179, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
 
     # ----- run 10 steps, test again -----
     lmp.command("run 10")
-    assert lmp.get_thermo("pe") == pytest.approx(
-        -105.642334, abs=1e-3
-    )  # note lower tolerance
-    assert lmp.get_thermo("pxx") == pytest.approx(-85880.067428, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyy") == pytest.approx(-75813.607646, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pzz") == pytest.approx(-93780.229278, abs=1e-8, rel=1e-2)
+    # Torch: E=-105.6423336125916 eV; pressures (xx, yy, zz) in bar:
+    # (-85880.0674275908, -75813.60764603764, -93780.22927833267)
+    assert lmp.get_thermo("pe") == pytest.approx(-105.644651222, abs=1e-3)
+    assert lmp.get_thermo("pxx") == pytest.approx(-85683.982471, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pyy") == pytest.approx(-75637.875195, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pzz") == pytest.approx(-93582.769227, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
     assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)

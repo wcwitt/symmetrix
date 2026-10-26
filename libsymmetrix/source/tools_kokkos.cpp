@@ -2,6 +2,7 @@
 #include <numeric>
 #include <cstdint>
 #include <iostream>
+#include <stdexcept>
 
 #include <Kokkos_Core.hpp>
 
@@ -24,6 +25,17 @@ void _finalize_kokkos()
 bool _kokkos_is_initialized()
 {
     return Kokkos::is_initialized();
+}
+
+void check_spline_bounds(Kokkos::View<const double*> r, double r_min, double r_max, const char* name)
+{
+    int invalid = 0;
+    Kokkos::parallel_reduce("spline_bounds", r.size(), KOKKOS_LAMBDA (const int i, int& count) {
+        if (r(i) < r_min or r(i) > r_max or Kokkos::isnan(r(i)))
+            ++count;
+    }, invalid);
+    if (invalid)
+        throw std::invalid_argument(std::string("Out of bounds in ") + name + ".");
 }
 
 struct InitView {

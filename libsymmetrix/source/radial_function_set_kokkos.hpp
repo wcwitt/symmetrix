@@ -11,7 +11,8 @@ public:
 
     RadialFunctionSetKokkos();
     RadialFunctionSetKokkos(
-        double h,
+        double r_min,
+        double r_max,
         std::vector<std::vector<std::vector<double>>> node_values,
         std::vector<std::vector<std::vector<double>>> node_derivatives);
     void evaluate(
@@ -25,6 +26,8 @@ public:
 
 private:
 
+    double r_min;
+    double r_max;
     double h;
     int num_edge_types;
     int num_functions;

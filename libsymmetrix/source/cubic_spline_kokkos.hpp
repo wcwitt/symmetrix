@@ -9,10 +9,12 @@ class CubicSplineKokkos {
 
 public:
 
-CubicSplineKokkos(double h,
+CubicSplineKokkos(double r_min,
+                  double r_max,
                   std::vector<double> nodal_values,
                   std::vector<double> nodal_derivs);
-CubicSplineKokkos(double h,
+CubicSplineKokkos(double r_min,
+                  double r_max,
                   Kokkos::View<double*> nodal_values,
                   Kokkos::View<double*> nodal_derivs);
 
@@ -20,6 +22,8 @@ double evaluate(double r);
 std::tuple<double,double> evaluate_deriv(double r);
 std::tuple<double,double> evaluate_deriv_divided(double r);
 
+double r_min;
+double r_max;
 double h;
 Kokkos::View<double*> c;
 size_t num_coeffs;

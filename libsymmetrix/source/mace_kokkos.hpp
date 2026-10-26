@@ -45,6 +45,7 @@ bool has_zbl;
 ZBLKokkos zbl;
 
 // R0
+double R0_spline_r_min;
 double R0_spline_h;
 Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
 Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;

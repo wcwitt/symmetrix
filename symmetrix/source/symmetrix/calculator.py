@@ -68,7 +68,7 @@ class Symmetrix(Calculator):
             kwargs_extract = {
                 k: v
                 for k, v in kwargs.items()
-                if k in ["species", "head", "num_spline_points"]
+                if k in ["species", "head", "num_spline_points", "r_min"]
             }
             logging.warning(
                 f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}"
