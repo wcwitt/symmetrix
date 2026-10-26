@@ -1,27 +1,6 @@
 from lammps import lammps
 import numpy as np
 import pytest
-import os
-from urllib.request import urlretrieve
-
-
-if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/zbg122s1zeeb1j6ogheok/MACE-OFF23_small-1-8.json?rlkey=mqb7cje9y3l0smwf75cfoahr7&st=iabk9093&dl=1",
-        "MACE-OFF23_small-1-8.json",
-    )
-
-if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/ymzotmy9nw2lp7pvv2awc/mace-mp-0b3-medium-1-8.json?rlkey=3y2y42ieo79ekjwpt8zbfjgoe&st=91o13eux&dl=1",
-        "mace-mp-0b3-medium-1-8.json",
-    )
-
-if not os.path.exists("mace-mp-0b3-medium-hea.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/gexhyg8sqy39m5j0mnsnv/mace-mp-0b3-medium-hea.json?rlkey=9cz9g3oxrbsek9a599ul2kdvc&st=fqsyv5yb&dl=1",
-        "mace-mp-0b3-medium-hea.json",
-    )
 
 
 @pytest.mark.parametrize(

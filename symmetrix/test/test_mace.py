@@ -1,23 +1,9 @@
 import ase
 from ase.neighborlist import neighbor_list
 import numpy as np
-import os
 import pytest
-from urllib.request import urlretrieve
 
 import symmetrix
-
-if not os.path.exists("MACE-OFF23_small-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/7rz3vh5mhacofp5w2u8cu/MACE-OFF23_small-1-8.json?rlkey=rubpqlut6uhjf4w9pej54alu7&st=w23fcknx&dl=1",
-        "MACE-OFF23_small-1-8.json",
-    )
-
-if not os.path.exists("mace-mp-0b3-medium-1-8.json"):
-    urlretrieve(
-        "https://www.dropbox.com/scl/fi/3lydfgta1lijymq98pgal/mace-mp-0b3-medium-1-8.json?rlkey=7wofp9gznqt5b3wmk5ybbj76z&st=w7cd09x6&dl=1",
-        "mace-mp-0b3-medium-1-8.json",
-    )
 
 model = "mace-off-small"
 # model = "mace-off-medium"
