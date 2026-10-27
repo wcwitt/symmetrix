@@ -13,7 +13,7 @@ jobs:
     - name: Run pre-commit
       run: uvx pre-commit run --all-files
 
-  models:
+  generate-test-models:
     runs-on: ubuntu-latest
     steps:
     - name: Clone repo
@@ -28,19 +28,19 @@ jobs:
       with:
         path: checkpoints
         key: torch-checkpoints-${{ hashFiles('.github/generate_ci_models.py') }}
-    - name: Generate model fixtures
+    - name: Generate test models
       run: |
         uv venv
         uv pip install --torch-backend=cpu "torch==2.6.0" "mace-torch==0.3.14" "numpy==1.26.4"
         uv run python .github/generate_ci_models.py
-    - name: Share H/O models
+    - name: Upload H/O test models
       uses: actions/upload-artifact@v4
       with:
         name: ci-models
         path: models/*-1-8.json
         if-no-files-found: error
         retention-days: 1
-    - name: Share HEA model
+    - name: Upload HEA test model
       uses: actions/upload-artifact@v4
       with:
         name: ci-models-hea
@@ -49,7 +49,7 @@ jobs:
         retention-days: 1
 
   symmetrix:
-    needs: models
+    needs: generate-test-models
     runs-on: ubuntu-latest
     steps:
     - name: Clone repo
@@ -70,7 +70,7 @@ jobs:
         source .venv/bin/activate
         uv pip install ./symmetrix[test]
         deactivate
-    - name: Download model fixtures
+    - name: Download H/O test models
       uses: actions/download-artifact@v5
       with:
         name: ci-models
@@ -85,7 +85,7 @@ jobs:
         cd ../..
 
   pair_symmetrix:
-    needs: models
+    needs: generate-test-models
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -135,7 +135,7 @@ jobs:
         cd build
         make install-python
         cd ../../..
-    - name: Download model fixtures
+    - name: Download test models
       uses: actions/download-artifact@v5
       with:
         pattern: ci-models*
