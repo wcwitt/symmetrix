@@ -1,16 +1,32 @@
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "cubic_spline_set_kokkos.hpp"
+#include "tools_kokkos.hpp"
 
 CubicSplineSetKokkos::CubicSplineSetKokkos(
-    double h,
+    double r_min,
+    double r_max,
     std::vector<std::vector<double>> nodal_values,
     std::vector<std::vector<double>> nodal_derivs)
+    : r_min(r_min), r_max(r_max)
 {
-    // TODO: sanitize input
-    this->h = h;
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("CubicSplineSetKokkos requires finite r_min < r_max.");
+    if (nodal_values.empty() or nodal_values.size() != nodal_derivs.size())
+        throw std::invalid_argument("CubicSplineSetKokkos requires at least one spline and matching derivatives.");
+    for (int j=0; j<nodal_values.size(); ++j)
+        if (nodal_values[j].size() < 2 or nodal_values[j].size() != nodal_values[0].size()
+                or nodal_values[j].size() != nodal_derivs[j].size())
+            throw std::invalid_argument("CubicSplineSetKokkos requires consistent nodal arrays with at least two values.");
     num_splines = nodal_values.size();
     num_nodes = nodal_values[0].size();
+    h = (r_max - r_min) / (num_nodes - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineSetKokkos requires positive finite spacing.");
 
     c = Kokkos::View<double***,Kokkos::LayoutRight>("coeffs", num_nodes-1, 4, num_splines);
     auto h_c = Kokkos::create_mirror_view(c);
@@ -52,31 +68,43 @@ struct InitializeCoefficientsFunctor {
 
 
 CubicSplineSetKokkos::CubicSplineSetKokkos(
-    double h,
+    double r_min,
+    double r_max,
     Kokkos::View<double**> nodal_values,
     Kokkos::View<double**> nodal_derivs)
+    : r_min(r_min), r_max(r_max)
 {
-    // TODO: sanitize input
-    this->h = h;
+    if (not std::isfinite(r_min) or not std::isfinite(r_max) or r_min >= r_max)
+        throw std::invalid_argument("CubicSplineSetKokkos requires finite r_min < r_max.");
+    if (nodal_values.extent(0) < 1 or nodal_values.extent(1) < 2
+            or nodal_values.extent(0) != nodal_derivs.extent(0)
+            or nodal_values.extent(1) != nodal_derivs.extent(1))
+        throw std::invalid_argument("CubicSplineSetKokkos requires matching nodal arrays with at least two values.");
     num_splines = nodal_values.extent(0);
     num_nodes = nodal_values.extent(1);
-    Kokkos::realloc(c, num_nodes-1, num_splines);
+    h = (r_max - r_min) / (num_nodes - 1);
+    if (h <= 0 or not std::isfinite(h))
+        throw std::invalid_argument("CubicSplineSetKokkos requires positive finite spacing.");
+    Kokkos::realloc(c, num_nodes-1, 4, num_splines);
 
     // Create and use the functor for initialization
     InitializeCoefficientsFunctor functor(h, nodal_values, nodal_derivs, c);
     Kokkos::parallel_for("InitializeCoefficients",
                             Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {num_nodes - 1, num_splines}),
                             functor);
-    //Kokkos::fence();
+    Kokkos::fence();
 }
 
 void CubicSplineSetKokkos::evaluate(
     double r,
     Kokkos::View<double*> values)
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    if (std::isnan(r) or r < r_min or r > r_max)
+        throw std::invalid_argument("Out of bounds in CubicSplineSetKokkos::evaluate. r=" + std::to_string(r));
+    if (values.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSetKokkos::evaluate requires space for all splines.");
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
 
@@ -96,9 +124,12 @@ void CubicSplineSetKokkos::evaluate_derivs(double r,
                                            Kokkos::View<double*> values,
                                            Kokkos::View<double*> derivs) const
 {
-    // TODO: bounds checking
-    const int i = static_cast<int>(r / h);
-    const double x = r - h*i;
+    if (std::isnan(r) or r < r_min or r > r_max)
+        throw std::invalid_argument("Out of bounds in CubicSplineSetKokkos::evaluate_derivs. r=" + std::to_string(r));
+    if (values.size() < num_splines or derivs.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSetKokkos::evaluate_derivs requires space for all splines.");
+    const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
+    const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
     const double two_x = 2*x;
@@ -124,8 +155,14 @@ void CubicSplineSetKokkos::evaluate_derivs(Kokkos::View<const double*> r,
                                            Kokkos::View<double**,Kokkos::LayoutRight> values,
                                            Kokkos::View<double**,Kokkos::LayoutRight> derivs) const
 {
+    check_spline_bounds(r, r_min, r_max, "CubicSplineSetKokkos::evaluate_derivs");
+    if (values.extent(0) < r.size() or derivs.extent(0) < r.size()
+            or values.extent(1) < num_splines or derivs.extent(1) < num_splines)
+        throw std::invalid_argument("CubicSplineSetKokkos::evaluate_derivs requires space for all splines.");
     const auto c = this->c;
     const auto h = this->h;
+    const auto r_min = this->r_min;
+    const int num_intervals = num_nodes - 1;
     const auto num_splines = this->num_splines;
 
     Kokkos::parallel_for(
@@ -137,8 +174,8 @@ void CubicSplineSetKokkos::evaluate_derivs(Kokkos::View<const double*> r,
         Kokkos::TeamPolicy<>(r.size(), 1, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            const int ii = static_cast<int>(r(i)/h); // TODO: bounds checking?
-            const double x = r(i) - h*ii;
+            const int ii = Kokkos::clamp(static_cast<int>((r(i) - r_min)/h), 0, num_intervals - 1);
+            const double x = r(i) - (r_min + h*ii);
             const double xx = x*x;
             const double xxx = xx*x;
             const double two_x = 2*x;
@@ -193,33 +230,12 @@ void CubicSplineSetKokkos::evaluate(
     double r,
     std::span<double> values)
 {
-    // create test device side view
-    Kokkos::View<double*> test_view("test_view",values.size());
-
-    // test view's host mirror
-    auto h_test_view = Kokkos::create_mirror_view(test_view);
-
-    // view to copy the values
-    Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_value_view(values.data(),values.size());
-
-    // copy input values to host mirror
-    Kokkos::deep_copy(h_test_view,input_value_view);
-
-    //copy it back to device side view
-    Kokkos::deep_copy(test_view,h_test_view);
-
-    evaluate(
-        r,
-        test_view);
-
-    // copy values back to host mirror
-    Kokkos::deep_copy(h_test_view,test_view);
-
-    // copy back to values unmanaged view
-    Kokkos::deep_copy(input_value_view,h_test_view);
-    // evaluate(
-    //     r,
-    //     Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>>(values.data(),values.size()));
+    if (values.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSetKokkos::evaluate requires space for all splines.");
+    Kokkos::View<double*> d_values("values", num_splines);
+    evaluate(r, d_values);
+    auto h_values = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), d_values);
+    std::copy_n(h_values.data(), num_splines, values.begin());
 }
 
 void CubicSplineSetKokkos::evaluate_derivs(
@@ -227,37 +243,12 @@ void CubicSplineSetKokkos::evaluate_derivs(
     std::span<double> values,
     std::span<double> derivs)
 {
-    // create test device side view
-    Kokkos::View<double*> test_view_values("test_view_values",values.size());
-    Kokkos::View<double*> test_view_derivs("test_view_derivs",derivs.size());
-
-    // test view's host mirror
-    auto h_test_view_values = Kokkos::create_mirror_view(test_view_values);
-    auto h_test_view_derivs = Kokkos::create_mirror_view(test_view_derivs);
-
-    // view to copy the values
-    Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_values_view(values.data(),values.size());
-    Kokkos::View<double*,Kokkos::MemoryTraits<Kokkos::Unmanaged>> input_derivs_view(derivs.data(),derivs.size());
-
-
-    // copy input values to host mirror
-    Kokkos::deep_copy(h_test_view_values,input_values_view);
-    Kokkos::deep_copy(h_test_view_derivs,input_derivs_view);
-
-    // copy to device side view
-    Kokkos::deep_copy(test_view_values,h_test_view_values);
-    Kokkos::deep_copy(test_view_values,h_test_view_values);
-
-    evaluate_derivs(
-        r,
-        test_view_values,
-        test_view_derivs);
-
-     // copy values back to host mirror
-    Kokkos::deep_copy(h_test_view_values,test_view_values);
-    Kokkos::deep_copy(h_test_view_derivs,test_view_derivs);
-
-    // copy back to values unmanaged view
-    Kokkos::deep_copy(input_values_view,h_test_view_values);
-    Kokkos::deep_copy(input_derivs_view,h_test_view_derivs);
+    if (values.size() < num_splines or derivs.size() < num_splines)
+        throw std::invalid_argument("CubicSplineSetKokkos::evaluate_derivs requires space for all splines.");
+    Kokkos::View<double*> d_values("values", num_splines), d_derivs("derivs", num_splines);
+    evaluate_derivs(r, d_values, d_derivs);
+    auto h_values = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), d_values);
+    auto h_derivs = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), d_derivs);
+    std::copy_n(h_values.data(), num_splines, values.begin());
+    std::copy_n(h_derivs.data(), num_splines, derivs.begin());
 }

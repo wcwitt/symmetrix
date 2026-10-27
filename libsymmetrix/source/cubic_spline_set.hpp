@@ -7,7 +7,8 @@ class CubicSplineSet {
 
 public:
 
-CubicSplineSet(double h,
+CubicSplineSet(double r_min,
+               double r_max,
                std::vector<std::vector<double>> nodal_values,
                std::vector<std::vector<double>> nodal_derivs);
 
@@ -19,6 +20,8 @@ int num_splines;
 
 private:
 
+double r_min;
+double r_max;
 double h;
 int num_nodes;
 std::vector<double> c;

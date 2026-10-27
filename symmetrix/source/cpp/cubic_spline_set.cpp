@@ -10,7 +10,7 @@ namespace py = pybind11;
 void bind_cubic_spline_set(py::module_ &m)
 {
     py::class_<CubicSplineSet>(m, "CubicSplineSet")
-        .def(py::init<double,std::vector<std::vector<double>>,std::vector<std::vector<double>>>())
+        .def(py::init<double,double,std::vector<std::vector<double>>,std::vector<std::vector<double>>>())
         .def("evaluate",
             [](CubicSplineSet& self, double r, py::array_t<double> values_numpy) {
                 auto values = std::span<double>(values_numpy.mutable_data(), values_numpy.size());

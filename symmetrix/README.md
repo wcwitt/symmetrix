@@ -33,6 +33,9 @@ pip install --verbose . \
 
 ### Generating Symmetrix `.json` model files
 
+Generate JSON model files with the same Symmetrix version used to run simulations.
+Regenerate them after updating Symmetrix.
+
 Install the Python package with the optional MACE dependencies:
 
 ```

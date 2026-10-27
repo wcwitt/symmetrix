@@ -10,7 +10,7 @@ namespace py = pybind11;
 void bind_cubic_spline_kokkos(py::module_ &m)
 {
     py::class_<CubicSplineKokkos>(m, "CubicSplineKokkos")
-        .def(py::init<double,std::vector<double>,std::vector<double>>())
+        .def(py::init<double,double,std::vector<double>,std::vector<double>>())
         .def("evaluate", &CubicSplineKokkos::evaluate)
         .def("evaluate_deriv", &CubicSplineKokkos::evaluate_deriv)
         .def("evaluate_deriv_divided", &CubicSplineKokkos::evaluate_deriv_divided);

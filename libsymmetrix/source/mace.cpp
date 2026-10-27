@@ -930,15 +930,15 @@ void MACE::load_from_json(
             file["zbl_p"].get<int>());
 
     // Radial splines
-    const double spl_h = file["radial_spline_h"];
+    const double spl_r_min = file.at("radial_spline_r_min");
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
     for (int i=0; i<spl_values_0.size(); ++i)
-        spl_set_0.push_back(std::make_unique<CubicSplineSet>(spl_h, spl_values_0[i], spl_derivs_0[i]));
+        spl_set_0.push_back(std::make_unique<CubicSplineSet>(spl_r_min, r_cut, spl_values_0[i], spl_derivs_0[i]));
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
     for (int i=0; i<spl_values_1.size(); ++i)
-        spl_set_1.push_back(std::make_unique<CubicSplineSet>(spl_h, spl_values_1[i], spl_derivs_1[i]));
+        spl_set_1.push_back(std::make_unique<CubicSplineSet>(spl_r_min, r_cut, spl_values_1[i], spl_derivs_1[i]));
 
     // H0
     H0_weights = file["H0_weights"].get<std::vector<double>>();
@@ -949,11 +949,11 @@ void MACE::load_from_json(
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
     if (A0_scaled) {
-        const double A0_spline_h = file["A0_spline_h"];
+        const double A0_spline_r_min = file.at("A0_spline_r_min");
         auto A0_spline_values = file["A0_spline_values"].get<std::vector<std::vector<double>>>();
         auto A0_spline_derivs = file["A0_spline_derivs"].get<std::vector<std::vector<double>>>();
         for (int i=0; i<A0_spline_values.size(); ++i)
-            A0_splines.push_back(CubicSpline(A0_spline_h, A0_spline_values[i], A0_spline_derivs[i]));
+            A0_splines.push_back(CubicSpline(A0_spline_r_min, r_cut, A0_spline_values[i], A0_spline_derivs[i]));
     }
 
     // M0
@@ -994,11 +994,11 @@ void MACE::load_from_json(
     // A1 scaling
     A1_scaled = file["A1_scaled"].get<bool>();
     if (A1_scaled) {
-        const double A1_spline_h = file["A1_spline_h"];
+        const double A1_spline_r_min = file.at("A1_spline_r_min");
         auto A1_spline_values = file["A1_spline_values"].get<std::vector<std::vector<double>>>();
         auto A1_spline_derivs = file["A1_spline_derivs"].get<std::vector<std::vector<double>>>();
         for (int i=0; i<A1_spline_values.size(); ++i)
-            A1_splines.push_back(CubicSpline(A1_spline_h, A1_spline_values[i], A1_spline_derivs[i]));
+            A1_splines.push_back(CubicSpline(A1_spline_r_min, r_cut, A1_spline_values[i], A1_spline_derivs[i]));
     }
 
     // M1

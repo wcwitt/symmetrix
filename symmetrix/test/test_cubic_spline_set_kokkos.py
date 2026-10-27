@@ -11,7 +11,7 @@ if not symmetrix._kokkos_is_initialized():
 def test_evaluate():
     # generate data
     r_cut = 5
-    r, h = np.linspace(0, r_cut, 20, retstep=True)
+    r = np.linspace(0, r_cut, 20)
     f1 = np.sin(r) * r**2 * (r_cut - r) ** 2
     f2 = np.cos(r) * r**2 * (r_cut - r) ** 2
     f3 = np.sin(r) * np.cos(r) * r**2 * (r_cut - r) ** 2
@@ -22,7 +22,7 @@ def test_evaluate():
     d1 = spl1.derivative()(r)
     d2 = spl2.derivative()(r)
     d3 = spl3.derivative()(r)
-    spl_set = symmetrix.CubicSplineSetKokkos(h, [f1, f2, f3], [d1, d2, d3])
+    spl_set = symmetrix.CubicSplineSetKokkos(0, r_cut, [f1, f2, f3], [d1, d2, d3])
     # test equivalence
     r = np.linspace(0, r_cut, 1000, endpoint=False)
     f1, f2, f3 = (np.zeros(len(r)), np.zeros(len(r)), np.zeros(len(r)))
@@ -38,7 +38,7 @@ def test_evaluate():
 def test_evaluate_derivs():
     # generate data
     r_cut = 5
-    r, h = np.linspace(0, r_cut, 20, retstep=True)
+    r = np.linspace(0, r_cut, 20)
     f1 = np.sin(r) * r**2 * (r_cut - r) ** 2
     f2 = np.cos(r) * r**2 * (r_cut - r) ** 2
     f3 = np.sin(r) * np.cos(r) * r**2 * (r_cut - r) ** 2
@@ -49,7 +49,7 @@ def test_evaluate_derivs():
     d1 = spl1.derivative()(r)
     d2 = spl2.derivative()(r)
     d3 = spl3.derivative()(r)
-    spl_set = symmetrix.CubicSplineSetKokkos(h, [f1, f2, f3], [d1, d2, d3])
+    spl_set = symmetrix.CubicSplineSetKokkos(0, r_cut, [f1, f2, f3], [d1, d2, d3])
     # test equivalence
     r = np.linspace(0, r_cut, 1000, endpoint=False)
     f1, f2, f3 = (np.zeros(len(r)), np.zeros(len(r)), np.zeros(len(r)))

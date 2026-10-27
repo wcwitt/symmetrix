@@ -9,24 +9,24 @@ if not symmetrix._kokkos_is_initialized():
 
 
 def test_invalid_input():
-    for h in [0.0, -1.0]:
+    for r_min, r_max in [(0.0, 0.0), (1.0, 0.0)]:
         with raises(ValueError):
-            symmetrix.CubicSplineKokkos(h, [0.0, 1.0], [0.0, 1.0])
+            symmetrix.CubicSplineKokkos(r_min, r_max, [0.0, 1.0], [0.0, 1.0])
 
     for values, derivs in [([], []), ([0.0], [0.0]), ([0.0, 1.0], [0.0])]:
         with raises(ValueError):
-            symmetrix.CubicSplineKokkos(1.0, values, derivs)
+            symmetrix.CubicSplineKokkos(0.0, 1.0, values, derivs)
 
 
 def test_evaluate():
     # generate data
     r_cut = 5
-    r, h = np.linspace(0, r_cut, 20, retstep=True)
+    r = np.linspace(0, r_cut, 20)
     f = np.sin(r) * r**2 * (r_cut - r) ** 2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
-    spl = symmetrix.CubicSplineKokkos(h, f, d)
+    spl = symmetrix.CubicSplineKokkos(0, r_cut, f, d)
     # test equivalence
     r2 = np.linspace(0, r_cut, 1000)
     f2 = np.zeros(len(r2))
@@ -45,12 +45,12 @@ def test_evaluate():
 def test_evaluate_deriv():
     # generate data
     r_cut = 5
-    r, h = np.linspace(0, r_cut, 20, retstep=True)
+    r = np.linspace(0, r_cut, 20)
     f = np.sin(r) * r**2 * (r_cut - r) ** 2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
-    spl = symmetrix.CubicSplineKokkos(h, f, d)
+    spl = symmetrix.CubicSplineKokkos(0, r_cut, f, d)
     # test equivalence
     r2 = np.linspace(0, r_cut, 1000)
     f2 = np.zeros(len(r2))
@@ -71,12 +71,12 @@ def test_evaluate_deriv():
 def test_evaluate_deriv_divided():
     # generate data
     r_cut = 5
-    r, h = np.linspace(0, r_cut, 20, retstep=True)
+    r = np.linspace(0, r_cut, 20)
     f = np.sin(r) * r**2 * (r_cut - r) ** 2
     # create splines
     scipy_spl = CubicSpline(r, f)
     d = scipy_spl.derivative()(r)
-    spl = symmetrix.CubicSplineKokkos(h, f, d)
+    spl = symmetrix.CubicSplineKokkos(0, r_cut, f, d)
     # test equivalence
     r2 = np.linspace(1e-6, r_cut, 1000)
     f2 = np.zeros(len(r2))
