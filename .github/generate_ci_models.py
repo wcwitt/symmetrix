@@ -35,13 +35,13 @@ for name, (url, checksum) in checkpoints.items():
             raise ValueError(f"Checkpoint checksum mismatch: {path}")
 
 for name, species, suffix, points, r_min in [
-    ("MACE-OFF23_small", [1, 8], "1-8", 256, 1e-12),
-    ("mace-mp-0b3-medium", [1, 8], "1-8", 256, 1e-12),
+    ("MACE-OFF23_small", [1, 8], "1-8", 1024, 1e-12),
+    ("mace-mp-0b3-medium", [1, 8], "1-8", 1024, 1e-12),
     (
         "mace-mp-0b3-medium",
         "Ag Al Bi Cd Co Cr Cu Fe Ge Mg Mn Mo Nb Ni Pb Sb Si Sn W Zn".split(),
         "hea",
-        32,
+        64,
         1.0,
     ),
 ]:

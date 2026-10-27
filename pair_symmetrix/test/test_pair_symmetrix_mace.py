@@ -56,7 +56,7 @@ def test_h20(cmdargs, pair_style):
 
     # ----- energy -----
     e = lmp.get_thermo("pe")
-    assert e == pytest.approx(-2071.839005822318, rel=1e-4, abs=1e-6)
+    assert e == pytest.approx(-2071.839005822318, abs=1e-6)
 
     # ----- atomic energies -----
     lmp.command("compute peratom all pe/atom")
@@ -139,7 +139,7 @@ def test_h20_zbl(cmdargs, pair_style):
 
     # ----- energy -----
     e = lmp.get_thermo("pe")
-    assert e == pytest.approx(-5.003106904473648, abs=1e-3)
+    assert e == pytest.approx(-5.003106904473648, abs=1e-6)
 
     # ----- forces -----
     h = 1e-4
@@ -245,24 +245,22 @@ def test_water(cmdargs, pair_style):
 
     # ----- test energy and stress -----
     assert lmp.get_thermo("pe") == pytest.approx(-16649.784441, abs=1e-6)
-    assert lmp.get_thermo("pxx") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pyy") == pytest.approx(-69407.514290, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pzz") == pytest.approx(18042.601669, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pxy") == pytest.approx(-55297.126324, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pxx") == pytest.approx(-69407.514290, rel=1e-6)
+    assert lmp.get_thermo("pyy") == pytest.approx(-69407.514290, rel=1e-6)
+    assert lmp.get_thermo("pzz") == pytest.approx(18042.601669, rel=1e-6)
+    assert lmp.get_thermo("pxy") == pytest.approx(-55297.126324, rel=1e-6)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8)
 
     # ----- run 10 steps, test again -----
     lmp.command("run 10")
-    assert lmp.get_thermo("pe") == pytest.approx(
-        -16649.988675, abs=1e-4
-    )  # note lower tolerance
-    assert lmp.get_thermo("pxx") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pyy") == pytest.approx(-56913.479676, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pzz") == pytest.approx(17756.761767, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pxy") == pytest.approx(-50938.320172, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
-    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-4)
+    assert lmp.get_thermo("pe") == pytest.approx(-16649.988675, abs=1e-6)
+    assert lmp.get_thermo("pxx") == pytest.approx(-56913.479676, rel=1e-6)
+    assert lmp.get_thermo("pyy") == pytest.approx(-56913.479676, rel=1e-6)
+    assert lmp.get_thermo("pzz") == pytest.approx(17756.761767, rel=1e-6)
+    assert lmp.get_thermo("pxy") == pytest.approx(-50938.320172, rel=1e-6)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8)
 
     # ----- teardown -----
     lmp.close()
@@ -362,28 +360,24 @@ def test_hea(cmdargs, pair_style):
     """.format(pair_style)
     )
 
-    # ----- 32-point splines on [1, 6] Å: energy and stress -----
-    # Torch: E=-105.64075900211412 eV; pressures (xx, yy, zz) in bar:
-    # (-85885.59297545509, -75802.7128355294, -93772.29567292641)
-    assert lmp.get_thermo("pe") == pytest.approx(-105.643076843, abs=1e-3)
-    assert lmp.get_thermo("pxx") == pytest.approx(-85689.505267, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyy") == pytest.approx(-75626.990718, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pzz") == pytest.approx(-93574.815179, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    # ----- test energy and stress -----
+    assert lmp.get_thermo("pe") == pytest.approx(-105.64075900211412, abs=1e-5)
+    assert lmp.get_thermo("pxx") == pytest.approx(-85885.59297545509, rel=2e-4)
+    assert lmp.get_thermo("pyy") == pytest.approx(-75802.7128355294, rel=2e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx(-93772.29567292641, rel=2e-4)
+    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8)
 
     # ----- run 10 steps, test again -----
     lmp.command("run 10")
-    # Torch: E=-105.6423336125916 eV; pressures (xx, yy, zz) in bar:
-    # (-85880.0674275908, -75813.60764603764, -93780.22927833267)
-    assert lmp.get_thermo("pe") == pytest.approx(-105.644651222, abs=1e-3)
-    assert lmp.get_thermo("pxx") == pytest.approx(-85683.982471, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyy") == pytest.approx(-75637.875195, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pzz") == pytest.approx(-93582.769227, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
-    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8, rel=1e-2)
+    assert lmp.get_thermo("pe") == pytest.approx(-105.6423336125916, abs=1e-5)
+    assert lmp.get_thermo("pxx") == pytest.approx(-85880.0674275908, rel=2e-4)
+    assert lmp.get_thermo("pyy") == pytest.approx(-75813.60764603764, rel=2e-4)
+    assert lmp.get_thermo("pzz") == pytest.approx(-93780.22927833267, rel=2e-4)
+    assert lmp.get_thermo("pxy") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pxz") == pytest.approx(0.0, abs=1e-8)
+    assert lmp.get_thermo("pyz") == pytest.approx(0.0, abs=1e-8)
 
     # ----- teardown -----
     lmp.close()
