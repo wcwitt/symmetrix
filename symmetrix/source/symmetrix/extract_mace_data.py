@@ -189,20 +189,14 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                 bessels = bessels[0]  # newer versions return (bessels, cutoffs)
             # radial basis for interaction 0
             R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
-            spl_0 = [
-                CubicSpline(r, R[:, k], bc_type=spline_bc_type)
-                for k in range(R.shape[1])
-            ]
-            spline_values_0.append([spl(r).tolist() for spl in spl_0])
-            spline_derivatives_0.append([spl.derivative()(r).tolist() for spl in spl_0])
+            spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
+            spline_values_0.append(spl(r).T.tolist())
+            spline_derivatives_0.append(spl(r, 1).T.tolist())
             # radial basis for interaction 1
             R = model.interactions[1].conv_tp_weights(bessels).numpy(force=True)
-            spl_1 = [
-                CubicSpline(r, R[:, k], bc_type=spline_bc_type)
-                for k in range(R.shape[1])
-            ]
-            spline_values_1.append([spl(r).tolist() for spl in spl_1])
-            spline_derivatives_1.append([spl.derivative()(r).tolist() for spl in spl_1])
+            spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
+            spline_values_1.append(spl(r).T.tolist())
+            spline_derivatives_1.append(spl(r, 1).T.tolist())
 
     output["radial_spline_r_min"] = float(r[0])
     output["radial_spline_values_0"] = spline_values_0
