@@ -45,6 +45,8 @@ elif model == "mace-omat-0-medium":
 
 # prepare for tests
 atoms = ase.Atoms("OHH", positions=[[0.0, -2.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+# permute to (z, x, y), so intermediates match e3nn's basis
+atoms.positions = atoms.positions[:, [2, 0, 1]]
 ase_atomic_numbers = atoms.get_atomic_numbers().tolist()
 mace_atomic_numbers = evaluator.atomic_numbers
 i_list, j_list, r, xyz = neighbor_list("ijdD", atoms, 5.0)

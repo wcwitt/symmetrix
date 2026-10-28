@@ -30,6 +30,10 @@ int L_max, num_LM;
 Kokkos::View<int*> atomic_numbers;
 Kokkos::View<double*> atomic_energies;
 
+// Graph
+Kokkos::View<int*> first_neigh, i_list;
+void compute_graph(const int num_nodes, Kokkos::View<const int*> num_neigh);
+
 // Node energies and forces
 Kokkos::View<double*> node_energies, node_forces;
 void compute_node_energies_forces(const int num_nodes,
@@ -65,9 +69,9 @@ void compute_R1(const int num_nodes,
                 Kokkos::View<const double*> r);
 
 // Spherical harmonics
-Kokkos::View<Precision*> xyz_shuffled;
+std::shared_ptr<void> sphericart_calculator;
+Kokkos::View<Precision*> xyz_sphericart;
 Kokkos::View<Precision*> Y, Y_grad;// TODO: make multidimensional
-Kokkos::View<Precision*> Y_grad_shuffled;
 void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0
@@ -115,22 +119,19 @@ void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
 // H1
 Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
-Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights, H1_weights_trans;
 void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
 
 // Phi1
 int num_lelm1lm2, num_lme;
-Kokkos::View<int*> Phi1_l, Phi1_l1, Phi1_l2;
+Kokkos::View<int*> Phi1_l, Phi1_lel1l2, Phi1_lm1, Phi1_lm2;
 Kokkos::View<int*> Phi1_lme, Phi1_lelm1lm2;
 Kokkos::View<Precision*> Phi1_clebsch_gordan;
 Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1r, dPhi1r;
 Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1, dPhi1;
 void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
 void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
-
-// TODO for testing of Phi1 strategies
-Kokkos::View<int*> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
 
 // A1
 Kokkos::View<Precision***,Kokkos::LayoutRight> A1, A1_adj;
@@ -171,8 +172,8 @@ void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 
 // H2
 Kokkos::View<double**,Kokkos::LayoutRight> H2, H2_adj;
-Kokkos::View<double**,Kokkos::LayoutRight> H2_weights_for_H1;
-Kokkos::View<double*> H2_weights_for_M1;
+Kokkos::View<double**,Kokkos::LayoutRight> H2_weights_for_H1, H2_weights_for_H1_trans;
+Kokkos::View<double*> H2_weights_for_M1, H2_weights_for_M1_trans;
 void compute_H2(int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj = true);
 

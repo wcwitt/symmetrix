@@ -122,29 +122,14 @@ void MACE::compute_Y(
     const int num = xyz.size()/3;
     Y.resize(num*num_lm);
     Y_grad.resize(3*num*num_lm);
-    // shuffle to match e3nn conventions
-    xyz_shuffled.resize(3*num);
-    for (int i=0; i<num; ++i) {
-        xyz_shuffled[3*i]   = xyz[3*i+2];
-        xyz_shuffled[3*i+1] = xyz[3*i];
-        xyz_shuffled[3*i+2] = xyz[3*i+1];
-    }
     sphericart::SphericalHarmonics<double> sphericart(l_max);
-    sphericart.compute_with_gradients(xyz_shuffled, Y, Y_grad);
+    sphericart.compute_array_with_gradients(
+        xyz.data(), xyz.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
     // normalize to match e3nn conventions
     for (int i=0; i<Y.size(); ++i)
         Y[i] *= 2*std::sqrt(std::numbers::pi);
     for (int i=0; i<Y_grad.size(); ++i)
         Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
-    // unshuffle gradient
-    auto Y_grad_shuffled = Y_grad;
-    for (int i=0; i<num; ++i) {
-        for (int lm=0; lm<num_lm; ++lm) {
-            Y_grad[3*i*num_lm+0*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+1*num_lm+lm];
-            Y_grad[3*i*num_lm+1*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+2*num_lm+lm];
-            Y_grad[3*i*num_lm+2*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+0*num_lm+lm];
-        }
-    }
 }
 
 void MACE::compute_A0(
@@ -465,21 +450,13 @@ void MACE::compute_Phi1(
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
-            int lelm1lm2 = 0;
-            for (int lel1l2=0; lel1l2<Phi1_l.size(); ++lel1l2) {
-                const int l1 = Phi1_l1[lel1l2];
-                const int l2 = Phi1_l2[lel1l2];
-                auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
-                for (int lm1=l1*l1; lm1<=l1*(l1+2); ++lm1) {
-                    const double Y_ij_lm1 = Y_ij[lm1];
-                    for (int lm2=l2*l2; lm2<=l2*(l2+2); ++lm2) {
-                        auto H1_ij_lm2 = H1_ij+lm2*num_channels;
-                        auto Phi1r_i_lelm1lm2 = Phi1r_i+lelm1lm2*num_channels;
-                        for (int k=0; k<num_channels; ++k) {
-                            Phi1r_i_lelm1lm2[k] += R1_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k];
-                        }
-                        lelm1lm2 += 1;
-                    }
+            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
+                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
+                const double Y_ij_lm1 = Y_ij[Phi1_lm1[lelm1lm2]];
+                auto H1_ij_lm2 = H1_ij+Phi1_lm2[lelm1lm2]*num_channels;
+                auto Phi1r_i_lelm1lm2 = Phi1r_i+lelm1lm2*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    Phi1r_i_lelm1lm2[k] += R1_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k];
                 }
             }
             ij += 1;
@@ -540,33 +517,26 @@ void MACE::reverse_Phi1(
             auto Y_ij = Y.data()+ij*num_lm;
             auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
-            int lelm1lm2 = 0;
-            for (int lel1l2=0; lel1l2<Phi1_l.size(); ++lel1l2) {
-                const int l1 = Phi1_l1[lel1l2];
-                const int l2 = Phi1_l2[lel1l2];
-                auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
-                auto R1_deriv_ij_lel1l2 = R1_deriv_ij+lel1l2*num_channels;
-                for (int lm1=l1*l1; lm1<=l1*(l1+2); ++lm1) {
-                    const double Y_ij_lm1 = Y_ij[lm1];
-                    const double Y_grad_ij_x_lm1 = Y_grad_ij[0*num_lm+lm1];
-                    const double Y_grad_ij_y_lm1 = Y_grad_ij[1*num_lm+lm1];
-                    const double Y_grad_ij_z_lm1 = Y_grad_ij[2*num_lm+lm1];
-                    for (int lm2=l2*l2; lm2<=l2*(l2+2); ++lm2) {
-                        auto H1_ij_lm2 = H1_ij+lm2*num_channels;
-                        auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
-                        for (int k=0; k<num_channels; ++k) {
-                            node_forces_ij[0] += -dPhi1r_i_lelm1lm2[k] * (
-                                xyz_ij[0]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                                    + R1_ij_lel1l2[k] * Y_grad_ij_x_lm1 * H1_ij_lm2[k]);
-                            node_forces_ij[1] += -dPhi1r_i_lelm1lm2[k] * (
-                                xyz_ij[1]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                                    + R1_ij_lel1l2[k] * Y_grad_ij_y_lm1 * H1_ij_lm2[k]);
-                            node_forces_ij[2] += -dPhi1r_i_lelm1lm2[k] * (
-                                xyz_ij[2]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                                    + R1_ij_lel1l2[k] * Y_grad_ij_z_lm1 * H1_ij_lm2[k]);
-                        }
-                        lelm1lm2 += 1;
-                    }
+            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
+                const int lm1 = Phi1_lm1[lelm1lm2];
+                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
+                auto R1_deriv_ij_lel1l2 = R1_deriv_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
+                const double Y_ij_lm1 = Y_ij[lm1];
+                const double Y_grad_ij_x_lm1 = Y_grad_ij[0*num_lm+lm1];
+                const double Y_grad_ij_y_lm1 = Y_grad_ij[1*num_lm+lm1];
+                const double Y_grad_ij_z_lm1 = Y_grad_ij[2*num_lm+lm1];
+                auto H1_ij_lm2 = H1_ij+Phi1_lm2[lelm1lm2]*num_channels;
+                auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    node_forces_ij[0] += -dPhi1r_i_lelm1lm2[k] * (
+                        xyz_ij[0]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
+                            + R1_ij_lel1l2[k] * Y_grad_ij_x_lm1 * H1_ij_lm2[k]);
+                    node_forces_ij[1] += -dPhi1r_i_lelm1lm2[k] * (
+                        xyz_ij[1]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
+                            + R1_ij_lel1l2[k] * Y_grad_ij_y_lm1 * H1_ij_lm2[k]);
+                    node_forces_ij[2] += -dPhi1r_i_lelm1lm2[k] * (
+                        xyz_ij[2]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
+                            + R1_ij_lel1l2[k] * Y_grad_ij_z_lm1 * H1_ij_lm2[k]);
                 }
             }
             ij += 1;
@@ -583,20 +553,12 @@ void MACE::reverse_Phi1(
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
             auto H1_adj_ij = H1_adj.data()+neigh_indices[ij]*num_LM*num_channels;
-            int lelm1lm2 = 0;
-            for (int lel1l2=0; lel1l2<Phi1_l.size(); ++lel1l2) {
-                const int l1 = Phi1_l1[lel1l2];
-                const int l2 = Phi1_l2[lel1l2];
-                auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
-                for (int lm1=l1*l1; lm1<=l1*(l1+2); ++lm1) {
-                    for (int lm2=l2*l2; lm2<=l2*(l2+2); ++lm2) {
-                        auto H1_adj_ij_lm2 = H1_adj_ij+lm2*num_channels;
-                        auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
-                        for (int k=0; k<num_channels; ++k) {
-                            H1_adj_ij_lm2[k] += R1_ij_lel1l2[k]*Y_ij[lm1]*dPhi1r_i_lelm1lm2[k];
-                        }
-                        lelm1lm2 += 1;
-                    }
+            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
+                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
+                auto H1_adj_ij_lm2 = H1_adj_ij+Phi1_lm2[lelm1lm2]*num_channels;
+                auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    H1_adj_ij_lm2[k] += R1_ij_lel1l2[k]*Y_ij[Phi1_lm1[lelm1lm2]]*dPhi1r_i_lelm1lm2[k];
                 }
             }
             ij += 1;
@@ -976,17 +938,16 @@ void MACE::load_from_json(
 
     // Phi1
     Phi1_l = file["Phi1_l"].get<std::vector<int>>();
-    Phi1_l1 = file["Phi1_l1"].get<std::vector<int>>();
-    Phi1_l2 = file["Phi1_l2"].get<std::vector<int>>();
+    Phi1_lel1l2 = file["Phi1_lel1l2"].get<std::vector<int>>();
+    Phi1_lm1 = file["Phi1_lm1"].get<std::vector<int>>();
+    Phi1_lm2 = file["Phi1_lm2"].get<std::vector<int>>();
     Phi1_lme = file["Phi1_lme"].get<std::vector<int>>();
     Phi1_clebsch_gordan = file["Phi1_clebsch_gordan"].get<std::vector<double>>();
     Phi1_lelm1lm2 = file["Phi1_lelm1lm2"].get<std::vector<int>>();
     num_lme = 0;
     for (auto l : Phi1_l)
         num_lme += 2*l+1;
-    num_lelm1lm2 = 0;
-    for (int le=0; le<Phi1_l.size(); ++le)
-        num_lelm1lm2 += (2*Phi1_l1[le]+1)*(2*Phi1_l2[le]+1);
+    num_lelm1lm2 = Phi1_lm1.size();
 
     // A1
     A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();

@@ -58,7 +58,6 @@ void compute_R1(const int num_nodes,
 
 // Spherical harmonics
 std::vector<double> Y, Y_grad;
-std::vector<double> xyz_shuffled;
 void compute_Y(std::span<const double> xyz);
 
 // H0
@@ -114,7 +113,7 @@ void reverse_H1(const int num_nodes);
 int num_lelm1lm2, num_lme;
 std::vector<double> Phi1r, dPhi1r;
 std::vector<double> Phi1, dPhi1;
-std::vector<int> Phi1_l, Phi1_l1, Phi1_l2;
+std::vector<int> Phi1_l, Phi1_lel1l2, Phi1_lm1, Phi1_lm2;
 std::vector<int> Phi1_lme, Phi1_lelm1lm2;
 std::vector<double> Phi1_clebsch_gordan;
 void compute_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices);
