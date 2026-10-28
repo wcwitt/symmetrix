@@ -1356,14 +1356,13 @@ void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> n
 
     if (zero_H1_adj)
         Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M1_adj, 0.0);
 
     auto num_channels = this->num_channels;
     auto H1_adj = this->H1_adj;
     auto M1_adj = this->M1_adj;
     auto H2_adj = this->H2_adj;
-    auto H2_weights_for_H1 = this->H2_weights_for_H1;
-    auto H2_weights_for_M1 = this->H2_weights_for_M1;
+    auto H2_weights_for_H1_trans = this->H2_weights_for_H1_trans;
+    auto H2_weights_for_M1_trans = this->H2_weights_for_M1_trans;
 
     Kokkos::parallel_for(
         "Reverse H2",
@@ -1371,10 +1370,14 @@ void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> n
         KOKKOS_LAMBDA (const int ik) {
             const int i = ik / num_channels;
             const int k = ik % num_channels;
+            double H1_adj_ik = 0;
+            double M1_adj_ik = 0;
             for (int kp=0; kp<num_channels; ++kp) {
-                H1_adj(i,0,k) += H2_weights_for_H1(node_types(i),k*num_channels+kp) * H2_adj(i,kp);
-                M1_adj(i,k) +=  H2_weights_for_M1(k*num_channels+kp) * H2_adj(i,kp);
+                H1_adj_ik += H2_weights_for_H1_trans(node_types(i),kp*num_channels+k) * H2_adj(i,kp);
+                M1_adj_ik += H2_weights_for_M1_trans(kp*num_channels+k) * H2_adj(i,kp);
             }
+            H1_adj(i,0,k) += H1_adj_ik;
+            M1_adj(i,k) = M1_adj_ik;
         });
 }
 
@@ -1755,15 +1758,25 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
 
     // H2
     auto H2_weights_for_H1_vec = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
-    H2_weights_for_H1 = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_H2", num_elements, num_channels*num_channels);
+    H2_weights_for_H1 = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_H1", num_elements, num_channels*num_channels);
+    H2_weights_for_H1_trans = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_H1_trans", num_elements, num_channels*num_channels);
     auto h_H2_weights_for_H1 = Kokkos::create_mirror_view(H2_weights_for_H1);
-    for (int i=0; i<num_elements; ++i) {
-        for (int j=0; j<num_channels*num_channels; ++j) {
-            h_H2_weights_for_H1(i,j) = H2_weights_for_H1_vec[i][j];
-        }
-    }
+    auto h_H2_weights_for_H1_trans = Kokkos::create_mirror_view(H2_weights_for_H1_trans);
+    for (int i=0; i<num_elements; ++i)
+        for (int k=0; k<num_channels; ++k)
+            for (int kp=0; kp<num_channels; ++kp) {
+                h_H2_weights_for_H1(i,k*num_channels+kp) = H2_weights_for_H1_vec[i][k*num_channels+kp];
+                h_H2_weights_for_H1_trans(i,kp*num_channels+k) = H2_weights_for_H1_vec[i][k*num_channels+kp];
+            }
     Kokkos::deep_copy(H2_weights_for_H1, h_H2_weights_for_H1);
-    H2_weights_for_M1 = toKokkosView("H2_weights_for_M1", file["H2_weights_for_M1"].get<std::vector<double>>());
+    Kokkos::deep_copy(H2_weights_for_H1_trans, h_H2_weights_for_H1_trans);
+    auto H2_weights_for_M1_vec = file["H2_weights_for_M1"].get<std::vector<double>>();
+    auto H2_weights_for_M1_trans_vec = H2_weights_for_M1_vec;
+    for (int k=0; k<num_channels; ++k)
+        for (int kp=0; kp<num_channels; ++kp)
+            H2_weights_for_M1_trans_vec[kp*num_channels+k] = H2_weights_for_M1_vec[k*num_channels+kp];
+    H2_weights_for_M1 = toKokkosView("H2_weights_for_M1", H2_weights_for_M1_vec);
+    H2_weights_for_M1_trans = toKokkosView("H2_weights_for_M1_trans", H2_weights_for_M1_trans_vec);
 
     // Readouts
     // WARNING!
