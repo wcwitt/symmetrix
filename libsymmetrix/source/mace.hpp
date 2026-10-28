@@ -58,7 +58,6 @@ void compute_R1(const int num_nodes,
 
 // Spherical harmonics
 std::vector<double> Y, Y_grad;
-std::vector<double> xyz_shuffled;
 void compute_Y(std::span<const double> xyz);
 
 // H0

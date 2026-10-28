@@ -217,19 +217,15 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
 
-    // TODO: review whether this is strictly necessary
-    // shuffle to match e3nn
-    if (xyz_shuffled.extent(0) < 3*num)
-        Kokkos::realloc(xyz_shuffled, 3*num);
-    auto xyz_shuffled = this->xyz_shuffled;
-    Kokkos::parallel_for("shuffle_xyz", num, KOKKOS_LAMBDA (int i) {
-        xyz_shuffled(3*i) = xyz(3*i+2);
-        xyz_shuffled(3*i+1) = xyz(3*i);
-        xyz_shuffled(3*i+2) = xyz(3*i+1);
+    if (xyz_sphericart.extent(0) < 3*num)
+        Kokkos::realloc(xyz_sphericart, 3*num);
+    auto xyz_sphericart = this->xyz_sphericart;
+    Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+        xyz_sphericart(i) = xyz(i);
     });
 
     // call sphericart on host
-    auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_shuffled);
+    auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_sphericart);
     auto h_Y = Kokkos::create_mirror_view(Y);
     auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
     using Sphericart = sphericart::SphericalHarmonics<Precision>;
@@ -239,19 +235,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
         h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm);
     Kokkos::deep_copy(Y, h_Y);
     Kokkos::deep_copy(Y_grad, h_Y_grad);
-
-    // unshuffle gradient
-    if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
-        Kokkos::realloc(Y_grad_shuffled, 3*num*num_lm);
-    Kokkos::deep_copy(Y_grad_shuffled, Y_grad);
-    auto Y_grad_shuffled = this->Y_grad_shuffled;
-    Kokkos::parallel_for("unshuffle_Y_grad", num, KOKKOS_LAMBDA (int i) {
-        for (int lm=0; lm<num_lm; ++lm) {
-            Y_grad(3*i*num_lm+0*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+1*num_lm+lm);
-            Y_grad(3*i*num_lm+1*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+2*num_lm+lm);
-            Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
-        }
-    });
 
     // normalize to match e3nn conventions
     Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
@@ -272,14 +255,11 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
 
-    // shuffle to match e3nn
-    if (xyz_shuffled.extent(0) < 3*num)
-        Kokkos::realloc(xyz_shuffled, 3*num);
-    auto xyz_shuffled = this->xyz_shuffled;
-    Kokkos::parallel_for("shuffle_xyz", num, KOKKOS_LAMBDA (int i) {
-        xyz_shuffled(3*i) = xyz(3*i+2);
-        xyz_shuffled(3*i+1) = xyz(3*i);
-        xyz_shuffled(3*i+2) = xyz(3*i+1);
+    if (xyz_sphericart.extent(0) < 3*num)
+        Kokkos::realloc(xyz_sphericart, 3*num);
+    auto xyz_sphericart = this->xyz_sphericart;
+    Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+        xyz_sphericart(i) = xyz(i);
     });
     Kokkos::fence();
 
@@ -292,20 +272,8 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     if (not sphericart_calculator)
         sphericart_calculator = std::make_shared<Sphericart>(l_max);
     static_cast<Sphericart*>(sphericart_calculator.get())->compute_with_gradients(
-        xyz_shuffled.data(), num, Y.data(), Y_grad.data());
-
-    // unshuffle gradient
-    if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
-        Kokkos::realloc(Y_grad_shuffled, 3*num*num_lm);
-    Kokkos::deep_copy(Y_grad_shuffled, Y_grad);
-    auto Y_grad_shuffled = this->Y_grad_shuffled;
-    Kokkos::parallel_for("unshuffle_Y_grad", num, KOKKOS_LAMBDA (int i) {
-        for (int lm=0; lm<num_lm; ++lm) {
-            Y_grad(3*i*num_lm+0*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+1*num_lm+lm);
-            Y_grad(3*i*num_lm+1*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+2*num_lm+lm);
-            Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
-        }
-    });
+        xyz_sphericart.data(), num, Y.data(), Y_grad.data());
+    Kokkos::fence();
 
     // normalize to match e3nn conventions
     const double normalization_factor = 2 * std::sqrt(M_PI);

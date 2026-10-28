@@ -122,29 +122,14 @@ void MACE::compute_Y(
     const int num = xyz.size()/3;
     Y.resize(num*num_lm);
     Y_grad.resize(3*num*num_lm);
-    // shuffle to match e3nn conventions
-    xyz_shuffled.resize(3*num);
-    for (int i=0; i<num; ++i) {
-        xyz_shuffled[3*i]   = xyz[3*i+2];
-        xyz_shuffled[3*i+1] = xyz[3*i];
-        xyz_shuffled[3*i+2] = xyz[3*i+1];
-    }
     sphericart::SphericalHarmonics<double> sphericart(l_max);
-    sphericart.compute_with_gradients(xyz_shuffled, Y, Y_grad);
+    sphericart.compute_array_with_gradients(
+        xyz.data(), xyz.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
     // normalize to match e3nn conventions
     for (int i=0; i<Y.size(); ++i)
         Y[i] *= 2*std::sqrt(std::numbers::pi);
     for (int i=0; i<Y_grad.size(); ++i)
         Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
-    // unshuffle gradient
-    auto Y_grad_shuffled = Y_grad;
-    for (int i=0; i<num; ++i) {
-        for (int lm=0; lm<num_lm; ++lm) {
-            Y_grad[3*i*num_lm+0*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+1*num_lm+lm];
-            Y_grad[3*i*num_lm+1*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+2*num_lm+lm];
-            Y_grad[3*i*num_lm+2*num_lm+lm] = Y_grad_shuffled[3*i*num_lm+0*num_lm+lm];
-        }
-    }
 }
 
 void MACE::compute_A0(

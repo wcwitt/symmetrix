@@ -70,9 +70,8 @@ void compute_R1(const int num_nodes,
 
 // Spherical harmonics
 std::shared_ptr<void> sphericart_calculator;
-Kokkos::View<Precision*> xyz_shuffled;
+Kokkos::View<Precision*> xyz_sphericart;
 Kokkos::View<Precision*> Y, Y_grad;// TODO: make multidimensional
-Kokkos::View<Precision*> Y_grad_shuffled;
 void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0
