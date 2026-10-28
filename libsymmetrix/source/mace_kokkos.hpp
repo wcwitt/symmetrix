@@ -119,7 +119,7 @@ void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
 // H1
 Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
-Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights;
+Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights, H1_weights_trans;
 void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
 

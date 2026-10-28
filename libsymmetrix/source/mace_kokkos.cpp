@@ -724,7 +724,7 @@ void MACEKokkos<Precision>::reverse_H1(
 
     auto L_max = this->L_max;
     auto M0_adj = this->M0_adj;
-    auto H1_weights = this->H1_weights;
+    auto H1_weights_trans = this->H1_weights_trans;
     auto H1_adj = this->H1_adj;
 
     Kokkos::parallel_for("Reverse H1",
@@ -733,11 +733,11 @@ void MACEKokkos<Precision>::reverse_H1(
             const int i = team_member.league_rank() / (L_max+1);
             const int l = team_member.league_rank() % (L_max+1);
             auto H1_adj_il = Kokkos::subview(H1_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(H1_weights, l, Kokkos::ALL, Kokkos::ALL);
+            auto W_il = Kokkos::subview(H1_weights_trans, l, Kokkos::ALL, Kokkos::ALL);
             auto M0_adj_il = Kokkos::subview(M0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
             KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
                                     KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::Transpose,
+                                    KokkosBatched::Trans::NoTranspose,
                                     KokkosBatched::Algo::Gemm::Unblocked>
                 ::invoke(team_member, 1.0, H1_adj_il, W_il, 0.0, M0_adj_il);
         });
@@ -1641,6 +1641,14 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         L_max+1,
         num_channels,
         num_channels);
+    H1_weights_trans = Kokkos::View<Precision***,Kokkos::LayoutRight>("H1_weights_trans", L_max+1, num_channels, num_channels);
+    auto h_H1_weights = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), H1_weights);
+    auto h_H1_weights_trans = Kokkos::create_mirror_view(H1_weights_trans);
+    for (int l=0; l<=L_max; ++l)
+        for (int i=0; i<num_channels; ++i)
+            for (int j=0; j<num_channels; ++j)
+                h_H1_weights_trans(l,j,i) = h_H1_weights(l,i,j);
+    Kokkos::deep_copy(H1_weights_trans, h_H1_weights_trans);
 
     // Phi1
     Phi1_l = toKokkosView("Phi1_l", file["Phi1_l"].get<std::vector<int>>());
