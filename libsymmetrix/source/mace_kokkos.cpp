@@ -361,10 +361,10 @@ void MACEKokkos<Precision>::reverse_A0(
                     Kokkos::TeamThreadRange(team_member, num_lm),
                     [&] (const int lm, double& f_x, double& f_y, double& f_z) {
                         const int l = Kokkos::sqrt(lm);
-                        double t1, t2;
+                        Precision t1, t2;
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [&] (const int k, double& t1, double& t2) {
+                            [&] (const int k, Precision& t1, Precision& t2) {
                                 t1 += R0_deriv(ij,l*num_channels+k) * A0_adj(i,lm,k);
                                 t2 += R0(ij,l*num_channels+k) * A0_adj(i,lm,k);
                             }, t1, t2);
@@ -797,7 +797,7 @@ void MACEKokkos<Precision>::compute_Phi1(
 //#if 0
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
-             .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(double))),
+             .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(Precision))),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank() / num_lelm1lm2;
             const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
@@ -806,7 +806,7 @@ void MACEKokkos<Precision>::compute_Phi1(
             const int lm2 = Phi1_lm2(lelm1lm2);
             const int lel1l2 = Phi1_lel1l2(lelm1lm2);
             // initialize Phi1r_i_lelm1lm2 in scratch space
-            auto Phi1r_i_lelm1lm2 = Kokkos::View<double*>(team_member.team_scratch(0), num_channels);
+            auto Phi1r_i_lelm1lm2 = Kokkos::View<Precision*>(team_member.team_scratch(0), num_channels);
             Kokkos::parallel_for(
                 Kokkos::TeamVectorRange(team_member, num_channels),
                 [=] (const int k) {
@@ -919,10 +919,10 @@ void MACEKokkos<Precision>::reverse_Phi1(
                         const int lm1 = Phi1_lm1(lelm1lm2);
                         const int lm2 = Phi1_lm2(lelm1lm2);
                         const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-                        double t1, t2;
+                        Precision t1, t2;
                         Kokkos::parallel_reduce(
                             Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [=] (const int k, double& t1, double& t2) {
+                            [=] (const int k, Precision& t1, Precision& t2) {
                                 t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
                                 t2 += R1(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
                                 Kokkos::atomic_add(
