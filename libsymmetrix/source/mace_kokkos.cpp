@@ -306,8 +306,7 @@ void MACEKokkos<Precision>::compute_A0(
     auto A0 = this->A0;
 
     parallel_for("Compute A0",
-        TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32)
-             .set_scratch_size(0, PerTeam(num_channels*sizeof(double))),
+        TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank() / num_lm;
             const int lm = team_member.league_rank() % num_lm;
