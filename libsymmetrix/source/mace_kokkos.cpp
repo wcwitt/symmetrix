@@ -235,9 +235,11 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_shuffled);
     auto h_Y = Kokkos::create_mirror_view(Y);
     auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
-    sphericart::SphericalHarmonics<Precision> sphericart(l_max);
-    sphericart.compute_array_with_gradients(
-        h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm),
+    using Sphericart = sphericart::SphericalHarmonics<Precision>;
+    if (not sphericart_calculator)
+        sphericart_calculator = std::make_shared<Sphericart>(l_max);
+    static_cast<Sphericart*>(sphericart_calculator.get())->compute_array_with_gradients(
+        h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm);
     Kokkos::deep_copy(Y, h_Y);
     Kokkos::deep_copy(Y_grad, h_Y_grad);
 
@@ -288,11 +290,14 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
 
     // call sphericart
 #if defined (SYMMETRIX_SPHERICART_CUDA)
-    sphericart::cuda::SphericalHarmonics<Precision> sphericart(l_max);
+    using Sphericart = sphericart::cuda::SphericalHarmonics<Precision>;
 #elif defined (SYMMETRIX_SPHERICART_SYCL)
-    sphericart::sycl::SphericalHarmonics<Precision> sphericart(l_max);
+    using Sphericart = sphericart::sycl::SphericalHarmonics<Precision>;
 #endif
-    sphericart.compute_with_gradients(xyz_shuffled.data(), num, Y.data(), Y_grad.data());
+    if (not sphericart_calculator)
+        sphericart_calculator = std::make_shared<Sphericart>(l_max);
+    static_cast<Sphericart*>(sphericart_calculator.get())->compute_with_gradients(
+        xyz_shuffled.data(), num, Y.data(), Y_grad.data());
 
     // unshuffle gradient
     if (Y_grad_shuffled.extent(0) < 3*num*num_lm)
