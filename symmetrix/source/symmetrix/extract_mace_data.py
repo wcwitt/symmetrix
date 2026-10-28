@@ -390,8 +390,6 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
 
     logging.info("Phi1")
     Phi1_l = [ir[1].l for ir in model.interactions[1].conv_tp.irreps_out]
-    Phi1_l1 = [ins.i_in2 for ins in model.interactions[1].conv_tp.instructions]
-    Phi1_l2 = [ins.i_in1 for ins in model.interactions[1].conv_tp.instructions]
     Phi1_clebsch_gordan = []
     Phi1_lme = []
     Phi1_lelm1lm2 = []
@@ -412,20 +410,13 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
             lme += (2 * ll + 1) * num_e[ll]
         return lme + (l + m) * num_e[l] + e
 
-    def compute_lelm1lm2(le, l1, m1, l2, m2):
-        lelm1lm2 = 0
-        for j in range(le):
-            l1, l2 = (Phi1_l1[j], Phi1_l2[j])
-            lelm1lm2 += (2 * l1 + 1) * (2 * l2 + 1)
-        _, l1, l2 = (Phi1_l[le], Phi1_l1[le], Phi1_l2[le])
-        return lelm1lm2 + (l1 + m1) * (2 * l2 + 1) + l2 + m2
-
     tp = model.interactions[1].conv_tp.to(device)
     for l1 in range(l_max + 1):
         for m1 in range(-l1, l1 + 1):
             lm1 = l1 * l1 + l1 + m1
             for l2 in range(L_max + 1):
                 for m2 in range(-l2, l2 + 1):
+                    lm2 = l2 * l2 + l2 + m2
                     R = torch.ones(
                         [1, len(tp.instructions) * num_channels],
                         dtype=torch.double,
@@ -455,15 +446,15 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                             if np.abs(Phi_0[lem]) > 1e-12:
                                 Phi1_lme.append(compute_lme(le, l, m))
                                 Phi1_clebsch_gordan.append(Phi_0[lem])
-                                Phi1_lelm1lm2.append(
-                                    compute_lelm1lm2(le, l1, m1, l2, m2)
-                                )
+                                Phi1_lelm1lm2.append((le, lm1, lm2))
+    Phi1_terms = sorted(set(Phi1_lelm1lm2))
     output["Phi1_l"] = Phi1_l
-    output["Phi1_l1"] = Phi1_l1
-    output["Phi1_l2"] = Phi1_l2
+    output["Phi1_lel1l2"], output["Phi1_lm1"], output["Phi1_lm2"] = map(
+        list, zip(*Phi1_terms)
+    )
     output["Phi1_lme"] = Phi1_lme
     output["Phi1_clebsch_gordan"] = Phi1_clebsch_gordan
-    output["Phi1_lelm1lm2"] = Phi1_lelm1lm2
+    output["Phi1_lelm1lm2"] = [Phi1_terms.index(t) for t in Phi1_lelm1lm2]
 
     ### ----- A1 -----
 

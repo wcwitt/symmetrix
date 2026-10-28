@@ -1644,8 +1644,9 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
 
     // Phi1
     Phi1_l = toKokkosView("Phi1_l", file["Phi1_l"].get<std::vector<int>>());
-    Phi1_l1 = toKokkosView("Phi1_l1", file["Phi1_l1"].get<std::vector<int>>());
-    Phi1_l2 = toKokkosView("Phi1_l2", file["Phi1_l2"].get<std::vector<int>>());
+    Phi1_lel1l2 = toKokkosView("Phi1_lel1l2", file["Phi1_lel1l2"].get<std::vector<int>>());
+    Phi1_lm1 = toKokkosView("Phi1_lm1", file["Phi1_lm1"].get<std::vector<int>>());
+    Phi1_lm2 = toKokkosView("Phi1_lm2", file["Phi1_lm2"].get<std::vector<int>>());
     Phi1_lme = toKokkosView("Phi1_lme", file["Phi1_lme"].get<std::vector<int>>());
     Phi1_clebsch_gordan = toKokkosView("Phi1_clebsch_gordan", file["Phi1_clebsch_gordan"].get<std::vector<Precision>>());
     Phi1_lelm1lm2 = toKokkosView("Phi1_lelm1lm2", file["Phi1_lelm1lm2"].get<std::vector<int>>());
@@ -1653,30 +1654,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     auto h_Phi1_l = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l);
     for (int i=0; i<h_Phi1_l.size(); ++i)
         num_lme += 2*h_Phi1_l(i)+1;
-    num_lelm1lm2 = 0;
-    auto h_Phi1_l1 = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l1);
-    auto h_Phi1_l2 = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), Phi1_l2);
-    for (int le=0; le<h_Phi1_l.size(); ++le)
-        num_lelm1lm2 += (2*h_Phi1_l1(le)+1)*(2*h_Phi1_l2(le)+1);
-
-    // for new approach to Phi1
-    std::vector<int> Phi1_lm1, Phi1_lm2, Phi1_lel1l2;
-    int lelm1lm2 = 0;
-    for (int lel1l2=0; lel1l2<Phi1_l.size(); ++lel1l2) {
-        const int l1 = h_Phi1_l1(lel1l2);
-        const int l2 = h_Phi1_l2(lel1l2);
-        for (int lm1=l1*l1; lm1<=l1*(l1+2); ++lm1) {
-            for (int lm2=l2*l2; lm2<=l2*(l2+2); ++lm2) {
-                Phi1_lm1.push_back(lm1);
-                Phi1_lm2.push_back(lm2);
-                Phi1_lel1l2.push_back(lel1l2);
-                lelm1lm2 += 1;
-            }
-        }
-    }
-    this->Phi1_lm1 = toKokkosView("Phi1_lm1", Phi1_lm1);
-    this->Phi1_lm2 = toKokkosView("Phi1_lm2", Phi1_lm2);
-    this->Phi1_lel1l2 = toKokkosView("Phi1_lel1l2", Phi1_lel1l2);
+    num_lelm1lm2 = Phi1_lm1.size();
 
     // A1 weights
     auto file_A1_weights = file["A1_weights"].get<std::vector<std::vector<Precision>>>();
