@@ -491,43 +491,6 @@ void MACEKokkos<Precision>::reverse_A0_scaled(
         });
 }
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    Kokkos::resize(M0, num_nodes, num_LM, num_channels);
-
-    auto A0 = this->A0;
-    auto M0 = this->M0;
-    auto M0_monomials = this->M0_monomials;
-    auto M0_weights = this->M0_weights;
-    auto num_LM = this->num_LM;
-    auto num_channels = this->num_channels;
-
-    Kokkos::fence();
-    Kokkos::parallel_for(
-        "Compute M0",
-        Kokkos::MDRangePolicy<Kokkos::Rank<3, Kokkos::Iterate::Right>>(
-            {0,0,0}, {num_nodes,num_LM,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int LM, const int k) {
-            M0(i,LM,k) = 0.0;
-            for (int u=0; u<M0_monomials(LM).extent(0); ++u) {
-                double monomial = A0(i,M0_monomials(LM)(u,0),k);
-                for (int v=1; v<M0_monomials(LM).extent(1); ++v) {
-                    if (M0_monomials(LM)(u,v) == -1)
-                        break;
-                    monomial *= A0(i,M0_monomials(LM)(u,v),k);
-                }
-                M0(i,LM,k) += M0_weights(LM)(node_types(i),k,u) * monomial;
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
@@ -579,51 +542,7 @@ void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> n
             }
         });
 }
-//#endif
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
-    Kokkos::deep_copy(A0_adj, 0.0);
-
-    // local references to class members accessed in the parallel region
-    auto A0 = this->A0;
-    auto A0_adj = this->A0_adj;
-    auto M0_adj = this->M0_adj;
-    auto M0_monomials = this->M0_monomials;
-    auto M0_weights = this->M0_weights;
-    auto num_channels = this->num_channels;
-    auto num_LM = this->num_LM;
-
-    Kokkos::parallel_for(
-        "Reverse M0",
-        Kokkos::MDRangePolicy<Kokkos::Rank<3,Kokkos::Iterate::Right>>(
-            {0,0,0}, {num_nodes,num_LM,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int LM, const int k) {
-            for (int u=0; u<M0_monomials(LM).extent(0); ++u) {
-                for (int v=0; v<M0_monomials(LM).extent(1); ++v) {
-                    if (M0_monomials(LM)(u,v) == -1) break;
-                    double deriv = M0_adj(i,LM,k);
-                    for (int w=0; w<M0_monomials(LM).extent(1); ++w) {
-                        if (M0_monomials(LM)(u,w) == -1) break;
-                        if (v == w) continue;
-                        deriv *= A0(i,M0_monomials(LM)(u,w),k);
-                    }
-                    Kokkos::atomic_add(
-                        &A0_adj(i,M0_monomials(LM)(u,v),k),
-                        M0_weights(LM)(node_types(i),k,u)*deriv);
-                }
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
@@ -684,7 +603,6 @@ void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> n
                 });
         });
 }
-//#endif
 
 template <typename Precision>
 void MACEKokkos<Precision>::compute_H1(
@@ -771,29 +689,6 @@ void MACEKokkos<Precision>::compute_Phi1(
     auto Phi1 = this->Phi1;
     auto Phi1r = this->Phi1r;
 
-#if 0
-    Kokkos::parallel_for("Compute Phi1r",
-        Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_lelm1lm2;
-            const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
-            const int i0 = first_neigh(i);
-            const int lm1 = Phi1_lm1(lelm1lm2);
-            const int lm2 = Phi1_lm2(lelm1lm2);
-            const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [=] (const int k) {
-                        Phi1r(i,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * H1(neigh_indices(ij),lm2,k);
-                    });
-            }
-        });
-    Kokkos::fence();
-#endif
-
-//#if 0
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
              .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(Precision))),
@@ -829,7 +724,6 @@ void MACEKokkos<Precision>::compute_Phi1(
                     Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
                 });
         });
-//#endif
 
     // Compute Phi1 using CG coefficients
     Kokkos::parallel_for("Compute Phi1",
@@ -1135,39 +1029,6 @@ void MACEKokkos<Precision>::reverse_A1_scaled(
         });
 }
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(M1, num_nodes, num_channels);
-
-    auto A1 = this->A1;
-    auto M1 = this->M1;
-    auto M1_monomials = this->M1_monomials;
-    auto M1_weights = this->M1_weights;
-    auto num_channels = this->num_channels;
-
-    Kokkos::parallel_for(
-        "Compute M1",
-        Kokkos::MDRangePolicy<Kokkos::Rank<2,Kokkos::Iterate::Right>>(
-            {0,0}, {num_nodes,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int k) {
-            M1(i,k) = 0.0;
-            for (int u=0; u<M1_monomials.extent(0); ++u) {
-                double monomial = A1(i,M1_monomials(u,0),k);
-                for (int v=1; v<M1_monomials.extent(1); ++v) {
-                    if (M1_monomials(u,v) == -1)
-                        break;
-                    monomial *= A1(i,M1_monomials(u,v),k);
-                }
-                M1(i,k) += M1_weights(node_types(i),k,u) * monomial;
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
@@ -1214,45 +1075,6 @@ void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> n
             }
         });
 }
-//#endif
-
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
-    Kokkos::deep_copy(A1_adj, 0.0);
-
-    auto A1 = this->A1;
-    auto A1_adj = this->A1_adj;
-    auto M1_adj = this->M1_adj;
-    auto M1_monomials = this->M1_monomials;
-    auto M1_weights = this->M1_weights;
-    auto num_channels = this->num_channels;
-
-    Kokkos::parallel_for(
-        "Reverse M1",
-        Kokkos::MDRangePolicy<Kokkos::Rank<2,Kokkos::Iterate::Right>>(
-            {0,0}, {num_nodes,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int k) {
-            for (int u=0; u<M1_monomials.extent(0); ++u) {
-                for (int v=0; v<M1_monomials.extent(1); ++v) {
-                    if (M1_monomials(u,v) == -1) break;
-                    double deriv = M1_adj(i,k);
-                    for (int w=0; w<M1_monomials.extent(1); ++w) {
-                        if (M1_monomials(u,w) == -1) break;
-                        if (v == w) continue;
-                        deriv *= A1(i,M1_monomials(u,w),k);
-                    }
-                    Kokkos::atomic_add(
-                        &A1_adj(i,M1_monomials(u,v),k),
-                        M1_weights(node_types(i),k,u)*deriv);
-                }
-            }
-        });
-    Kokkos::fence();
-}
-#endif
 
 template <typename Precision>
 void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
