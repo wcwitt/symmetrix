@@ -66,8 +66,8 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
         Kokkos::realloc(node_energies, num_nodes);
     if (node_forces.size() < xyz.size())
         Kokkos::realloc(node_forces, xyz.size());
-    Kokkos::deep_copy(node_energies, 0.0);
-    Kokkos::deep_copy(node_forces, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_energies, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_forces, 0.0);
 
     compute_graph(num_nodes, num_neigh);
 
@@ -185,7 +185,6 @@ void MACEKokkos<Precision>::compute_R0(
                     R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
                 });
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -201,7 +200,6 @@ void MACEKokkos<Precision>::compute_R1(
         Kokkos::realloc(R1_deriv, r.size(), Phi1_l.size()*num_channels);
     }
     radial_1.evaluate(node_types, i_list, neigh_types, r, R1, R1_deriv);
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -229,7 +227,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
         xyz_shuffled(3*i+1) = xyz(3*i);
         xyz_shuffled(3*i+2) = xyz(3*i+1);
     });
-    Kokkos::fence();
 
     // call sphericart on host
     auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_shuffled);
@@ -255,7 +252,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
             Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
         }
     });
-    Kokkos::fence();
 
     // normalize to match e3nn conventions
     Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
@@ -264,7 +260,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
         Y_grad(i) *= 2*std::sqrt(M_PI);
     });
-    Kokkos::fence();
 
 #else // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
 
@@ -311,7 +306,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
             Y_grad(3*i*num_lm+2*num_lm+lm) = Y_grad_shuffled(3*i*num_lm+0*num_lm+lm);
         }
     });
-    Kokkos::fence();
 
     // normalize to match e3nn conventions
     const double normalization_factor = 2 * std::sqrt(M_PI);
@@ -323,8 +317,6 @@ void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
     });
 
 #endif
-
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -336,7 +328,7 @@ void MACEKokkos<Precision>::compute_A0(
 {
     if (A0.extent(0) != num_nodes)
         Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
-    Kokkos::deep_copy(A0, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), A0, 0.0);
 
     const auto first_neigh = this->first_neigh;
     const int num_lm = this->num_lm;
@@ -362,8 +354,6 @@ void MACEKokkos<Precision>::compute_A0(
                     });
             }
         });
-
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -421,7 +411,6 @@ void MACEKokkos<Precision>::reverse_A0(
                     });
             }
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -469,7 +458,6 @@ void MACEKokkos<Precision>::compute_A0_scaled(
                     A0(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
                 });
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -534,7 +522,6 @@ void MACEKokkos<Precision>::reverse_A0_scaled(
                     A0_adj(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
                 });
         });
-    Kokkos::fence();
 }
 
 #if 0
@@ -624,7 +611,6 @@ void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> n
                     });
             }
         });
-    Kokkos::fence();
 }
 //#endif
 
@@ -730,7 +716,6 @@ void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> n
                     Kokkos::atomic_add(&A0_adj(i,lm,k), M0_poly_adjoints(LM)(i,lm,k) * M0_adj(i,LM,k));
                 });
         });
-    Kokkos::fence();
 }
 //#endif
 
@@ -760,7 +745,6 @@ void MACEKokkos<Precision>::compute_H1(
                                     KokkosBatched::Algo::Gemm::Unblocked>
                 ::invoke(team_member, 1.0, M0_il, W_il, 0.0, H1_il);
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -789,7 +773,6 @@ void MACEKokkos<Precision>::reverse_H1(
                                     KokkosBatched::Algo::Gemm::Unblocked>
                 ::invoke(team_member, 1.0, H1_adj_il, W_il, 0.0, M0_adj_il);
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -803,8 +786,7 @@ void MACEKokkos<Precision>::compute_Phi1(
         Kokkos::realloc(Phi1r, num_nodes, num_lelm1lm2, num_channels);
     if (Phi1.extent(0) < num_nodes)
         Kokkos::realloc(Phi1, num_nodes, num_lme, num_channels);
-    Kokkos::deep_copy(Phi1r, 0.0);
-    Kokkos::deep_copy(Phi1, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), Phi1, 0.0);
 
     const auto first_neigh = this->first_neigh;
     const auto num_channels = this->num_channels;
@@ -880,7 +862,6 @@ void MACEKokkos<Precision>::compute_Phi1(
                     Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
                 });
         });
-    Kokkos::fence();
 //#endif
 
     // Compute Phi1 using CG coefficients
@@ -897,7 +878,6 @@ void MACEKokkos<Precision>::compute_Phi1(
                     });
             }
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -917,10 +897,10 @@ void MACEKokkos<Precision>::reverse_Phi1(
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
     if (zero_dxyz)
-        Kokkos::deep_copy(node_forces, 0.0);
-    Kokkos::deep_copy(dPhi1r, 0.0);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_forces, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), dPhi1r, 0.0);
     if (zero_H1_adj)
-        Kokkos::deep_copy(H1_adj, 0.0);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
 
     const auto num_lm = this->num_lm;
     const auto num_channels = this->num_channels;
@@ -993,7 +973,6 @@ void MACEKokkos<Precision>::reverse_Phi1(
                 });
             }
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1034,7 +1013,6 @@ void MACEKokkos<Precision>::compute_A1(int num_nodes)
                                     KokkosBatched::Algo::Gemm::Blocked>
                 ::invoke(team_member, 1.0, Phi1_il, A1_weights(l), 0.0, A1_il);
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1075,7 +1053,6 @@ void MACEKokkos<Precision>::reverse_A1(int num_nodes)
                                     KokkosBatched::Algo::Gemm::Blocked>
                 ::invoke(team_member, 1.0, dA1_il, A1_weights_trans(l), 0.0, dPhi1_il);
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1124,7 +1101,6 @@ void MACEKokkos<Precision>::compute_A1_scaled(
                     A1(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
                 });
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1190,7 +1166,6 @@ void MACEKokkos<Precision>::reverse_A1_scaled(
                     A1_adj(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
                 });
         });
-    Kokkos::fence();
 }
 
 #if 0
@@ -1233,7 +1208,7 @@ void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> n
         Kokkos::realloc(M1, num_nodes, num_channels);
     if (M1_poly_values.extent(0) < num_nodes)
         Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels);
-    Kokkos::deep_copy(M1, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M1, 0.0);
 
     const auto A1 = this->A1;
     const auto M1_monomials = this->M1_monomials;
@@ -1271,7 +1246,6 @@ void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> n
                     });
             }
         });
-    Kokkos::fence();
 }
 //#endif
 
@@ -1318,7 +1292,6 @@ void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> n
 {
     if (A1_adj.extent(0) < num_nodes)
         Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
-    Kokkos::deep_copy(A1_adj, 0.0);
     if (M1_poly_adjoints.extent(0) < num_nodes)
         Kokkos::realloc(M1_poly_adjoints, num_nodes, M1_poly_coeff.extent(1), num_channels);
 
@@ -1368,7 +1341,6 @@ void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> n
                     A1_adj(i,lm,k) = M1_poly_adjoints(i,lm,k) * M1_adj(i,k);
                 });
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1376,7 +1348,7 @@ void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> n
 {
     if (H2.extent(0) < num_nodes or H2.extent(1) != num_channels)
         Kokkos::realloc(H2, num_nodes, num_channels);
-    Kokkos::deep_copy(H2, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H2, 0.0);
 
     auto num_channels = this->num_channels;
     auto H2 = this->H2;
@@ -1395,7 +1367,6 @@ void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> n
                     H2(i,k) += H2_weights_for_H1(node_types(i),kp*num_channels+k) * H1(i,0,kp);
                 }
         });
-    Kokkos::fence();
     Kokkos::parallel_for(
         "Compute H2 from M1",
         num_nodes*num_channels,
@@ -1406,7 +1377,6 @@ void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> n
                 H2(i,k) += H2_weights_for_M1(kp*num_channels+k) * M1(i,kp);
             }
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1418,8 +1388,8 @@ void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> n
         Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
 
     if (zero_H1_adj)
-        Kokkos::deep_copy(H1_adj, 0.0);
-    Kokkos::deep_copy(M1_adj, 0.0);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M1_adj, 0.0);
 
     auto num_channels = this->num_channels;
     auto H1_adj = this->H1_adj;
@@ -1439,7 +1409,6 @@ void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> n
                 M1_adj(i,k) +=  H2_weights_for_M1(k*num_channels+kp) * H2_adj(i,kp);
             }
         });
-    Kokkos::fence();
 }
 
 template <typename Precision>
@@ -1455,7 +1424,7 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     // Warning: Although it doesn't appear necessary to set H1_adj to zero,
     //          it matters when the number of nodes associated with H1 is greater than num_nodes.
     //          There is probably a better way to manage this.
-    Kokkos::deep_copy(H1_adj, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
 
     auto num_channels = this->num_channels;
     auto node_energies = this->node_energies;
@@ -1468,7 +1437,6 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
         node_energies(i) += atomic_energies(node_types(i));
     });
-    Kokkos::fence();
     // first readout
     Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
         for (int k=0; k<num_channels; ++k) {
@@ -1490,8 +1458,6 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     Kokkos::parallel_reduce(num_nodes, KOKKOS_LAMBDA (const int& i, double& local_sum) {
         local_sum += node_energies(i);
     }, energy);
-
-    Kokkos::fence();
 
     return energy;
 }

@@ -198,7 +198,6 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
                         + c3*static_cast<Precision>(three_xx);
                 });
         });
-        Kokkos::fence();
 }
 
 template class RadialFunctionSetKokkos<float>;
