@@ -144,9 +144,8 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
 
 template <typename Precision>
 void RadialFunctionSetKokkos<Precision>::evaluate(
-    const int num_nodes,
     Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
+    Kokkos::View<const int*> i_list,
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> r,
     Kokkos::View<Precision**,Kokkos::LayoutRight> R,
@@ -158,30 +157,6 @@ void RadialFunctionSetKokkos<Precision>::evaluate(
     const int num_intervals = this->num_nodes - 1;
     const auto num_functions = this->num_functions;
     const auto c = this->coefficients;
-
-    // TODO: shouldn't need all this
-    // Build i_list
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i);
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh_i;
-        });
-    Kokkos::fence();
-    Kokkos::View<int*> i_list("i_list", r.size());
-    Kokkos::parallel_for("ij lists",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i) {
-            int ij = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                i_list(ij) = i;
-                ij += 1;
-            }
-        });
-    Kokkos::fence();
 
     const int num_unique_types = (std::sqrt(8*num_edge_types+1)-1)/2;
 

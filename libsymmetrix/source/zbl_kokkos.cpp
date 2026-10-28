@@ -106,6 +106,7 @@ void ZBLKokkos::compute_ZBL(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
+    Kokkos::View<const int*> first_neigh,
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const int*> atomic_numbers,
     Kokkos::View<const double*> r,
@@ -113,17 +114,6 @@ void ZBLKokkos::compute_ZBL(
     Kokkos::View<double*> node_energies,
     Kokkos::View<double*> node_forces)
 {
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i);
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh_i;
-        });
-    Kokkos::fence();
-
     Kokkos::parallel_for("ZBLKokkos::compute_ZBL",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO),
         KOKKOS_CLASS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {

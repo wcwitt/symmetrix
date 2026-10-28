@@ -31,6 +31,7 @@ double compute_envelope_gradient(const double r, const double r_max, const int p
 void compute_ZBL(const int num_nodes,
                  Kokkos::View<const int*> node_types,
                  Kokkos::View<const int*> num_neigh,
+                 Kokkos::View<const int*> first_neigh,
                  Kokkos::View<const int*> neigh_types,
                  Kokkos::View<const int*> atomic_numbers,
                  Kokkos::View<const double*> r,

@@ -69,9 +69,11 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
     Kokkos::deep_copy(node_energies, 0.0);
     Kokkos::deep_copy(node_forces, 0.0);
 
+    compute_graph(num_nodes, num_neigh);
+
     if (has_zbl)
         zbl.compute_ZBL(
-            num_nodes, node_types, num_neigh, neigh_types,
+            num_nodes, node_types, num_neigh, first_neigh, neigh_types,
             atomic_numbers, r, xyz, node_energies, node_forces);
 
     compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
@@ -104,6 +106,34 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
 }
 
 template <typename Precision>
+void MACEKokkos<Precision>::compute_graph(
+    const int num_nodes,
+    Kokkos::View<const int*> num_neigh)
+{
+    if (first_neigh.extent(0) < num_nodes)
+        Kokkos::realloc(first_neigh, num_nodes);
+    auto first_neigh = this->first_neigh;
+    int num_edges;
+    Kokkos::parallel_scan("MACEKokkos::compute_graph::first_neigh",
+        num_nodes,
+        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
+            if (final)
+                first_neigh(i) = update;
+            update += num_neigh(i);
+        }, num_edges);
+
+    if (i_list.extent(0) < num_edges)
+        Kokkos::realloc(i_list, num_edges);
+    auto i_list = this->i_list;
+    Kokkos::parallel_for("MACEKokkos::compute_graph::i_list",
+        num_nodes,
+        KOKKOS_LAMBDA (const int i) {
+            for (int j=0; j<num_neigh(i); ++j)
+                i_list(first_neigh(i)+j) = i;
+        });
+}
+
+template <typename Precision>
 void MACEKokkos<Precision>::compute_R0(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
@@ -116,30 +146,7 @@ void MACEKokkos<Precision>::compute_R0(
         Kokkos::realloc(R0_deriv, r.size(), (l_max+1)*num_channels);
     }
 
-    // TODO: shouldn't need all this
-    // Build i_list
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i);
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh_i;
-        });
-    Kokkos::fence();
-    Kokkos::View<int*> i_list("i_list", r.size());
-    Kokkos::parallel_for("ij lists",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i) {
-            int ij = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                i_list(ij) = i;
-                ij += 1;
-            }
-        });
-    Kokkos::fence();
-
+    const auto i_list = this->i_list;
     const int l_max = this->l_max;
     const int num_channels = this->num_channels;
     const auto num_types = atomic_numbers.size();
@@ -193,7 +200,7 @@ void MACEKokkos<Precision>::compute_R1(
         Kokkos::realloc(R1, r.size(), Phi1_l.size()*num_channels);
         Kokkos::realloc(R1_deriv, r.size(), Phi1_l.size()*num_channels);
     }
-    radial_1.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, R1, R1_deriv);
+    radial_1.evaluate(node_types, i_list, neigh_types, r, R1, R1_deriv);
     Kokkos::fence();
 }
 
@@ -326,16 +333,7 @@ void MACEKokkos<Precision>::compute_A0(
         Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
     Kokkos::deep_copy(A0, 0.0);
 
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
-    Kokkos::fence();
-
+    const auto first_neigh = this->first_neigh;
     const int num_lm = this->num_lm;
     const int num_channels = this->num_channels;
     const auto R0 = this->R0;
@@ -380,17 +378,7 @@ void MACEKokkos<Precision>::reverse_A0(
     auto Y = this->Y;
     auto Y_grad = this->Y_grad;
     auto node_forces = this->node_forces;
-
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i);
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh_i;
-        });
-    Kokkos::fence();
+    const auto first_neigh = this->first_neigh;
 
     Kokkos::parallel_for("Reverse A0",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
@@ -446,18 +434,10 @@ void MACEKokkos<Precision>::compute_A0_scaled(
         Kokkos::realloc(A0_spline_values, r.size(), 1);
         Kokkos::realloc(A0_spline_derivs, r.size(), 1);
     }
-    A0_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A0_spline_values, A0_spline_derivs);
-
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
+    A0_splines.evaluate(node_types, i_list, neigh_types, r, A0_spline_values, A0_spline_derivs);
 
     // perform the scaling
+    const auto first_neigh = this->first_neigh;
     const auto A0_spline_values = this->A0_spline_values;
     const auto A0_spline_derivs = this->A0_spline_derivs;
     const auto num_channels = this->num_channels;
@@ -498,17 +478,9 @@ void MACEKokkos<Precision>::reverse_A0_scaled(
 {
     if (not A0_scaled) return;
 
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
-
     // update the derivatives
     // Warning: Assumes node_forces have been initialized elsewhere
+    const auto first_neigh = this->first_neigh;
     const auto A0 = this->A0;
     const auto A0_adj = this->A0_adj;
     const auto A0_spline_values = this->A0_spline_values;
@@ -829,15 +801,7 @@ void MACEKokkos<Precision>::compute_Phi1(
     Kokkos::deep_copy(Phi1r, 0.0);
     Kokkos::deep_copy(Phi1, 0.0);
 
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
-
+    const auto first_neigh = this->first_neigh;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
     const auto num_lelm1lm2 = this->num_lelm1lm2;
@@ -987,17 +951,7 @@ void MACEKokkos<Precision>::reverse_Phi1(
             }
         });
 
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            const int num_neigh_i = num_neigh(i);
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh_i;
-        });
-    Kokkos::fence();
-
+    const auto first_neigh = this->first_neigh;
     Kokkos::parallel_for("Reverse Phi1r",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
@@ -1134,19 +1088,10 @@ void MACEKokkos<Precision>::compute_A1_scaled(
         Kokkos::realloc(A1_spline_values, r.size(), 1);
         Kokkos::realloc(A1_spline_derivs, r.size(), 1);
     }
-    A1_splines.evaluate(num_nodes, node_types, num_neigh, neigh_types, r, A1_spline_values, A1_spline_derivs);
-
-    // compute first_neigh
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
+    A1_splines.evaluate(node_types, i_list, neigh_types, r, A1_spline_values, A1_spline_derivs);
 
     // perform the scaling
+    const auto first_neigh = this->first_neigh;
     auto A1 = this->A1;
     auto A1_spline_values = this->A1_spline_values;
     auto A1_spline_derivs = this->A1_spline_derivs;
@@ -1188,17 +1133,9 @@ void MACEKokkos<Precision>::reverse_A1_scaled(
 {
     if (not A1_scaled) return;
 
-    Kokkos::View<int*> first_neigh("first_neigh", num_nodes);
-    Kokkos::parallel_scan("Compute first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        });
-
     // update the derivatives
     // Warning: Assumes node_forces have been initialized elsewhere
+    const auto first_neigh = this->first_neigh;
     const auto A1 = this->A1;
     const auto A1_adj = this->A1_adj;
     const auto A1_spline_values = this->A1_spline_values;
