@@ -1,15 +1,12 @@
 import torch
 
 import logging
-import itertools
-
 import numpy as np
 from scipy.interpolate import CubicSpline
 
 with torch.serialization.safe_globals([slice]):
-    from e3nn.o3 import Irreps, Linear
+    from e3nn.o3 import Irreps, Linear, wigner_3j
 from mace.modules.radial import ZBLBasis
-from mace.tools.cg import U_matrix_real
 from mace.tools.scripts_utils import remove_pt_head
 
 from ase.data import chemical_symbols
@@ -286,89 +283,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     #### ----- M0 -----
 
     logging.info("M0")
-    correlation = model.products[0].symmetric_contractions.contractions[0].correlation
-
-    ### Computes U_{lm\eta, l1m1 l2m2 ...}
-    #   * `irrep_out` is essentially l_out
-    #   * `irreps_in` essentially provides l_in_max
-    #   * `corr_in_max` is the max correlation order
-    def U_sparse(irrep_out, irreps_in, corr_in_max):
-        U = [[]]  # list of lists because U[0] should be empty
-        for corr in range(1, corr_in_max + 1):
-            # get U matrix for this correlation order
-            try:
-                U_matrix = U_matrix_real(
-                    irreps_in, [irrep_out], corr, use_cueq_cg=False
-                )[1]
-            except TypeError:
-                U_matrix = U_matrix_real(irreps_in, [irrep_out], corr)[1]
-            if irrep_out.l == 0:  # makes U_matrix.shape consistent with l>0 cases
-                U_matrix = U_matrix.unsqueeze(0)
-            num_eta = U_matrix.shape[-1]
-            U_matrix = U_matrix.flatten()
-            # extract sparse U for this correlation order
-            U_sparse_corr = [
-                [{} for _ in range(num_eta)] for _ in range(2 * irrep_out.l + 1)
-            ]
-            j = 0
-            for m in range(2 * irrep_out.l + 1):
-                for lm_list in itertools.product(range((l_max + 1) ** 2), repeat=corr):
-                    for eta in range(num_eta):
-                        if abs(U_matrix[j]) > 1e-12:
-                            lm_tuple_sorted = tuple(sorted(lm_list))
-                            if lm_tuple_sorted not in U_sparse_corr[m][eta].keys():
-                                U_sparse_corr[m][eta][lm_tuple_sorted] = 0.0
-                            U_sparse_corr[m][eta][lm_tuple_sorted] += U_matrix[j].item()
-                        j += 1
-            U.append(U_sparse_corr)
-        return U
-
-    irreps_in = [ir[1] for ir in model.products[0].symmetric_contractions.irreps_in]
-    irreps_out = [ir[1] for ir in model.products[0].symmetric_contractions.irreps_out]
-    C = {}
-    M = {}
-    for i, a in enumerate(atomic_numbers):
-        model_i = model.atomic_numbers.tolist().index(a)
-        C[i] = {}
-        for l, irrep_out in enumerate(irreps_out):
-            # extract U in sparse format
-            U = U_sparse(irrep_out, irreps_in, correlation)
-            # extract weights from model
-            # warning: slightly odd order of the contractions weights due to reverse countdown
-            W = [[]]  # list of lists because W[0] should be empty
-            W.append(
-                model.products[0]
-                .symmetric_contractions.contractions[l]
-                .weights[1]
-                .numpy(force=True)
-            )
-            W.append(
-                model.products[0]
-                .symmetric_contractions.contractions[l]
-                .weights[0]
-                .numpy(force=True)
-            )
-            W.append(
-                model.products[0]
-                .symmetric_contractions.contractions[l]
-                .weights_max.numpy(force=True)
-            )
-            # combine U and W into polynomial-like terms for recursive evaluator
-            for m in range(-l, l + 1):
-                lm = l * (l + 1) + m
-                C[i][lm] = {}
-                for k in range(num_channels):
-                    P_lmk = {}
-                    for corr in range(1, correlation + 1):
-                        for eta in range(len(U[corr][l + m])):
-                            for key, value in U[corr][l + m][eta].items():
-                                if key not in P_lmk.keys():
-                                    P_lmk[key] = 0.0
-                                P_lmk[key] += float(W[corr][model_i, eta, k]) * value
-                    C[i][lm][k] = list(P_lmk.values())
-                    M[lm] = [list(key) for key in P_lmk.keys()]
-    output["M0_weights"] = C
-    output["M0_monomials"] = M
+    elements = [model.atomic_numbers.tolist().index(a) for a in atomic_numbers]
+    output.update(
+        symmetric_contraction(0, model.products[0].symmetric_contractions, elements)
+    )
 
     ### ----- H1 -----
 
@@ -508,69 +426,9 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     ### ----- M1 -----
 
     logging.info("M1")
-    # TODO: generalize
-    correlation = model.products[1].symmetric_contractions.contractions[0].correlation
-    irreps_in = Irreps("0e + 1o + 2e + 3o")
-    irreps_out = Irreps("0e")
-    # extract U in sparse format
-    U = [[]]
-    for corr in range(1, 4):
-        # get U matrix for this correlation order
-        try:
-            U_matrix = U_matrix_real(irreps_in, irreps_out, corr, use_cueq_cg=False)[1]
-        except TypeError:
-            U_matrix = U_matrix_real(irreps_in, irreps_out, corr)[1]
-        num_nu = U_matrix.shape[-1]
-        U_matrix = U_matrix.flatten()
-        # extract sparse U for this correlation order
-        U_sparse = [{} for _ in range(num_nu)]
-        j = 0
-        for lm_list in itertools.product(range((l_max + 1) ** 2), repeat=corr):
-            for nu in range(num_nu):
-                if abs(U_matrix[j]) > 1e-12:
-                    lm_tuple_sorted = tuple(sorted(lm_list))
-                    if lm_tuple_sorted not in U_sparse[nu].keys():
-                        U_sparse[nu][lm_tuple_sorted] = 0.0
-                    U_sparse[nu][lm_tuple_sorted] += U_matrix[j].item()
-                j += 1
-        U.append(U_sparse)
-    # extract weights from model
-    # warning: slightly odd order of the contractions weights due to reverse countdown
-    W = [[]]
-    W.append(
-        model.products[1]
-        .symmetric_contractions.contractions[0]
-        .weights[1]
-        .numpy(force=True)
+    output.update(
+        symmetric_contraction(1, model.products[1].symmetric_contractions, elements)
     )
-    W.append(
-        model.products[1]
-        .symmetric_contractions.contractions[0]
-        .weights[0]
-        .numpy(force=True)
-    )
-    W.append(
-        model.products[1]
-        .symmetric_contractions.contractions[0]
-        .weights_max.numpy(force=True)
-    )
-    # combine U and W into polynomial-like terms for recursive evaluator
-    C = {}
-    for i, a in enumerate(atomic_numbers):
-        model_i = model.atomic_numbers.tolist().index(a)
-        C[i] = {}
-        for k in range(num_channels):
-            P_ik = {}
-            for corr in range(1, 4):
-                for nu in range(len(U[corr])):
-                    for key, value in U[corr][nu].items():
-                        if key not in P_ik.keys():
-                            P_ik[key] = 0.0
-                        P_ik[key] += float(W[corr][model_i, nu, k]) * value
-            C[i][k] = list(P_ik.values())
-            M = [list(key) for key in P_ik.keys()]
-    output["M1_weights"] = C
-    output["M1_monomials"] = M
 
     ### ----- H2 -----
 
@@ -633,3 +491,154 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     output["readout_2_scale_factor"] = model.readouts[1].non_linearity.acts[0].cst
 
     return output
+
+
+def symmetric_contraction(layer, module, elements):
+    """Reformat MACE symmetric contraction into recursive form with equivariant
+    intermediates, roughly in the style of NICE (Nigam, Pozdnyakov and Ceriotti,
+    arXiv:2007.03407):
+
+        B[l, m, k] = sum_{m1, m2} C(l1, m1, l2, m2; l, m) B'[l1, m1, k] A[l2, m2, k],
+
+    with C representing coupling coefficients and k the channel. The output is
+
+        M[L, M, k] = sum_eta w_eta[z, k] B_eta[L, M, k],
+
+    with z the element. The couplings are chosen greedily, cheapest first, and
+    MACE's weights are transformed exactly to this form using least squares.
+    """
+    irreps_in = [ir for _, ir in module.irreps_in]
+    irreps_out = [ir for _, ir in module.irreps_out]
+    offsets = np.cumsum([0] + [2 * ir.l + 1 for ir in irreps_in])
+    correlation = module.contractions[0].correlation
+
+    nodes = [
+        dict(l=ir.l, p=ir.p, depth=1, j=j, parent=None, cg=[], poly=[])
+        for j, ir in enumerate(irreps_in)
+    ]
+    for j, N in enumerate(nodes):
+        N["poly"] = [{(offsets[j] + m,): 1.0} for m in range(2 * N["l"] + 1)]
+    targets = {(ir.l, ir.p) for ir in irreps_out}
+    for depth in range(2, correlation + 1):
+        for N in [N for N in nodes if N["depth"] == depth - 1]:
+            for j, ir in enumerate(irreps_in):
+                if depth == 2 and j < N["j"]:
+                    continue
+                for l in range(abs(N["l"] - ir.l), N["l"] + ir.l + 1):
+                    p = N["p"] * ir.p
+                    if depth == correlation and (l, p) not in targets:
+                        continue
+                    w3j = wigner_3j(N["l"], ir.l, l, dtype=torch.float64).numpy()
+                    cg = [
+                        (M, m1, m2, w3j[m1, m2, M])
+                        for m1, m2, M in zip(*np.nonzero(np.abs(w3j) > 1e-12))
+                    ]
+                    poly = [{} for _ in range(2 * l + 1)]
+                    for M, m1, m2, c in cg:
+                        for mono, v in N["poly"][m1].items():
+                            key = tuple(sorted(mono + (offsets[j] + m2,)))
+                            poly[M][key] = poly[M].get(key, 0.0) + c * v
+                    if any(abs(v) > 1e-12 for P in poly for v in P.values()):
+                        nodes.append(
+                            dict(l=l, p=p, depth=depth, j=j, parent=N, cg=cg, poly=poly)
+                        )
+
+    used = set()
+
+    def cost(N):
+        if N["parent"] is None or id(N) in used:
+            return 0
+        return len(N["cg"]) + cost(N["parent"])
+
+    basis = []
+    for o, ir in enumerate(irreps_out):
+        for depth in range(1, correlation + 1):
+            U = module.contractions[o].U_tensors(depth).numpy(force=True)
+            U = U.reshape(2 * ir.l + 1, *U.shape[-depth - 1 :])
+            if not U.any():
+                continue
+            pool = [
+                N
+                for N in nodes
+                if N["depth"] == depth and (N["l"], N["p"]) == (ir.l, ir.p)
+            ]
+            nonzero = list(zip(*np.nonzero(U)))
+            monomials = {m for N in pool for P in N["poly"] for m in P}
+            monomials |= {tuple(sorted(i[1:-1])) for i in nonzero}
+            index = {m: i for i, m in enumerate(sorted(monomials))}
+
+            def row(poly):
+                r = np.zeros((2 * ir.l + 1) * len(index))
+                for M, P in enumerate(poly):
+                    for m, v in P.items():
+                        r[M * len(index) + index[m]] += v
+                return r
+
+            Q, chosen = np.zeros((0, (2 * ir.l + 1) * len(index))), []
+            while True:
+                best = None
+                for N in pool:
+                    r = row(N["poly"])
+                    r_new = r - Q.T @ (Q @ r)
+                    independent = np.linalg.norm(r_new) > 1e-8 * np.linalg.norm(r)
+                    if independent and (best is None or cost(N) < best[0]):
+                        best = (cost(N), N, r_new)
+                if best is None:
+                    break
+                Q = np.vstack([Q, best[2] / np.linalg.norm(best[2])])
+                chosen.append(best[1])
+                N = best[1]
+                while N["parent"] is not None:
+                    used.add(id(N))
+                    N = N["parent"]
+            V = np.zeros((U.shape[-1], (2 * ir.l + 1) * len(index)))
+            for i in nonzero:
+                V[i[-1], i[0] * len(index) + index[tuple(sorted(i[1:-1]))]] += U[i]
+            B = np.array([row(N["poly"]) for N in chosen])
+            R = np.linalg.lstsq(B.T, V.T, rcond=None)[0]
+            if np.abs(B.T @ R - V.T).max() > 1e-10 * np.abs(V).max():
+                raise RuntimeError(
+                    f"M{layer}: the coupling trees do not span MACE's basis"
+                )
+            contraction = module.contractions[o]
+            W = (
+                contraction.weights_max
+                if depth == correlation
+                else contraction.weights[correlation - 1 - depth]
+            ).numpy(force=True)[elements]
+            for b, N in enumerate(chosen):
+                basis.append((o, N, np.einsum("e,aek->ak", R[b], W)))
+
+    values = {
+        id(N): offsets[j] + np.arange(2 * N["l"] + 1)
+        for j, N in enumerate(nodes[: len(irreps_in)])
+    }
+    num_values = offsets[-1]
+    terms = {}
+    for N in nodes:
+        if id(N) not in used:
+            continue
+        values[id(N)] = num_values + np.arange(2 * N["l"] + 1)
+        num_values += 2 * N["l"] + 1
+        for M, m1, m2, c in N["cg"]:
+            q, a, b = (
+                values[id(N)][M],
+                values[id(N["parent"])][m1],
+                offsets[N["j"]] + m2,
+            )
+            key = (int(q), int(min(a, b)), int(max(a, b)))
+            terms[key] = terms.get(key, 0.0) + float(c)
+    out_offsets = np.cumsum([0] + [2 * ir.l + 1 for ir in irreps_out])
+    logging.info(
+        f"M{layer}: {len(basis)} basis polynomials, {num_values - offsets[-1]} values, "
+        f"{len(terms)} terms"
+    )
+    return {
+        f"B{layer}_spec": list(terms),
+        f"B{layer}_coefficients": list(terms.values()),
+        f"M{layer}_spec": [
+            [int(out_offsets[o]), int(values[id(N)][0]), 2 * N["l"] + 1]
+            for o, N, _ in basis
+        ],
+        f"M{layer}_weights": np.stack([w for _, _, w in basis], axis=1).tolist(),
+    }

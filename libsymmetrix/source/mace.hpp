@@ -1,3 +1,4 @@
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -6,7 +7,6 @@
 #include "cubic_spline.hpp"
 #include "cubic_spline_set.hpp"
 #include "multilayer_perceptron.hpp"
-#include "multivariate_polynomial.hpp"
 #include "zbl.hpp"
 
 class MACE {
@@ -97,10 +97,12 @@ void reverse_A0_scaled(
     std::span<const double> r);
 
 // M0
-std::vector<double> M0, M0_grad, M0_adj;
-std::vector<MultivariatePolynomial> P0;
+std::vector<double> M0, M0_adj;
+std::vector<double> B0;
+std::vector<std::array<int,3>> B0_spec, M0_spec;
+std::vector<double> B0_coefficients, M0_weights;
+int num_B0;
 void compute_M0(const int num_nodes, std::span<const int> node_types);
-// TODO: node_types here only for consistency with Kokkos
 void reverse_M0(const int num_nodes, std::span<const int> node_types);
 
 // H1
@@ -144,10 +146,12 @@ void reverse_A1_scaled(
     bool zero_dxyz = true);
 
 // M1
-std::vector<double> M1, M1_grad, M1_adj;
-std::vector<MultivariatePolynomial> P1;
+std::vector<double> M1, M1_adj;
+std::vector<double> B1;
+std::vector<std::array<int,3>> B1_spec, M1_spec;
+std::vector<double> B1_coefficients, M1_weights;
+int num_B1;
 void compute_M1(const int num_nodes, std::span<const int> node_types);
-// TODO: node_types here only for consistency with Kokkos
 void reverse_M1(const int num_nodes, std::span<const int> node_types);
 
 // H2

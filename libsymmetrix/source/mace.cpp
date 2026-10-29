@@ -334,22 +334,24 @@ void MACE::compute_M0(
     const int num_nodes,
     std::span<const int> node_types)
 {
-    M0.resize(num_nodes*num_LM*num_channels);
-    M0_grad.resize(num_nodes*num_channels*num_LM*num_lm);
+    M0.assign(num_nodes*num_LM*num_channels, 0.0);
+    B0.assign(num_nodes*num_B0*num_channels, 0.0);
     for (int i=0; i<num_nodes; ++i) {
         auto A0_i = A0.data()+i*num_lm*num_channels;
         auto M0_i = M0.data()+i*num_LM*num_channels;
-        auto M0_grad_i = M0_grad.data()+i*num_LM*num_channels*num_lm;
-        auto x = std::vector<double>(num_lm);
-        int lmk = 0;
-        for (int lm=0; lm<num_LM; ++lm) {
-            for (int k=0; k<num_channels; ++k) {
-                cblas_dcopy(num_lm, A0_i+k, num_channels, x.data(), 1);
-                auto [f,g] = P0[node_types[i]*num_LM*num_channels+lmk].evaluate_gradient(x);
-                M0_i[lmk] = f;
-                cblas_dcopy(num_lm, g.data(), 1, M0_grad_i+lm*num_lm*num_channels+k, num_channels);
-                lmk += 1;
-            }
+        auto B0_i = B0.data()+i*num_B0*num_channels;
+        auto M0_weights_i = M0_weights.data()+node_types[i]*M0_spec.size()*num_channels;
+        std::copy(A0_i, A0_i+num_lm*num_channels, B0_i);
+        for (int t=0; t<B0_spec.size(); ++t) {
+            const auto [q, a, b] = B0_spec[t];
+            for (int k=0; k<num_channels; ++k)
+                B0_i[q*num_channels+k] += B0_coefficients[t] * B0_i[a*num_channels+k] * B0_i[b*num_channels+k];
+        }
+        for (int e=0; e<M0_spec.size(); ++e) {
+            const auto [o, q, n] = M0_spec[e];
+            for (int m=0; m<n; ++m)
+                for (int k=0; k<num_channels; ++k)
+                    M0_i[(o+m)*num_channels+k] += M0_weights_i[e*num_channels+k] * B0_i[(q+m)*num_channels+k];
         }
     }
 }
@@ -358,24 +360,29 @@ void MACE::reverse_M0(
     const int num_nodes,
     std::span<const int> node_types)
 {
-    A0_adj.resize(A0.size());
-    std::fill(A0_adj.begin(), A0_adj.end(), 0.0);
+    A0_adj.assign(A0.size(), 0.0);
+    auto B0_adj_i = std::vector<double>(num_B0*num_channels);
     for (int i=0; i<num_nodes; ++i) {
         auto A0_adj_i = A0_adj.data()+i*num_lm*num_channels;
         auto M0_adj_i = M0_adj.data()+i*num_LM*num_channels;
-        auto M0_grad_i = M0_grad.data()+i*num_LM*num_lm*num_channels;
-        for (int lm=0; lm<num_lm; ++lm) {
-            auto A0_adj_ilm = A0_adj_i + lm*num_channels;
-            for (int lmp=0; lmp<num_LM; ++lmp) {
-                auto M0_adj_ilmp = M0_adj_i + lmp*num_channels;
-                auto M0_grad_ilmplm = M0_grad_i +
-                    + lmp*num_lm*num_channels
-                    + lm*num_channels;
-                for (int k=0; k<num_channels; ++k) {
-                    A0_adj_ilm[k] += M0_grad_ilmplm[k] * M0_adj_ilmp[k];
-                }
+        auto B0_i = B0.data()+i*num_B0*num_channels;
+        auto M0_weights_i = M0_weights.data()+node_types[i]*M0_spec.size()*num_channels;
+        std::fill(B0_adj_i.begin(), B0_adj_i.end(), 0.0);
+        for (int e=0; e<M0_spec.size(); ++e) {
+            const auto [o, q, n] = M0_spec[e];
+            for (int m=0; m<n; ++m)
+                for (int k=0; k<num_channels; ++k)
+                    B0_adj_i[(q+m)*num_channels+k] += M0_weights_i[e*num_channels+k] * M0_adj_i[(o+m)*num_channels+k];
+        }
+        for (int t=B0_spec.size()-1; t>=0; --t) {
+            const auto [q, a, b] = B0_spec[t];
+            for (int k=0; k<num_channels; ++k) {
+                const double g = B0_coefficients[t] * B0_adj_i[q*num_channels+k];
+                B0_adj_i[a*num_channels+k] += g * B0_i[b*num_channels+k];
+                B0_adj_i[b*num_channels+k] += g * B0_i[a*num_channels+k];
             }
         }
+        std::copy(B0_adj_i.begin(), B0_adj_i.begin()+num_lm*num_channels, A0_adj_i);
     }
 }
 
@@ -722,18 +729,23 @@ void MACE::compute_M1(
     const int num_nodes,
     std::span<const int> node_types)
 {
-    M1.resize(num_nodes*num_channels);
-    M1_grad.resize(num_nodes*num_channels*num_lm*num_channels);
+    M1.assign(num_nodes*1*num_channels, 0.0);
+    B1.assign(num_nodes*num_B1*num_channels, 0.0);
     for (int i=0; i<num_nodes; ++i) {
         auto A1_i = A1.data()+i*num_lm*num_channels;
         auto M1_i = M1.data()+i*num_channels;
-        auto M1_grad_i = M1_grad.data()+i*num_channels*num_lm;
-        auto x = std::vector<double>(num_lm);
-        for (int k=0; k<num_channels; ++k) {
-            cblas_dcopy(num_lm, A1_i+k, num_channels, x.data(), 1);
-            auto [f,g] = P1[node_types[i]*num_channels+k].evaluate_gradient(x);
-            M1_i[k] = f;
-            cblas_dcopy(num_lm, g.data(), 1, M1_grad_i+k, num_channels);
+        auto B1_i = B1.data()+i*num_B1*num_channels;
+        auto M1_weights_i = M1_weights.data()+node_types[i]*M1_spec.size()*num_channels;
+        std::copy(A1_i, A1_i+num_lm*num_channels, B1_i);
+        for (int t=0; t<B1_spec.size(); ++t) {
+            const auto [q, a, b] = B1_spec[t];
+            for (int k=0; k<num_channels; ++k)
+                B1_i[q*num_channels+k] += B1_coefficients[t] * B1_i[a*num_channels+k] * B1_i[b*num_channels+k];
+        }
+        for (int e=0; e<M1_spec.size(); ++e) {
+            const auto [o, q, n] = M1_spec[e];
+            for (int k=0; k<num_channels; ++k)
+                M1_i[k] += M1_weights_i[e*num_channels+k] * B1_i[q*num_channels+k];
         }
     }
 }
@@ -742,16 +754,28 @@ void MACE::reverse_M1(
     const int num_nodes,
     std::span<const int> node_types)
 {
-    A1_adj.resize(A1.size());
+    A1_adj.assign(A1.size(), 0.0);
+    auto B1_adj_i = std::vector<double>(num_B1*num_channels);
     for (int i=0; i<num_nodes; ++i) {
-        auto M1_adj_i = M1_adj.data() + i*num_channels;
-        for (int lm=0; lm<num_lm; ++lm) {
-            auto A1_adj_ilm = A1_adj.data() + (i*num_lm+lm)*num_channels;
-            auto M1_grad_ilm = M1_grad.begin() + (i*num_lm+lm)*num_channels;
+        auto A1_adj_i = A1_adj.data()+i*num_lm*num_channels;
+        auto M1_adj_i = M1_adj.data()+i*num_channels;
+        auto B1_i = B1.data()+i*num_B1*num_channels;
+        auto M1_weights_i = M1_weights.data()+node_types[i]*M1_spec.size()*num_channels;
+        std::fill(B1_adj_i.begin(), B1_adj_i.end(), 0.0);
+        for (int e=0; e<M1_spec.size(); ++e) {
+            const auto [o, q, n] = M1_spec[e];
+            for (int k=0; k<num_channels; ++k)
+                B1_adj_i[q*num_channels+k] += M1_weights_i[e*num_channels+k] * M1_adj_i[k];
+        }
+        for (int t=B1_spec.size()-1; t>=0; --t) {
+            const auto [q, a, b] = B1_spec[t];
             for (int k=0; k<num_channels; ++k) {
-                A1_adj_ilm[k] = M1_grad_ilm[k] * M1_adj_i[k];
+                const double g = B1_coefficients[t] * B1_adj_i[q*num_channels+k];
+                B1_adj_i[a*num_channels+k] += g * B1_i[b*num_channels+k];
+                B1_adj_i[b*num_channels+k] += g * B1_i[a*num_channels+k];
             }
         }
+        std::copy(B1_adj_i.begin(), B1_adj_i.begin()+num_lm*num_channels, A1_adj_i);
     }
 }
 
@@ -919,19 +943,20 @@ void MACE::load_from_json(
     }
 
     // M0
-    auto M0_weights = file["M0_weights"].get<std::map<std::string,std::map<std::string,std::map<std::string,std::vector<double>>>>>();
-    auto M0_monomials = file["M0_monomials"].get<std::map<std::string,std::vector<std::vector<int>>>>();
-    P0 = std::vector<MultivariatePolynomial>();
-    for (int a=0; a<atomic_numbers.size(); ++a) {
-        for (int lm=0; lm<num_LM; ++lm) {
-            for (int k=0; k<num_channels; ++k) {
-                P0.push_back(MultivariatePolynomial(
-                    num_lm,
-                    M0_weights[std::to_string(a)][std::to_string(lm)][std::to_string(k)],
-                    M0_monomials[std::to_string(lm)]));
-            }
-        }
-    }
+    auto load_contraction = [&] (std::string l, auto& B_spec, auto& B_coefficients, auto& M_spec, auto& M_weights) {
+        B_spec = file["B"+l+"_spec"].get<std::vector<std::array<int,3>>>();
+        B_coefficients = file["B"+l+"_coefficients"].get<std::vector<double>>();
+        M_spec = file["M"+l+"_spec"].get<std::vector<std::array<int,3>>>();
+        for (const auto& w_a : file["M"+l+"_weights"])
+            for (const auto& w_ae : w_a)
+                for (const double w : w_ae)
+                    M_weights.push_back(w);
+        int num_B = num_lm;
+        for (const auto& [q, a, b] : B_spec)
+            num_B = std::max(num_B, q+1);
+        return num_B;
+    };
+    num_B0 = load_contraction("0", B0_spec, B0_coefficients, M0_spec, M0_weights);
 
     // H1
     H1_weights = file["H1_weights"].get<std::vector<double>>();
@@ -963,17 +988,7 @@ void MACE::load_from_json(
     }
 
     // M1
-    auto M1_weights = file["M1_weights"].get<std::map<std::string,std::map<std::string,std::vector<double>>>>();
-    auto M1_monomials = file["M1_monomials"].get<std::vector<std::vector<int>>>();
-    P1 = std::vector<MultivariatePolynomial>();
-    for (int a=0; a<atomic_numbers.size(); ++a) {
-        for (int k=0; k<num_channels; ++k) {
-            P1.push_back(MultivariatePolynomial(
-                num_lm,
-                M1_weights[std::to_string(a)][std::to_string(k)],
-                M1_monomials));
-        }
-    }
+    num_B1 = load_contraction("1", B1_spec, B1_coefficients, M1_spec, M1_weights);
 
     // H2
     H2_weights_for_H1 = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
