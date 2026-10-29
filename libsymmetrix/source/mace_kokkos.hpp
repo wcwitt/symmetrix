@@ -8,8 +8,6 @@
 #include "cubic_spline_kokkos.hpp"
 #include "cubic_spline_set_kokkos.hpp"
 #include "multilayer_perceptron_kokkos.hpp"
-#include "multivariate_polynomial.hpp"//TODO
-#include "multivariate_polynomial_kokkos.hpp"
 #include "radial_function_set_kokkos.hpp"
 #include "zbl_kokkos.hpp"
 
@@ -108,12 +106,9 @@ void reverse_A0_scaled(
 
 // M0
 Kokkos::View<Precision***,Kokkos::LayoutRight> M0, M0_adj;
-Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_monomials;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_weights;
-Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_spec;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_coeff;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_values;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_adjoints;
+Kokkos::View<int**,Kokkos::LayoutRight> B0_spec, M0_spec;
+Kokkos::View<Precision*> B0_coefficients;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M0_weights, B0, B0_adj;
 void compute_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
@@ -161,12 +156,9 @@ void reverse_A1_scaled(
 
 // M1
 Kokkos::View<Precision**,Kokkos::LayoutRight> M1, M1_adj;
-Kokkos::View<int**,Kokkos::LayoutRight> M1_monomials;
-Kokkos::View<Precision***,Kokkos::LayoutRight> M1_weights;
-Kokkos::View<int**,Kokkos::LayoutRight> M1_poly_spec;
-Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_coeff;
-Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_values;
-Kokkos::View<Precision***,Kokkos::LayoutRight> M1_poly_adjoints;
+Kokkos::View<int**,Kokkos::LayoutRight> B1_spec, M1_spec;
+Kokkos::View<Precision*> B1_coefficients;
+Kokkos::View<Precision***,Kokkos::LayoutRight> M1_weights, B1, B1_adj;
 void compute_M1(int num_nodes, Kokkos::View<const int*> node_types);
 void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 

@@ -41,13 +41,6 @@ MACEKokkos<Precision>::~MACEKokkos()
 {
     Kokkos::fence();
 
-    M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
-
     A1_weights = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
     A1_weights_trans = Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>();
 }
@@ -491,200 +484,90 @@ void MACEKokkos<Precision>::reverse_A0_scaled(
         });
 }
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    Kokkos::resize(M0, num_nodes, num_LM, num_channels);
-
-    auto A0 = this->A0;
-    auto M0 = this->M0;
-    auto M0_monomials = this->M0_monomials;
-    auto M0_weights = this->M0_weights;
-    auto num_LM = this->num_LM;
-    auto num_channels = this->num_channels;
-
-    Kokkos::fence();
-    Kokkos::parallel_for(
-        "Compute M0",
-        Kokkos::MDRangePolicy<Kokkos::Rank<3, Kokkos::Iterate::Right>>(
-            {0,0,0}, {num_nodes,num_LM,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int LM, const int k) {
-            M0(i,LM,k) = 0.0;
-            for (int u=0; u<M0_monomials(LM).extent(0); ++u) {
-                double monomial = A0(i,M0_monomials(LM)(u,0),k);
-                for (int v=1; v<M0_monomials(LM).extent(1); ++v) {
-                    if (M0_monomials(LM)(u,v) == -1)
-                        break;
-                    monomial *= A0(i,M0_monomials(LM)(u,v),k);
-                }
-                M0(i,LM,k) += M0_weights(LM)(node_types(i),k,u) * monomial;
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M0.extent(0) < num_nodes)
         Kokkos::realloc(M0, num_nodes, num_LM, num_channels);
+    if (B0.extent(0) < num_nodes)
+        Kokkos::realloc(B0, num_nodes, B0.extent(1), num_channels);
     Kokkos::deep_copy(M0, 0.0);
-    for (int LM=0; LM<num_LM; ++LM) {
-        if (M0_poly_values(LM).extent(0) < num_nodes)
-            M0_poly_values(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
-                Kokkos::view_alloc(std::string("M0_poly_values_")+std::to_string(LM),Kokkos::WithoutInitializing),
-                num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
-    }
 
     const auto A0 = this->A0;
-    const auto M0_monomials = this->M0_monomials;
+    const auto B0_spec = this->B0_spec;
+    const auto B0_coefficients = this->B0_coefficients;
+    const auto M0_spec = this->M0_spec;
     const auto M0_weights = this->M0_weights;
-    const auto M0_poly_spec = this->M0_poly_spec;
-    const auto M0_poly_coeff = this->M0_poly_coeff;
-    const auto M0_poly_values = this->M0_poly_values;
+    const auto B0 = this->B0;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
-    const auto num_LM = this->num_LM;
     auto M0 = this->M0;
 
     Kokkos::parallel_for("Compute M0",
-        Kokkos::TeamPolicy<>(num_nodes*num_LM, Kokkos::AUTO, 32),
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_LM;
-            const int LM = team_member.league_rank() % num_LM;
-            // initialize
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                    team_member, num_lm, num_channels),
-                [&] (const int lm, const int k) {
-                    M0_poly_values(LM)(i,lm,k) = A0(i,lm,k);
-                    Kokkos::atomic_add(&M0(i,LM,k), M0_poly_coeff(LM)(node_types(i),lm,k) * M0_poly_values(LM)(i,lm,k));
+            const int i = team_member.league_rank();
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int q=0; q<B0.extent(1); ++q)
+                    B0(i,q,k) = (q < num_lm) ? A0(i,q,k) : 0.0;
+            });
+            for (int t=0; t<B0_spec.extent(0); ++t)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    B0(i,B0_spec(t,0),k) +=
+                        B0_coefficients(t) * B0(i,B0_spec(t,1),k) * B0(i,B0_spec(t,2),k);
                 });
-            team_member.team_barrier();
-            // forward pass
-            for (int p=0; p<M0_poly_spec(LM).extent(0); ++p) {
-                const int p0 = M0_poly_spec(LM)(p,0);
-                const int p1 = M0_poly_spec(LM)(p,1);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        M0_poly_values(LM)(i,num_lm+p,k) = M0_poly_values(LM)(i,p0,k) * M0_poly_values(LM)(i,p1,k);
-                        M0(i,LM,k) += M0_poly_coeff(LM)(node_types(i),num_lm+p,k) * M0_poly_values(LM)(i,num_lm+p,k);
-                    });
-            }
+            for (int e=0; e<M0_spec.extent(0); ++e)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int m=0; m<M0_spec(e,2); ++m)
+                        M0(i,M0_spec(e,0)+m,k) += M0_weights(node_types(i),e,k) * B0(i,M0_spec(e,1)+m,k);
+                });
         });
 }
-//#endif
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
-    Kokkos::deep_copy(A0_adj, 0.0);
-
-    // local references to class members accessed in the parallel region
-    auto A0 = this->A0;
-    auto A0_adj = this->A0_adj;
-    auto M0_adj = this->M0_adj;
-    auto M0_monomials = this->M0_monomials;
-    auto M0_weights = this->M0_weights;
-    auto num_channels = this->num_channels;
-    auto num_LM = this->num_LM;
-
-    Kokkos::parallel_for(
-        "Reverse M0",
-        Kokkos::MDRangePolicy<Kokkos::Rank<3,Kokkos::Iterate::Right>>(
-            {0,0,0}, {num_nodes,num_LM,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int LM, const int k) {
-            for (int u=0; u<M0_monomials(LM).extent(0); ++u) {
-                for (int v=0; v<M0_monomials(LM).extent(1); ++v) {
-                    if (M0_monomials(LM)(u,v) == -1) break;
-                    double deriv = M0_adj(i,LM,k);
-                    for (int w=0; w<M0_monomials(LM).extent(1); ++w) {
-                        if (M0_monomials(LM)(u,w) == -1) break;
-                        if (v == w) continue;
-                        deriv *= A0(i,M0_monomials(LM)(u,w),k);
-                    }
-                    Kokkos::atomic_add(
-                        &A0_adj(i,M0_monomials(LM)(u,v),k),
-                        M0_weights(LM)(node_types(i),k,u)*deriv);
-                }
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A0_adj.extent(0) < num_nodes)
         Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
-    Kokkos::deep_copy(A0_adj, 0.0);
-    for (int LM=0; LM<num_LM; ++LM) {
-        if (M0_poly_adjoints(LM).extent(0) < num_nodes)
-            M0_poly_adjoints(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
-                Kokkos::view_alloc(std::string("M0_poly_adjoints_")+std::to_string(LM),Kokkos::WithoutInitializing),
-                num_nodes, M0_poly_coeff(LM).extent(1), num_channels);
-    }
+    if (B0_adj.extent(0) < num_nodes)
+        Kokkos::realloc(B0_adj, num_nodes, B0.extent(1), num_channels);
 
-    // TODO: prune
     const auto M0_adj = this->M0_adj;
-    const auto M0_poly_spec = this->M0_poly_spec;
-    const auto M0_poly_coeff = this->M0_poly_coeff;
-    const auto M0_poly_adjoints = this->M0_poly_adjoints;
-    const auto M0_poly_values = this->M0_poly_values;
+    const auto B0_spec = this->B0_spec;
+    const auto B0_coefficients = this->B0_coefficients;
+    const auto M0_spec = this->M0_spec;
+    const auto M0_weights = this->M0_weights;
+    const auto B0 = this->B0;
+    const auto B0_adj = this->B0_adj;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
-    const auto num_LM = this->num_LM;
     auto A0_adj = this->A0_adj;
 
     Kokkos::parallel_for("Reverse M0",
-        Kokkos::TeamPolicy<>(num_nodes*num_LM, Kokkos::AUTO, 32),
+        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_LM;
-            const int LM = team_member.league_rank() % num_LM;
-            // initialize
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, M0_poly_coeff(LM).extent(1), num_channels),
-                [&] (const int p, const int k) {
-                    M0_poly_adjoints(LM)(i,p,k) = M0_poly_coeff(LM)(node_types(i),p,k);
+            const int i = team_member.league_rank();
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int q=0; q<B0_adj.extent(1); ++q)
+                    B0_adj(i,q,k) = 0.0;
+            });
+            for (int e=0; e<M0_spec.extent(0); ++e)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int m=0; m<M0_spec(e,2); ++m)
+                        B0_adj(i,M0_spec(e,1)+m,k) += M0_weights(node_types(i),e,k) * M0_adj(i,M0_spec(e,0)+m,k);
                 });
-            team_member.team_barrier();
-            // backwards pass
-            for (int p=M0_poly_spec(LM).extent(0)-1; p>=0; --p) {
-                const int p0 = M0_poly_spec(LM)(p,0);
-                const int p1 = M0_poly_spec(LM)(p,1);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        // TODO: use scratch space
-                        M0_poly_adjoints(LM)(i,p0,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p1,k);
-                        M0_poly_adjoints(LM)(i,p1,k) += M0_poly_adjoints(LM)(i,num_lm+p,k)*M0_poly_values(LM)(i,p0,k);
-                    });
-            }
-            team_member.team_barrier();
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, num_lm, num_channels),
-                [&] (const int lm, const int k) {
-                    Kokkos::atomic_add(&A0_adj(i,lm,k), M0_poly_adjoints(LM)(i,lm,k) * M0_adj(i,LM,k));
+            for (int t=B0_spec.extent(0)-1; t>=0; --t)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    const Precision g = B0_coefficients(t) * B0_adj(i,B0_spec(t,0),k);
+                    B0_adj(i,B0_spec(t,1),k) += g * B0(i,B0_spec(t,2),k);
+                    B0_adj(i,B0_spec(t,2),k) += g * B0(i,B0_spec(t,1),k);
                 });
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int lm=0; lm<num_lm; ++lm)
+                    A0_adj(i,lm,k) = B0_adj(i,lm,k);
+            });
         });
 }
-//#endif
 
 template <typename Precision>
 void MACEKokkos<Precision>::compute_H1(
@@ -771,29 +654,6 @@ void MACEKokkos<Precision>::compute_Phi1(
     auto Phi1 = this->Phi1;
     auto Phi1r = this->Phi1r;
 
-#if 0
-    Kokkos::parallel_for("Compute Phi1r",
-        Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_lelm1lm2;
-            const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
-            const int i0 = first_neigh(i);
-            const int lm1 = Phi1_lm1(lelm1lm2);
-            const int lm2 = Phi1_lm2(lelm1lm2);
-            const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [=] (const int k) {
-                        Phi1r(i,lelm1lm2,k) += R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * H1(neigh_indices(ij),lm2,k);
-                    });
-            }
-        });
-    Kokkos::fence();
-#endif
-
-//#if 0
     Kokkos::parallel_for("Compute Phi1r",
         Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
              .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(Precision))),
@@ -829,7 +689,6 @@ void MACEKokkos<Precision>::compute_Phi1(
                     Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
                 });
         });
-//#endif
 
     // Compute Phi1 using CG coefficients
     Kokkos::parallel_for("Compute Phi1",
@@ -1135,54 +994,21 @@ void MACEKokkos<Precision>::reverse_A1_scaled(
         });
 }
 
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(M1, num_nodes, num_channels);
-
-    auto A1 = this->A1;
-    auto M1 = this->M1;
-    auto M1_monomials = this->M1_monomials;
-    auto M1_weights = this->M1_weights;
-    auto num_channels = this->num_channels;
-
-    Kokkos::parallel_for(
-        "Compute M1",
-        Kokkos::MDRangePolicy<Kokkos::Rank<2,Kokkos::Iterate::Right>>(
-            {0,0}, {num_nodes,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int k) {
-            M1(i,k) = 0.0;
-            for (int u=0; u<M1_monomials.extent(0); ++u) {
-                double monomial = A1(i,M1_monomials(u,0),k);
-                for (int v=1; v<M1_monomials.extent(1); ++v) {
-                    if (M1_monomials(u,v) == -1)
-                        break;
-                    monomial *= A1(i,M1_monomials(u,v),k);
-                }
-                M1(i,k) += M1_weights(node_types(i),k,u) * monomial;
-            }
-        });
-    Kokkos::fence();
-}
-#endif
-
-//#if 0
 template <typename Precision>
 void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (M1.extent(0) < num_nodes)
         Kokkos::realloc(M1, num_nodes, num_channels);
-    if (M1_poly_values.extent(0) < num_nodes)
-        Kokkos::realloc(M1_poly_values, num_nodes, num_lm+M1_poly_spec.extent(0), num_channels);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M1, 0.0);
+    if (B1.extent(0) < num_nodes)
+        Kokkos::realloc(B1, num_nodes, B1.extent(1), num_channels);
+    Kokkos::deep_copy(M1, 0.0);
 
     const auto A1 = this->A1;
-    const auto M1_monomials = this->M1_monomials;
+    const auto B1_spec = this->B1_spec;
+    const auto B1_coefficients = this->B1_coefficients;
+    const auto M1_spec = this->M1_spec;
     const auto M1_weights = this->M1_weights;
-    const auto M1_poly_spec = this->M1_poly_spec;
-    const auto M1_poly_coeff = this->M1_poly_coeff;
-    const auto M1_poly_values = this->M1_poly_values;
+    const auto B1 = this->B1;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
     auto M1 = this->M1;
@@ -1191,122 +1017,63 @@ void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> n
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            // initialize
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, num_lm, num_channels),
-                [&] (const int p, const int k) {
-                    M1_poly_values(i,p,k) = A1(i,p,k);
-                    Kokkos::atomic_add(&M1(i,k), M1_poly_coeff(node_types(i),p,k) * M1_poly_values(i,p,k));
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int q=0; q<B1.extent(1); ++q)
+                    B1(i,q,k) = (q < num_lm) ? A1(i,q,k) : 0.0;
+            });
+            for (int t=0; t<B1_spec.extent(0); ++t)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    B1(i,B1_spec(t,0),k) +=
+                        B1_coefficients(t) * B1(i,B1_spec(t,1),k) * B1(i,B1_spec(t,2),k);
                 });
-            team_member.team_barrier();
-            // forward pass
-            for (int p=0; p<M1_poly_spec.extent(0); ++p) {
-                const int p0 = M1_poly_spec(p,0);
-                const int p1 = M1_poly_spec(p,1);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        M1_poly_values(i,num_lm+p,k) = M1_poly_values(i,p0,k) * M1_poly_values(i,p1,k);
-                        M1(i,k) += M1_poly_coeff(node_types(i),num_lm+p,k) * M1_poly_values(i,num_lm+p,k);
-                    });
-            }
+            for (int e=0; e<M1_spec.extent(0); ++e)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    M1(i,k) += M1_weights(node_types(i),e,k) * B1(i,M1_spec(e,1),k);
+                });
         });
 }
-//#endif
-
-#if 0
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
-    Kokkos::deep_copy(A1_adj, 0.0);
-
-    auto A1 = this->A1;
-    auto A1_adj = this->A1_adj;
-    auto M1_adj = this->M1_adj;
-    auto M1_monomials = this->M1_monomials;
-    auto M1_weights = this->M1_weights;
-    auto num_channels = this->num_channels;
-
-    Kokkos::parallel_for(
-        "Reverse M1",
-        Kokkos::MDRangePolicy<Kokkos::Rank<2,Kokkos::Iterate::Right>>(
-            {0,0}, {num_nodes,num_channels}),
-        KOKKOS_LAMBDA (const int i, const int k) {
-            for (int u=0; u<M1_monomials.extent(0); ++u) {
-                for (int v=0; v<M1_monomials.extent(1); ++v) {
-                    if (M1_monomials(u,v) == -1) break;
-                    double deriv = M1_adj(i,k);
-                    for (int w=0; w<M1_monomials.extent(1); ++w) {
-                        if (M1_monomials(u,w) == -1) break;
-                        if (v == w) continue;
-                        deriv *= A1(i,M1_monomials(u,w),k);
-                    }
-                    Kokkos::atomic_add(
-                        &A1_adj(i,M1_monomials(u,v),k),
-                        M1_weights(node_types(i),k,u)*deriv);
-                }
-            }
-        });
-    Kokkos::fence();
-}
-#endif
 
 template <typename Precision>
 void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
 {
     if (A1_adj.extent(0) < num_nodes)
         Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
-    if (M1_poly_adjoints.extent(0) < num_nodes)
-        Kokkos::realloc(M1_poly_adjoints, num_nodes, M1_poly_coeff.extent(1), num_channels);
+    if (B1_adj.extent(0) < num_nodes)
+        Kokkos::realloc(B1_adj, num_nodes, B1.extent(1), num_channels);
 
-    // TODO: prune
-    const auto A1_adj = this->A1_adj;
     const auto M1_adj = this->M1_adj;
-    const auto M1_monomials = this->M1_monomials;
+    const auto B1_spec = this->B1_spec;
+    const auto B1_coefficients = this->B1_coefficients;
+    const auto M1_spec = this->M1_spec;
     const auto M1_weights = this->M1_weights;
-    const auto M1_poly_spec = this->M1_poly_spec;
-    const auto M1_poly_coeff = this->M1_poly_coeff;
-    const auto M1_poly_adjoints = this->M1_poly_adjoints;
-    const auto M1_poly_values = this->M1_poly_values;
+    const auto B1 = this->B1;
+    const auto B1_adj = this->B1_adj;
     const auto num_channels = this->num_channels;
     const auto num_lm = this->num_lm;
-    auto M1 = this->M1;
+    auto A1_adj = this->A1_adj;
 
     Kokkos::parallel_for("Reverse M1",
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            // initialize
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, M1_poly_coeff.extent(1), num_channels),
-                [&] (const int p, const int k) {
-                    M1_poly_adjoints(i,p,k) = M1_poly_coeff(node_types(i),p,k);
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int q=0; q<B1_adj.extent(1); ++q)
+                    B1_adj(i,q,k) = 0.0;
+            });
+            for (int e=0; e<M1_spec.extent(0); ++e)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    B1_adj(i,M1_spec(e,1),k) += M1_weights(node_types(i),e,k) * M1_adj(i,k);
                 });
-            team_member.team_barrier();
-            // backwards pass
-            for (int p=M1_poly_spec.extent(0)-1; p>=0; --p) {
-                const int p0 = M1_poly_spec(p,0);
-                const int p1 = M1_poly_spec(p,1);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        M1_poly_adjoints(i,p0,k) += M1_poly_adjoints(i,num_lm+p,k)*M1_poly_values(i,p1,k);
-                        M1_poly_adjoints(i,p1,k) += M1_poly_adjoints(i,num_lm+p,k)*M1_poly_values(i,p0,k);
-                    });
-            }
-            team_member.team_barrier();
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorMDRange<
-                    Kokkos::Rank<2,Kokkos::Iterate::Right>,Kokkos::TeamPolicy<>::member_type>(
-                        team_member, num_lm, num_channels),
-                [&] (const int lm, const int k) {
-                    A1_adj(i,lm,k) = M1_poly_adjoints(i,lm,k) * M1_adj(i,k);
+            for (int t=B1_spec.extent(0)-1; t>=0; --t)
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    const Precision g = B1_coefficients(t) * B1_adj(i,B1_spec(t,0),k);
+                    B1_adj(i,B1_spec(t,1),k) += g * B1(i,B1_spec(t,2),k);
+                    B1_adj(i,B1_spec(t,2),k) += g * B1(i,B1_spec(t,1),k);
                 });
+            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                for (int lm=0; lm<num_lm; ++lm)
+                    A1_adj(i,lm,k) = B1_adj(i,lm,k);
+            });
         });
 }
 
@@ -1558,83 +1325,41 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         A0_splines = RadialFunctionSetKokkos<double>(A0_spline_r_min, r_cut, A0_spline_values, A0_spline_derivs);
     }
 
-    // M0 weights and monomials
-    auto M0_weights_file = file["M0_weights"].get<std::map<std::string,std::map<std::string,std::map<std::string,std::vector<double>>>>>();
-    auto M0_monomials_file = file["M0_monomials"].get<std::map<std::string,std::vector<std::vector<int>>>>();
-    M0_weights = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_weights", Kokkos::SequentialHostInit), num_LM);
-    M0_monomials = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_monomials", Kokkos::SequentialHostInit), num_LM);
-    for (int LM=0; LM<num_LM; ++LM) {
-        M0_weights(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
-            Kokkos::view_alloc(std::string("M0_weights_") + std::to_string(LM), Kokkos::WithoutInitializing),
-            atomic_numbers.size(), num_channels, M0_monomials_file[std::to_string(LM)].size());
-        auto h_M0_weights_LM = Kokkos::create_mirror_view(M0_weights(LM));
-        for (int a=0; a<atomic_numbers.size(); ++a)
-            for (int k=0; k<num_channels; ++k)
-                for (int w=0; w<M0_monomials_file[std::to_string(LM)].size(); ++w)
-                    h_M0_weights_LM(a,k,w) = M0_weights_file[std::to_string(a)][std::to_string(LM)][std::to_string(k)][w];
-        Kokkos::deep_copy(M0_weights(LM), h_M0_weights_LM);
-        M0_monomials(LM) = Kokkos::View<int**,Kokkos::LayoutRight>(
-            Kokkos::view_alloc(std::string("M0_monomials_") + std::to_string(LM), Kokkos::WithoutInitializing),
-            M0_monomials_file[std::to_string(LM)].size(), 3);// TODO: hardcoded 3
-        auto h_M0_monomials_LM = Kokkos::create_mirror_view(M0_monomials(LM));
-        Kokkos::deep_copy(h_M0_monomials_LM, -1);
-        for (int i=0; i<M0_monomials_file[std::to_string(LM)].size(); ++i) {
-            for (int j=0; j<M0_monomials_file[std::to_string(LM)][i].size(); ++j) {
-                h_M0_monomials_LM(i,j) = M0_monomials_file[std::to_string(LM)][i][j];
-            }
+    auto load_contraction = [&] (std::string l, auto& B_spec, auto& B_coefficients, auto& M_spec, auto& M_weights,
+                                 auto& B) {
+        const auto file_B_spec = file["B"+l+"_spec"].get<std::vector<std::array<int,3>>>();
+        const auto file_B_coefficients = file["B"+l+"_coefficients"].get<std::vector<double>>();
+        const auto file_M_spec = file["M"+l+"_spec"].get<std::vector<std::array<int,3>>>();
+        const auto file_M_weights = file["M"+l+"_weights"].get<std::vector<std::vector<std::vector<double>>>>();
+        Kokkos::realloc(B_spec, file_B_spec.size(), 3);
+        Kokkos::realloc(B_coefficients, file_B_spec.size());
+        Kokkos::realloc(M_spec, file_M_spec.size(), 3);
+        Kokkos::realloc(M_weights, file_M_weights.size(), file_M_spec.size(), num_channels);
+        auto h_B_spec = Kokkos::create_mirror_view(B_spec);
+        auto h_B_coefficients = Kokkos::create_mirror_view(B_coefficients);
+        auto h_M_spec = Kokkos::create_mirror_view(M_spec);
+        auto h_M_weights = Kokkos::create_mirror_view(M_weights);
+        int num_B = num_lm;
+        for (int t=0; t<file_B_spec.size(); ++t) {
+            for (int j=0; j<3; ++j)
+                h_B_spec(t,j) = file_B_spec[t][j];
+            h_B_coefficients(t) = file_B_coefficients[t];
+            num_B = std::max(num_B, file_B_spec[t][0]+1);
         }
-        Kokkos::deep_copy(M0_monomials(LM), h_M0_monomials_LM);
-    }
-
-    // M0_poly_spec
-    M0_poly_spec = Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_poly_spec",Kokkos::SequentialHostInit), num_LM);
-    for (int LM=0; LM<num_LM; ++LM) {
-        auto P = MultivariatePolynomial(
-            num_lm,
-            M0_weights_file[std::to_string(0)][std::to_string(LM)][std::to_string(0)],
-            M0_monomials_file[std::to_string(LM)]);
-        M0_poly_spec(LM) = Kokkos::View<int**,Kokkos::LayoutRight>(
-            Kokkos::view_alloc(std::string("M0_poly_spec_")+std::to_string(LM),Kokkos::WithoutInitializing),
-            P.edges.size(), 2);
-        auto h_M0_poly_spec_LM = Kokkos::create_mirror_view(M0_poly_spec(LM));
-        for (int p=0; p<P.edges.size(); ++p) {
-            h_M0_poly_spec_LM(p,0) = P.edges[p][0];
-            h_M0_poly_spec_LM(p,1) = P.edges[p][1];
+        for (int e=0; e<file_M_spec.size(); ++e) {
+            for (int j=0; j<3; ++j)
+                h_M_spec(e,j) = file_M_spec[e][j];
+            for (int a=0; a<file_M_weights.size(); ++a)
+                for (int k=0; k<num_channels; ++k)
+                    h_M_weights(a,e,k) = file_M_weights[a][e][k];
         }
-        Kokkos::deep_copy(M0_poly_spec(LM), h_M0_poly_spec_LM);
-    }
-    // M0_poly_coeff
-    M0_poly_coeff = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_poly_coeff",Kokkos::SequentialHostInit), num_LM);
-    for (int LM=0; LM<num_LM; ++LM) {
-        auto P = MultivariatePolynomial(
-            num_lm,
-            M0_weights_file[std::to_string(0)][std::to_string(LM)][std::to_string(0)],
-            M0_monomials_file[std::to_string(LM)]);
-        M0_poly_coeff(LM) = Kokkos::View<Precision***,Kokkos::LayoutRight>(
-            Kokkos::view_alloc(std::string("M0_poly_coeff_")+std::to_string(LM),Kokkos::WithoutInitializing),
-            atomic_numbers.size(), P.node_coefficients.size(), num_channels);
-        auto h_M0_poly_coeff_LM = Kokkos::create_mirror_view(M0_poly_coeff(LM));
-        for (int a=0; a<atomic_numbers.size(); ++a) {
-            for (int k=0; k<num_channels; ++k) {
-                auto P = MultivariatePolynomial(
-                    num_lm,
-                    M0_weights_file[std::to_string(a)][std::to_string(LM)][std::to_string(k)],
-                    M0_monomials_file[std::to_string(LM)]);
-                for (int p=0; p<P.node_coefficients.size(); ++p) {
-                    h_M0_poly_coeff_LM(a,p,k) = P.node_coefficients[p];
-                }
-            }
-        }
-        Kokkos::deep_copy(M0_poly_coeff(LM), h_M0_poly_coeff_LM);
-    }
-    M0_poly_values = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_poly_values",Kokkos::SequentialHostInit), num_LM);
-    M0_poly_adjoints = Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace>(
-        Kokkos::view_alloc("M0_poly_adjoints",Kokkos::SequentialHostInit), num_LM);
+        Kokkos::deep_copy(B_spec, h_B_spec);
+        Kokkos::deep_copy(B_coefficients, h_B_coefficients);
+        Kokkos::deep_copy(M_spec, h_M_spec);
+        Kokkos::deep_copy(M_weights, h_M_weights);
+        Kokkos::realloc(B, 0, num_B, num_channels);
+    };
+    load_contraction("0", B0_spec, B0_coefficients, M0_spec, M0_weights, B0);
 
     // H1 weights
     set_kokkos_view(
@@ -1708,53 +1433,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         A1_splines = RadialFunctionSetKokkos<double>(A1_spline_r_min, r_cut, A1_spline_values, A1_spline_derivs);
     }
 
-    // M1 weights and monomials
-    auto M1_weights = file["M1_weights"].get<std::map<std::string,std::map<std::string,std::vector<double>>>>();
-    const int num_terms = M1_weights[std::to_string(0)][std::to_string(0)].size();
-    Kokkos::resize(this->M1_weights, atomic_numbers.size(), num_channels, num_terms);
-    auto h_M1_weights = Kokkos::create_mirror_view(this->M1_weights);
-    for (int a=0; a<atomic_numbers.size(); ++a)
-        for (int k=0; k<num_channels; ++k)
-            for (int w=0; w<num_terms; ++w)
-                h_M1_weights(a,k,w) = M1_weights[std::to_string(a)][std::to_string(k)][w];
-    Kokkos::deep_copy(this->M1_weights, h_M1_weights);
-    auto M1_monomials = file["M1_monomials"].get<std::vector<std::vector<int>>>();
-    Kokkos::resize(this->M1_monomials, num_terms, 3);// TODO: hardcoded 3
-    auto h_M1_monomials = Kokkos::create_mirror_view(this->M1_monomials);
-    Kokkos::deep_copy(h_M1_monomials, -1);
-    for (int i=0; i<num_terms; ++i)
-        for (int j=0; j<M1_monomials[i].size(); ++j)
-            h_M1_monomials(i,j) = M1_monomials[i][j];
-    Kokkos::deep_copy(this->M1_monomials, h_M1_monomials);
-    // Begin recursive
-    auto P1 = std::vector<MultivariatePolynomial>();
-    for (int a=0; a<atomic_numbers.size(); ++a) {
-        for (int k=0; k<num_channels; ++k) {
-            P1.push_back(MultivariatePolynomial(
-                num_lm,
-                M1_weights[std::to_string(a)][std::to_string(k)],
-                M1_monomials));
-        }
-    }
-    // M1_poly_spec
-    Kokkos::realloc(M1_poly_spec, P1[0].edges.size(), 2);
-    auto h_M1_poly_spec = Kokkos::create_mirror_view(M1_poly_spec);
-    for (int p=0; p<P1[0].edges.size(); ++p) {
-        h_M1_poly_spec(p,0) = P1[0].edges[p][0];
-        h_M1_poly_spec(p,1) = P1[0].edges[p][1];
-    }
-    Kokkos::deep_copy(M1_poly_spec, h_M1_poly_spec);
-    // M1_poly_coeff
-    Kokkos::realloc(M1_poly_coeff, atomic_numbers.size(), num_lm+P1[0].edges.size(), num_channels);
-    auto h_M1_poly_coeff = Kokkos::create_mirror_view(M1_poly_coeff);
-    for (int a=0; a<atomic_numbers.size(); ++a) {
-        for (int p=0; p<num_lm+P1[0].edges.size(); ++p) {
-            for (int k=0; k<num_channels; ++k) {
-                h_M1_poly_coeff(a,p,k) = P1[a*num_channels+k].node_coefficients[p];
-            }
-        }
-    }
-    Kokkos::deep_copy(M1_poly_coeff, h_M1_poly_coeff);
+    load_contraction("1", B1_spec, B1_coefficients, M1_spec, M1_weights, B1);
 
     // H2
     auto H2_weights_for_H1_vec = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
