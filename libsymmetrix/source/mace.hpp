@@ -112,11 +112,11 @@ void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
 
 // Phi1
-int num_lelm1lm2, num_lme;
-std::vector<double> Phi1r, dPhi1r;
+int num_lme;
 std::vector<double> Phi1, dPhi1;
-std::vector<int> Phi1_l, Phi1_lel1l2, Phi1_lm1, Phi1_lm2;
-std::vector<int> Phi1_lme, Phi1_lelm1lm2;
+std::vector<int> Phi1_l;
+std::vector<std::array<int,3>> Phi1_spec;
+std::vector<std::array<int,2>> Phi1_cg_spec;
 std::vector<double> Phi1_clebsch_gordan;
 void compute_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices);
 void reverse_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices, std::span<const double> xyz, std::span<const double> r, bool zero_dxyz = true, bool zero_H1_adj = true);

@@ -447,40 +447,31 @@ void MACE::compute_Phi1(
     std::span<const int> num_neigh,
     std::span<const int> neigh_indices)
 {
-    // Compute Phi1_lelm1lm2 (named Phi1r)
-    Phi1r.resize(num_nodes*num_lelm1lm2*num_channels);
-    std::fill(Phi1r.begin(), Phi1r.end(), 0.0);
+    // Compute Phi1 using CG coefficients contracted with Y (named CG_Y)
+    Phi1.resize(num_nodes*num_lme*num_channels);
+    std::fill(Phi1.begin(), Phi1.end(), 0.0);
+    auto CG_Y = std::vector<double>(Phi1_spec.size());
     int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
-        auto Phi1r_i = Phi1r.data()+i*num_lelm1lm2*num_channels;
+        auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
         for (int j=0; j<num_neigh[i]; ++j) {
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
-            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
-                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
-                const double Y_ij_lm1 = Y_ij[Phi1_lm1[lelm1lm2]];
-                auto H1_ij_lm2 = H1_ij+Phi1_lm2[lelm1lm2]*num_channels;
-                auto Phi1r_i_lelm1lm2 = Phi1r_i+lelm1lm2*num_channels;
-                for (int k=0; k<num_channels; ++k) {
-                    Phi1r_i_lelm1lm2[k] += R1_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k];
-                }
+            std::fill(CG_Y.begin(), CG_Y.end(), 0.0);
+            for (int p=0; p<Phi1_cg_spec.size(); ++p) {
+                const auto [q, lm1] = Phi1_cg_spec[p];
+                CG_Y[q] += Phi1_clebsch_gordan[p] * Y_ij[lm1];
+            }
+            for (int q=0; q<Phi1_spec.size(); ++q) {
+                const auto [lme, lel1l2, lm2] = Phi1_spec[q];
+                auto Phi1_i_lme = Phi1_i+lme*num_channels;
+                auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
+                auto H1_ij_lm2 = H1_ij+lm2*num_channels;
+                for (int k=0; k<num_channels; ++k)
+                    Phi1_i_lme[k] += CG_Y[q] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
             }
             ij += 1;
-        }
-    }
-    // Compute Phi1 using CG coefficients
-    Phi1.resize(num_nodes*num_lme*num_channels);
-    std::fill(Phi1.begin(), Phi1.end(), 0.0);
-    for (int i=0; i<num_nodes; ++i) {
-        auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
-        auto Phi1r_i = Phi1r.data()+i*num_lelm1lm2*num_channels;
-        for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
-            auto Phi1_i_lme = Phi1_i+Phi1_lme[p]*num_channels;
-            const double C = Phi1_clebsch_gordan[p];
-            auto Phi1r_i_lelm1lm2 = Phi1r_i+Phi1_lelm1lm2[p]*num_channels;
-            for (int k=0; k<num_channels; ++k)
-                Phi1_i_lme[k] += C * Phi1r_i_lelm1lm2[k];
         }
     }
 }
@@ -494,27 +485,18 @@ void MACE::reverse_Phi1(
     bool zero_dxyz,
     bool zero_H1_adj)
 {
-    // Compute dE/dPhi1 (named dPhi1)
-    dPhi1r.resize(Phi1r.size());
-    std::fill(dPhi1r.begin(), dPhi1r.end(), 0.0);
-    for (int i=0; i<num_nodes; ++i) {
-        auto dPhi1r_i = dPhi1r.data()+i*num_lelm1lm2*num_channels;
-        auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
-        for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
-            auto dPhi1r_i_lelm1lm2 = dPhi1r_i+Phi1_lelm1lm2[p]*num_channels;
-            const double C = Phi1_clebsch_gordan[p];
-            auto dPhi1_i_lme = dPhi1_i+Phi1_lme[p]*num_channels;
-            for (int k=0; k<num_channels; ++k)
-                dPhi1r_i_lelm1lm2[k] += C * dPhi1_i_lme[k];
-        }
-    }
-    // Compute partial forces
+    // Compute partial forces and dE/dH1
     node_forces.resize(xyz.size());
     if (zero_dxyz)
         std::fill(node_forces.begin(), node_forces.end(), 0.0);
+    H1_adj.resize(H1.size());
+    if (zero_H1_adj)
+        std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
+    auto CG_Y = std::vector<double>(Phi1_spec.size());
+    auto CG_Y_adj = std::vector<double>(Phi1_spec.size());
     int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
-        auto dPhi1r_i = dPhi1r.data()+i*num_lelm1lm2*num_channels;
+        auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
         for (int j=0; j<num_neigh[i]; ++j) {
             auto node_forces_ij = node_forces.data()+3*ij;
             auto xyz_ij = xyz.data()+3*ij;
@@ -524,49 +506,34 @@ void MACE::reverse_Phi1(
             auto Y_ij = Y.data()+ij*num_lm;
             auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
-            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
-                const int lm1 = Phi1_lm1[lelm1lm2];
-                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
-                auto R1_deriv_ij_lel1l2 = R1_deriv_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
-                const double Y_ij_lm1 = Y_ij[lm1];
-                const double Y_grad_ij_x_lm1 = Y_grad_ij[0*num_lm+lm1];
-                const double Y_grad_ij_y_lm1 = Y_grad_ij[1*num_lm+lm1];
-                const double Y_grad_ij_z_lm1 = Y_grad_ij[2*num_lm+lm1];
-                auto H1_ij_lm2 = H1_ij+Phi1_lm2[lelm1lm2]*num_channels;
-                auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
-                for (int k=0; k<num_channels; ++k) {
-                    node_forces_ij[0] += -dPhi1r_i_lelm1lm2[k] * (
-                        xyz_ij[0]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                            + R1_ij_lel1l2[k] * Y_grad_ij_x_lm1 * H1_ij_lm2[k]);
-                    node_forces_ij[1] += -dPhi1r_i_lelm1lm2[k] * (
-                        xyz_ij[1]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                            + R1_ij_lel1l2[k] * Y_grad_ij_y_lm1 * H1_ij_lm2[k]);
-                    node_forces_ij[2] += -dPhi1r_i_lelm1lm2[k] * (
-                        xyz_ij[2]/r_ij * R1_deriv_ij_lel1l2[k] * Y_ij_lm1 * H1_ij_lm2[k]
-                            + R1_ij_lel1l2[k] * Y_grad_ij_z_lm1 * H1_ij_lm2[k]);
-                }
-            }
-            ij += 1;
-        }
-    }
-    // Compute dE/dH1 (named dH1)
-    H1_adj.resize(H1.size());
-    if (zero_H1_adj)
-        std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
-    ij = 0;
-    for (int i=0; i<num_nodes; ++i) {
-        auto dPhi1r_i = dPhi1r.data()+i*num_lelm1lm2*num_channels;
-        for (int j=0; j<num_neigh[i]; ++j) {
-            auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
-            auto Y_ij = Y.data()+ij*num_lm;
             auto H1_adj_ij = H1_adj.data()+neigh_indices[ij]*num_LM*num_channels;
-            for (int lelm1lm2=0; lelm1lm2<num_lelm1lm2; ++lelm1lm2) {
-                auto R1_ij_lel1l2 = R1_ij+Phi1_lel1l2[lelm1lm2]*num_channels;
-                auto H1_adj_ij_lm2 = H1_adj_ij+Phi1_lm2[lelm1lm2]*num_channels;
-                auto dPhi1r_i_lelm1lm2 = dPhi1r_i+lelm1lm2*num_channels;
+            std::fill(CG_Y.begin(), CG_Y.end(), 0.0);
+            for (int p=0; p<Phi1_cg_spec.size(); ++p) {
+                const auto [q, lm1] = Phi1_cg_spec[p];
+                CG_Y[q] += Phi1_clebsch_gordan[p] * Y_ij[lm1];
+            }
+            double dE_dr = 0.0;
+            for (int q=0; q<Phi1_spec.size(); ++q) {
+                const auto [lme, lel1l2, lm2] = Phi1_spec[q];
+                auto dPhi1_i_lme = dPhi1_i+lme*num_channels;
+                auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
+                auto R1_deriv_ij_lel1l2 = R1_deriv_ij+lel1l2*num_channels;
+                auto H1_ij_lm2 = H1_ij+lm2*num_channels;
+                auto H1_adj_ij_lm2 = H1_adj_ij+lm2*num_channels;
+                double g = 0.0;
                 for (int k=0; k<num_channels; ++k) {
-                    H1_adj_ij_lm2[k] += R1_ij_lel1l2[k]*Y_ij[Phi1_lm1[lelm1lm2]]*dPhi1r_i_lelm1lm2[k];
+                    g += dPhi1_i_lme[k] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
+                    dE_dr += dPhi1_i_lme[k] * CG_Y[q] * R1_deriv_ij_lel1l2[k] * H1_ij_lm2[k];
+                    H1_adj_ij_lm2[k] += dPhi1_i_lme[k] * CG_Y[q] * R1_ij_lel1l2[k];
                 }
+                CG_Y_adj[q] = g;
+            }
+            for (int a=0; a<3; ++a)
+                node_forces_ij[a] -= dE_dr * xyz_ij[a]/r_ij;
+            for (int p=0; p<Phi1_cg_spec.size(); ++p) {
+                const auto [q, lm1] = Phi1_cg_spec[p];
+                for (int a=0; a<3; ++a)
+                    node_forces_ij[a] -= Phi1_clebsch_gordan[p] * Y_grad_ij[a*num_lm+lm1] * CG_Y_adj[q];
             }
             ij += 1;
         }
@@ -963,16 +930,12 @@ void MACE::load_from_json(
 
     // Phi1
     Phi1_l = file["Phi1_l"].get<std::vector<int>>();
-    Phi1_lel1l2 = file["Phi1_lel1l2"].get<std::vector<int>>();
-    Phi1_lm1 = file["Phi1_lm1"].get<std::vector<int>>();
-    Phi1_lm2 = file["Phi1_lm2"].get<std::vector<int>>();
-    Phi1_lme = file["Phi1_lme"].get<std::vector<int>>();
+    Phi1_spec = file["Phi1_spec"].get<std::vector<std::array<int,3>>>();
+    Phi1_cg_spec = file["Phi1_cg_spec"].get<std::vector<std::array<int,2>>>();
     Phi1_clebsch_gordan = file["Phi1_clebsch_gordan"].get<std::vector<double>>();
-    Phi1_lelm1lm2 = file["Phi1_lelm1lm2"].get<std::vector<int>>();
     num_lme = 0;
     for (auto l : Phi1_l)
         num_lme += 2*l+1;
-    num_lelm1lm2 = Phi1_lm1.size();
 
     // A1
     A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();

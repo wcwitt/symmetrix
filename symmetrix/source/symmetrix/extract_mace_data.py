@@ -373,6 +373,13 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     output["Phi1_lme"] = Phi1_lme
     output["Phi1_clebsch_gordan"] = Phi1_clebsch_gordan
     output["Phi1_lelm1lm2"] = [Phi1_terms.index(t) for t in Phi1_lelm1lm2]
+    # Phi1[lme] += CG_Y[q] R1[lel1l2] H1[lm2], with CG_Y[q] += CG Y[lm1]
+    terms = list(zip(Phi1_lme, Phi1_lelm1lm2))
+    Phi1_spec = sorted(set((lme, le, lm2) for lme, (le, _, lm2) in terms))
+    output["Phi1_spec"] = Phi1_spec
+    output["Phi1_cg_spec"] = [
+        [Phi1_spec.index((lme, le, lm2)), lm1] for lme, (le, lm1, lm2) in terms
+    ]
 
     ### ----- A1 -----
 
