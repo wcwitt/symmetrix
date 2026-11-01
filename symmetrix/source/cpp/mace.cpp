@@ -238,11 +238,9 @@ void bind_mace(py::module_ &m)
             })
         .def("reverse_H2",
             [](MACE& self, const int num_nodes,
-                           py::array_t<int> node_types,
-                           bool zero_H1_adj) {
+                           py::array_t<int> node_types) {
                 self.reverse_H2(num_nodes,
-                                std::span<const int>(node_types.data(), node_types.size()),
-                                zero_H1_adj);
+                                std::span<const int>(node_types.data(), node_types.size()));
             })
         .def("compute_readouts",
             [](MACE& self, const int num_nodes,

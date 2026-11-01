@@ -86,7 +86,7 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
 
     compute_readouts(num_nodes, node_types);
 
-    reverse_H2(num_nodes, node_types, false);
+    reverse_H2(num_nodes, node_types);
     reverse_M1(num_nodes, node_types);
     reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
     reverse_A1(num_nodes);
@@ -602,7 +602,7 @@ void MACEKokkos<Precision>::reverse_H1(
     const int num_nodes)
 {
     if (M0_adj.extent(0) < M0.extent(0))
-        Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
+        Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
 
     auto L_max = this->L_max;
     auto M0_adj = this->M0_adj;
@@ -621,7 +621,7 @@ void MACEKokkos<Precision>::reverse_H1(
                                     KokkosBatched::Trans::NoTranspose,
                                     KokkosBatched::Trans::NoTranspose,
                                     KokkosBatched::Algo::Gemm::Unblocked>
-                ::invoke(team_member, 1.0, H1_adj_il, W_il, 0.0, M0_adj_il);
+                ::invoke(team_member, 1.0, H1_adj_il, W_il, l == 0 ? 1.0 : 0.0, M0_adj_il);
         });
 }
 
@@ -1086,19 +1086,19 @@ void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> n
 
     auto num_channels = this->num_channels;
     auto H2 = this->H2;
-    auto H2_weights_for_H1 = this->H2_weights_for_H1;
-    auto H1 = this->H1;
+    auto H2_weights_for_M0 = this->H2_weights_for_M0;
+    auto M0 = this->M0;
     auto H2_weights_for_M1 = this->H2_weights_for_M1;
     auto M1 = this->M1;
 
     Kokkos::parallel_for(
-        "Compute H2 from H1",
+        "Compute H2 from M0",
         num_nodes*num_channels,
         KOKKOS_LAMBDA (const int ik) {
             const int i = ik / num_channels;
             const int k = ik % num_channels;
                 for (int kp=0; kp<num_channels; ++kp) {
-                    H2(i,k) += H2_weights_for_H1(node_types(i),kp*num_channels+k) * H1(i,0,kp);
+                    H2(i,k) += H2_weights_for_M0(node_types(i),kp*num_channels+k) * M0(i,0,kp);
                 }
         });
     Kokkos::parallel_for(
@@ -1114,21 +1114,18 @@ void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> n
 }
 
 template <typename Precision>
-void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj)
+void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types)
 {
-    if (H1_adj.extent(0) < H1.extent(0))
-        Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (M0_adj.extent(0) < M0.extent(0))
+        Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
     if (M1_adj.extent(0) < M1.extent(0))
         Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
 
-    if (zero_H1_adj)
-        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
-
     auto num_channels = this->num_channels;
-    auto H1_adj = this->H1_adj;
+    auto M0_adj = this->M0_adj;
     auto M1_adj = this->M1_adj;
     auto H2_adj = this->H2_adj;
-    auto H2_weights_for_H1_trans = this->H2_weights_for_H1_trans;
+    auto H2_weights_for_M0_trans = this->H2_weights_for_M0_trans;
     auto H2_weights_for_M1_trans = this->H2_weights_for_M1_trans;
 
     Kokkos::parallel_for(
@@ -1137,13 +1134,13 @@ void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> n
         KOKKOS_LAMBDA (const int ik) {
             const int i = ik / num_channels;
             const int k = ik % num_channels;
-            double H1_adj_ik = 0;
+            double M0_adj_ik = 0;
             double M1_adj_ik = 0;
             for (int kp=0; kp<num_channels; ++kp) {
-                H1_adj_ik += H2_weights_for_H1_trans(node_types(i),kp*num_channels+k) * H2_adj(i,kp);
+                M0_adj_ik += H2_weights_for_M0_trans(node_types(i),kp*num_channels+k) * H2_adj(i,kp);
                 M1_adj_ik += H2_weights_for_M1_trans(kp*num_channels+k) * H2_adj(i,kp);
             }
-            H1_adj(i,0,k) += H1_adj_ik;
+            M0_adj(i,0,k) += M0_adj_ik;
             M1_adj(i,k) = M1_adj_ik;
         });
 }
@@ -1153,6 +1150,8 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
 {
     if (H1_adj.extent(0) < H1.extent(0))
         Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+    if (M0_adj.extent(0) < M0.extent(0))
+        Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
     if (H2_adj.extent(0) < num_nodes or H2_adj.extent(1) != num_channels)
         Kokkos::realloc(H2_adj, num_nodes, num_channels);
     if (readout_2_output.extent(0) < num_nodes)
@@ -1162,13 +1161,14 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     //          it matters when the number of nodes associated with H1 is greater than num_nodes.
     //          There is probably a better way to manage this.
     Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
+    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M0_adj, 0.0);
 
     auto num_channels = this->num_channels;
     auto node_energies = this->node_energies;
     auto atomic_energies = this->atomic_energies;
-    auto H1 = this->H1;
-    auto H1_adj = this->H1_adj;
-    auto readout_1_weights = this->readout_1_weights;
+    auto M0 = this->M0;
+    auto M0_adj = this->M0_adj;
+    auto readout_1_weights_for_M0 = this->readout_1_weights_for_M0;
 
     // atomic energies
     Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
@@ -1177,8 +1177,8 @@ double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View
     // first readout
     Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
         for (int k=0; k<num_channels; ++k) {
-            node_energies(i) += readout_1_weights(k) * H1(i,0,k);
-            H1_adj(i,0,k) = readout_1_weights(k);
+            node_energies(i) += readout_1_weights_for_M0(k) * M0(i,0,k);
+            M0_adj(i,0,k) = readout_1_weights_for_M0(k);
         }
     });
     Kokkos::fence();
@@ -1436,19 +1436,19 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     load_contraction("1", B1_spec, B1_coefficients, M1_spec, M1_weights, B1);
 
     // H2
-    auto H2_weights_for_H1_vec = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
-    H2_weights_for_H1 = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_H1", num_elements, num_channels*num_channels);
-    H2_weights_for_H1_trans = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_H1_trans", num_elements, num_channels*num_channels);
-    auto h_H2_weights_for_H1 = Kokkos::create_mirror_view(H2_weights_for_H1);
-    auto h_H2_weights_for_H1_trans = Kokkos::create_mirror_view(H2_weights_for_H1_trans);
+    auto H2_weights_for_M0_vec = file["H2_weights_for_M0"].get<std::vector<std::vector<double>>>();
+    H2_weights_for_M0 = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_M0", num_elements, num_channels*num_channels);
+    H2_weights_for_M0_trans = Kokkos::View<double**,Kokkos::LayoutRight>("H2_weights_for_M0_trans", num_elements, num_channels*num_channels);
+    auto h_H2_weights_for_M0 = Kokkos::create_mirror_view(H2_weights_for_M0);
+    auto h_H2_weights_for_M0_trans = Kokkos::create_mirror_view(H2_weights_for_M0_trans);
     for (int i=0; i<num_elements; ++i)
         for (int k=0; k<num_channels; ++k)
             for (int kp=0; kp<num_channels; ++kp) {
-                h_H2_weights_for_H1(i,k*num_channels+kp) = H2_weights_for_H1_vec[i][k*num_channels+kp];
-                h_H2_weights_for_H1_trans(i,kp*num_channels+k) = H2_weights_for_H1_vec[i][k*num_channels+kp];
+                h_H2_weights_for_M0(i,k*num_channels+kp) = H2_weights_for_M0_vec[i][k*num_channels+kp];
+                h_H2_weights_for_M0_trans(i,kp*num_channels+k) = H2_weights_for_M0_vec[i][k*num_channels+kp];
             }
-    Kokkos::deep_copy(H2_weights_for_H1, h_H2_weights_for_H1);
-    Kokkos::deep_copy(H2_weights_for_H1_trans, h_H2_weights_for_H1_trans);
+    Kokkos::deep_copy(H2_weights_for_M0, h_H2_weights_for_M0);
+    Kokkos::deep_copy(H2_weights_for_M0_trans, h_H2_weights_for_M0_trans);
     auto H2_weights_for_M1_vec = file["H2_weights_for_M1"].get<std::vector<double>>();
     auto H2_weights_for_M1_trans_vec = H2_weights_for_M1_vec;
     for (int k=0; k<num_channels; ++k)
@@ -1460,7 +1460,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
     // Readouts
     // WARNING!
     // hardcoded 16
-    readout_1_weights = toKokkosView("readout_1_weights", file["readout_1_weights"].get<std::vector<double>>());
+    readout_1_weights_for_M0 = toKokkosView("readout_1_weights_for_M0", file["readout_1_weights_for_M0"].get<std::vector<double>>());
     auto readout_2_weights_1 = file["readout_2_weights_1"].get<std::vector<double>>();
     auto readout_2_weights_2 = file["readout_2_weights_2"].get<std::vector<double>>();
     readout_2 = MultilayerPerceptronKokkos(

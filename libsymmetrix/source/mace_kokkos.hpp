@@ -164,13 +164,13 @@ void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 
 // H2
 Kokkos::View<double**,Kokkos::LayoutRight> H2, H2_adj;
-Kokkos::View<double**,Kokkos::LayoutRight> H2_weights_for_H1, H2_weights_for_H1_trans;
+Kokkos::View<double**,Kokkos::LayoutRight> H2_weights_for_M0, H2_weights_for_M0_trans;
 Kokkos::View<double*> H2_weights_for_M1, H2_weights_for_M1_trans;
 void compute_H2(int num_nodes, Kokkos::View<const int*> node_types);
-void reverse_H2(int num_nodes, Kokkos::View<const int*> node_types, bool zero_H1_adj = true);
+void reverse_H2(int num_nodes, Kokkos::View<const int*> node_types);
 
 // Readouts
-Kokkos::View<double*> readout_1_weights;
+Kokkos::View<double*> readout_1_weights_for_M0;
 MultilayerPerceptronKokkos readout_2;
 Kokkos::View<double*> readout_2_output;
 double compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types);

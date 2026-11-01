@@ -405,12 +405,10 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
         .def("reverse_H2",
             [] (MACEKokkos<Precision>& self,
                     const int num_nodes,
-                    py::array_t<int> node_types,
-                    bool zero_H1_adj) {
+                    py::array_t<int> node_types) {
                 self.reverse_H2(
                     num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    zero_H1_adj);
+                    create_kokkos_view("node_types", node_types));
             })
         // readouts
         .def("compute_readouts",

@@ -296,6 +296,7 @@ def test_H1():
     # compute analytical gradient
     f(evaluator.M0)
     evaluator.H1_adj = np.ones(len(evaluator.H1))
+    evaluator.M0_adj = np.zeros(len(evaluator.M0))
     evaluator.reverse_H1(num_nodes)
     g = evaluator.M0_adj
     # compare with numerical gradient
@@ -587,19 +588,20 @@ def test_H2():
     assert sum(evaluator.H2) == pytest.approx(H2_sum, abs=1e-4)
 
     ### REVERSE
-    # define f(H1)=sum(H2), used to test dH2/dH1
-    def f(H1):
-        evaluator.H1 = H1
+    # define f(M0)=sum(H2), used to test dH2/dM0
+    def f(M0):
+        evaluator.M0 = M0
         evaluator.compute_H2(num_nodes, node_types)
         return np.sum(evaluator.H2)
 
     # compute analytical gradient
-    f(evaluator.H1)
+    f(evaluator.M0)
     evaluator.H2_adj = np.ones(len(evaluator.H2))
-    evaluator.reverse_H2(num_nodes, node_types, True)
-    g = evaluator.H1_adj
+    evaluator.M0_adj = np.zeros(len(evaluator.M0))
+    evaluator.reverse_H2(num_nodes, node_types)
+    g = evaluator.M0_adj
     # compare with numerical gradient
-    g_num = numerical_gradient(f, evaluator.H1)
+    g_num = numerical_gradient(f, evaluator.M0)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
 
     # define f(M1)=sum(H2), used to test dH2/dM1
@@ -611,7 +613,7 @@ def test_H2():
     # compute analytical gradient
     f(evaluator.M1)
     evaluator.H2_adj = np.ones(len(evaluator.H2))
-    evaluator.reverse_H2(num_nodes, node_types, True)
+    evaluator.reverse_H2(num_nodes, node_types)
     g = evaluator.M1_adj
     # compare with numerical gradient
     g_num = numerical_gradient(f, evaluator.M1)
@@ -646,18 +648,18 @@ def test_readouts():
     assert sum(evaluator.node_energies) == pytest.approx(readout, abs=1e-4)
 
     ### REVERSE
-    # define readout as function of H1
-    def f(H1):
-        evaluator.H1 = H1
+    # define readout as function of M0
+    def f(M0):
+        evaluator.M0 = M0
         evaluator.node_energies = np.zeros(num_nodes)
         evaluator.compute_readouts(num_nodes, node_types)
         return sum(evaluator.node_energies)
 
     # compute analytical gradient
-    f(evaluator.H1)
-    g = evaluator.H1_adj
+    f(evaluator.M0)
+    g = evaluator.M0_adj
     # compare with numerical gradient
-    g_num = numerical_gradient(f, evaluator.H1)
+    g_num = numerical_gradient(f, evaluator.M0)
     assert np.allclose(g, g_num, rtol=1e-4, atol=1e-6)
 
     # define readout as function of H2

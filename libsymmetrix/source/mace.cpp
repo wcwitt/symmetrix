@@ -54,7 +54,7 @@ void MACE::compute_node_energies_forces(
 
     compute_readouts(num_nodes, node_types);
 
-    reverse_H2(num_nodes, node_types, false);
+    reverse_H2(num_nodes, node_types);
     reverse_M1(num_nodes, node_types);
     reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
     reverse_A1(num_nodes);
@@ -401,7 +401,7 @@ void MACE::compute_H1(
 void MACE::reverse_H1(
     const int num_nodes)
 {
-    // [dE/dM0_il]_mk = \sum_k' [dE/dH1_il]_mk' [trans(W_l)]_k'k
+    // [dE/dM0_il]_mk += \sum_k' [dE/dH1_il]_mk' [trans(W_l)]_k'k
     M0_adj.resize(M0.size());
     #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
@@ -414,7 +414,7 @@ void MACE::reverse_H1(
                     double M0_adj_ilm_k = 0.0;
                     for (int kp=0; kp<num_channels; ++kp)
                         M0_adj_ilm_k += H1_adj_ilm[kp] * H1_weights_l[k*num_channels+kp];
-                    M0_adj_ilm[k] = M0_adj_ilm_k;
+                    M0_adj_ilm[k] += M0_adj_ilm_k;
                 }
             }
         }
@@ -730,39 +730,36 @@ void MACE::compute_H2(
     #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto H2_i = H2.data()+i*num_channels;
-        auto H1_i = H1.data()+i*num_LM*num_channels;
+        auto M0_i = M0.data()+i*num_LM*num_channels;
         auto M1_i = M1.data()+i*num_channels;
-        auto H2_weights_for_H1_i = H2_weights_for_H1[node_types[i]].data();
+        auto H2_weights_for_M0_i = H2_weights_for_M0[node_types[i]].data();
         for (int kp=0; kp<num_channels; ++kp)
             for (int k=0; k<num_channels; ++k)
-                H2_i[k] += H2_weights_for_H1_i[kp*num_channels+k] * H1_i[kp]
+                H2_i[k] += H2_weights_for_M0_i[kp*num_channels+k] * M0_i[kp]
                          + H2_weights_for_M1[kp*num_channels+k] * M1_i[kp];
     }
 }
 
 void MACE::reverse_H2(
     const int num_nodes,
-    std::span<const int> node_types,
-    bool zero_H1_adj)
+    std::span<const int> node_types)
 {
-    H1_adj.resize(H1.size());
+    M0_adj.resize(M0.size());
     M1_adj.resize(M1.size());
-    if (zero_H1_adj)
-        std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
     #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto H2_adj_i = H2_adj.data()+i*num_channels;
-        auto H1_adj_i = H1_adj.data()+i*num_LM*num_channels;
+        auto M0_adj_i = M0_adj.data()+i*num_LM*num_channels;
         auto M1_adj_i = M1_adj.data()+i*num_channels;
-        auto H2_weights_for_H1_i = H2_weights_for_H1[node_types[i]].data();
+        auto H2_weights_for_M0_i = H2_weights_for_M0[node_types[i]].data();
         for (int kp=0; kp<num_channels; ++kp) {
-            double H1_adj_i_kp = 0.0;
+            double M0_adj_i_kp = 0.0;
             double M1_adj_i_kp = 0.0;
             for (int k=0; k<num_channels; ++k) {
-                H1_adj_i_kp += H2_weights_for_H1_i[kp*num_channels+k] * H2_adj_i[k];
+                M0_adj_i_kp += H2_weights_for_M0_i[kp*num_channels+k] * H2_adj_i[k];
                 M1_adj_i_kp += H2_weights_for_M1[kp*num_channels+k] * H2_adj_i[k];
             }
-            H1_adj_i[kp] += H1_adj_i_kp;
+            M0_adj_i[kp] += M0_adj_i_kp;
             M1_adj_i[kp] = M1_adj_i_kp;
         }
     }
@@ -778,14 +775,15 @@ void MACE::compute_readouts(
     //          it matters when the number of nodes associated with H1 is greater than num_nodes.
     //          There is probably a better way to manage this.
     std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
+    M0_adj.assign(M0.size(), 0.0);
     H2_adj.resize(H2.size());
     for (int i=0; i<num_nodes; ++i) {
         // atomic energies
         node_energies[i] += atomic_energies[node_types[i]];
         // first readout
         for (int k=0; k<num_channels; ++k) {
-            node_energies[i] += readout_1_weights[k]*H1[i*num_LM*num_channels+k];
-            H1_adj[i*num_LM*num_channels+k] = readout_1_weights[k];
+            node_energies[i] += readout_1_weights_for_M0[k]*M0[i*num_LM*num_channels+k];
+            M0_adj[i*num_LM*num_channels+k] = readout_1_weights_for_M0[k];
         }
         // second readout
         auto x = std::vector<double>(H2.begin()+i*num_channels, H2.begin()+(i+1)*num_channels);
@@ -904,12 +902,12 @@ void MACE::load_from_json(
     num_B1 = load_contraction("1", B1_spec, B1_coefficients, M1_spec, M1_weights);
 
     // H2
-    H2_weights_for_H1 = file["H2_weights_for_H1"].get<std::vector<std::vector<double>>>();
+    H2_weights_for_M0 = file["H2_weights_for_M0"].get<std::vector<std::vector<double>>>();
     H2_weights_for_M1 = file["H2_weights_for_M1"].get<std::vector<double>>();
 
     // Readouts
     // TODO! hardcoded 16
-    readout_1_weights = file["readout_1_weights"].get<std::vector<double>>();
+    readout_1_weights_for_M0 = file["readout_1_weights_for_M0"].get<std::vector<double>>();
     auto readout_2_weights_1 = file["readout_2_weights_1"].get<std::vector<double>>();
     auto readout_2_weights_2 = file["readout_2_weights_2"].get<std::vector<double>>();
     readout_2 = std::make_unique<MultilayerPerceptron>(

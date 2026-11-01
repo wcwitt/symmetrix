@@ -440,16 +440,8 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     ### ----- H2 -----
 
     logging.info("H2")
-    weights_to_fuse = model.interactions[1].linear_up.weight_view_for_instruction(
-        0
-    ).numpy(force=True) / np.sqrt(num_channels)
-    weights_to_fuse_rank = np.linalg.matrix_rank(weights_to_fuse)
-    if weights_to_fuse_rank < num_channels:
-        raise RuntimeError(
-            "ERROR: fusing weights have too low rank {weights_to_fuse_rank} < {num_channels}"
-        )
-    # H2 weights for H1
-    H2_weights_for_H1 = []
+    # H2 weights for M0
+    H2_weights_for_M0 = []
     for i, a in enumerate(atomic_numbers):
         model_i = model.atomic_numbers.tolist().index(a)
         w = (
@@ -457,10 +449,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
             .skip_tp.weight_view_for_instruction(0)[:, model_i, :]
             .numpy(force=True)
         )
-        H2_weights_for_H1.append(w / np.sqrt(len(model.atomic_numbers) * num_channels))
-        H2_weights_for_H1[i] = np.linalg.inv(weights_to_fuse) @ H2_weights_for_H1[i]
-        H2_weights_for_H1[i] = H2_weights_for_H1[i].flatten().tolist()
-    output["H2_weights_for_H1"] = H2_weights_for_H1
+        H2_weights_for_M0.append(
+            (weights_0[0] @ w / np.sqrt(len(model.atomic_numbers) * num_channels)).flatten().tolist()
+        )
+    output["H2_weights_for_M0"] = H2_weights_for_M0
     # H2 weights for M1
     output["H2_weights_for_M1"] = (
         model.products[1].linear.weight.numpy(force=True) / np.sqrt(num_channels)
@@ -469,17 +461,11 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
     ### ----- READOUTS -----
 
     # linear readout
-    weights_to_fuse = np.reshape(
-        model.interactions[1].linear_up.weight.numpy(force=True)
-        / np.sqrt(num_channels),
-        [L_max + 1, num_channels, num_channels],
-    )
     readout_1_weights = model.readouts[0].linear.weight.numpy(force=True) / np.sqrt(
         num_channels
     )
-    readout_1_weights = np.linalg.inv(weights_to_fuse[0, :, :]) @ readout_1_weights
-    output["readout_1_weights"] = (
-        readout_1_weights * model.scale_shift.scale.item()
+    output["readout_1_weights_for_M0"] = (
+        weights_0[0] @ readout_1_weights * model.scale_shift.scale.item()
     ).tolist()
 
     # nonlinear readout

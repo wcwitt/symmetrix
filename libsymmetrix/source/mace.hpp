@@ -161,13 +161,13 @@ void reverse_M1(const int num_nodes, std::span<const int> node_types);
 
 // H2
 std::vector<double> H2, H2_adj;
-std::vector<std::vector<double>> H2_weights_for_H1;
+std::vector<std::vector<double>> H2_weights_for_M0;
 std::vector<double> H2_weights_for_M1;
 void compute_H2(const int num_nodes, std::span<const int> node_types);
-void reverse_H2(const int num_nodes, std::span<const int> node_types, bool zero_H1_adj = true);
+void reverse_H2(const int num_nodes, std::span<const int> node_types);
 
 // Readouts
-std::vector<double> readout_1_weights;
+std::vector<double> readout_1_weights_for_M0;
 std::unique_ptr<MultilayerPerceptron> readout_2;
 void compute_readouts(const int num_nodes, std::span<const int> node_types);
 

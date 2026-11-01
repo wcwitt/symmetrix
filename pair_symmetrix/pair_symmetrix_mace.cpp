@@ -487,7 +487,7 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 
   mace->compute_readouts(num_nodes, node_types);
 
-  mace->reverse_H2(num_nodes, node_types, false);
+  mace->reverse_H2(num_nodes, node_types);
   mace->reverse_M1(num_nodes, node_types);
   mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_nodes);
@@ -696,7 +696,7 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
 
   mace->compute_readouts(num_local_nodes, node_types);
 
-  mace->reverse_H2(num_local_nodes, node_types, false);
+  mace->reverse_H2(num_local_nodes, node_types);
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
   mace->reverse_A1(num_local_nodes);

@@ -752,7 +752,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
 
   mace->compute_readouts(num_nodes, node_types);
 
-  mace->reverse_H2(num_nodes, node_types, false);
+  mace->reverse_H2(num_nodes, node_types);
   mace->reverse_M1(num_nodes, node_types);
   mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A1(num_nodes);
@@ -1091,7 +1091,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
 
   mace->compute_readouts(num_local_nodes, node_types);
 
-  mace->reverse_H2(num_local_nodes, node_types, false);
+  mace->reverse_H2(num_local_nodes, node_types);
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A1(num_local_nodes);
