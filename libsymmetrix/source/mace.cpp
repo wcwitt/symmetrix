@@ -226,29 +226,26 @@ void MACE::reverse_A0(
             auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
             auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
             auto node_forces_ij = node_forces.data()+ij*3;
+            double dE_dr = 0.0;
             for (int l=0; l<=l_max; ++l) {
                 auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
                 auto R0_deriv_ij_l = R0_deriv.data()+ij*(l_max+1)*num_channels+l*num_channels;
                 for (int m=-l; m<=l; ++m) {
                     const int lm = l*l+l+m;
-                    const double Y_ij_lm = Y_ij[lm];
-                    const double Y_grad_ij_lm_x = Y_grad_ij[lm];
-                    const double Y_grad_ij_lm_y = Y_grad_ij[num_lm+lm];
-                    const double Y_grad_ij_lm_z = Y_grad_ij[2*num_lm+lm];
                     auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
+                    double dE_dr_lm = 0.0;
+                    double dE_dY_lm = 0.0;
                     for (int k=0; k<num_channels; ++k) {
-                        node_forces_ij[0] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[0]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_x * H0_ij[k] );
-                        node_forces_ij[1] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[1]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_y * H0_ij[k] );
-                        node_forces_ij[2] += -Phi0_adj_i_lm[k] * (
-                            xyz_ij[2]/r_ij * R0_deriv_ij_l[k] * Y_ij_lm * H0_ij[k]
-                            + R0_ij_l[k] * Y_grad_ij_lm_z * H0_ij[k]);
+                        dE_dr_lm += Phi0_adj_i_lm[k] * R0_deriv_ij_l[k] * H0_ij[k];
+                        dE_dY_lm += Phi0_adj_i_lm[k] * R0_ij_l[k] * H0_ij[k];
                     }
+                    dE_dr += dE_dr_lm * Y_ij[lm];
+                    for (int a=0; a<3; ++a)
+                        node_forces_ij[a] -= dE_dY_lm * Y_grad_ij[a*num_lm+lm];
                 }
             }
+            for (int a=0; a<3; ++a)
+                node_forces_ij[a] -= dE_dr * xyz_ij[a]/r_ij;
         }
     }
 }
