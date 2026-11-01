@@ -13,7 +13,8 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-PairStyle(symmetrix/mace,PairSymmetrixMACE);
+PairStyle(symmetrix/mace,PairSymmetrixMACE<double>);
+PairStyle(symmetrix/mace/float32,PairSymmetrixMACE<float>);
 // clang-format on
 #else
 
@@ -28,6 +29,7 @@ PairStyle(symmetrix/mace,PairSymmetrixMACE);
 
 namespace LAMMPS_NS {
 
+template <typename Precision>
 class PairSymmetrixMACE : public Pair {
 
  public:
@@ -51,10 +53,10 @@ class PairSymmetrixMACE : public Pair {
  protected:
   std::string mode;
 
-  std::vector<double> H1, H1_adj;
+  std::vector<Precision> H1, H1_adj;
 
   // symmetrix evaluator and inputs
-  std::unique_ptr<MACE> mace;
+  std::unique_ptr<MACE<Precision>> mace;
   std::vector<int> node_types;
   std::vector<int> num_neigh;
   std::vector<int> neigh_indices;

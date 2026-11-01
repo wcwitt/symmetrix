@@ -31,7 +31,8 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-PairSymmetrixMACE::PairSymmetrixMACE(LAMMPS *lmp)
+template <typename Precision>
+PairSymmetrixMACE<Precision>::PairSymmetrixMACE(LAMMPS *lmp)
   : Pair(lmp)
 {
   single_enable = 0;
@@ -51,7 +52,8 @@ PairSymmetrixMACE::PairSymmetrixMACE(LAMMPS *lmp)
 
 /* ---------------------------------------------------------------------- */
 
-PairSymmetrixMACE::~PairSymmetrixMACE()
+template <typename Precision>
+PairSymmetrixMACE<Precision>::~PairSymmetrixMACE()
 {
   if (allocated) {
     memory->destroy(setflag);
@@ -62,7 +64,8 @@ PairSymmetrixMACE::~PairSymmetrixMACE()
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::compute(int eflag, int vflag)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::compute(int eflag, int vflag)
 {
   if (mode == "no_domain_decomposition") {
     compute_no_domain_decomposition(eflag, vflag);
@@ -77,7 +80,8 @@ void PairSymmetrixMACE::compute(int eflag, int vflag)
    allocate all arrays
 ------------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::allocate()
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::allocate()
 {
   allocated = 1;
 
@@ -95,7 +99,8 @@ void PairSymmetrixMACE::allocate()
    global settings
 ------------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::settings(int narg, char **arg)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::settings(int narg, char **arg)
 {
   if (narg == 0) {
     mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
@@ -117,12 +122,13 @@ void PairSymmetrixMACE::settings(int narg, char **arg)
    set coeffs for one or more type pairs
 ------------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::coeff(int narg, char **arg)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
 
   utils::logmesg(lmp, "Loading MACE model from \'{}\' ... ", arg[2]);
-  mace = std::make_unique<MACE>(arg[2]);
+  mace = std::make_unique<MACE<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
 
   // extract atomic numbers from pair_coeff
@@ -161,7 +167,8 @@ void PairSymmetrixMACE::coeff(int narg, char **arg)
    init for one type pair i,j and corresponding j,i
 ------------------------------------------------------------------------- */
 
-double PairSymmetrixMACE::init_one(int i, int j)
+template <typename Precision>
+double PairSymmetrixMACE<Precision>::init_one(int i, int j)
 {
   if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
 
@@ -173,7 +180,8 @@ double PairSymmetrixMACE::init_one(int i, int j)
    init specific to this pair style
 ------------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::init_style()
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::init_style()
 {
   if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace requires newton pair on");
@@ -197,7 +205,8 @@ void PairSymmetrixMACE::init_style()
 
 /* ---------------------------------------------------------------------- */
 
-int PairSymmetrixMACE::pack_forward_comm(int n, int *list, double *buf, int /*pbc_flag*/, int * /*pbc*/)
+template <typename Precision>
+int PairSymmetrixMACE<Precision>::pack_forward_comm(int n, int *list, double *buf, int /*pbc_flag*/, int * /*pbc*/)
 {
   for (int ii=0; ii<n; ++ii) {
     const int i = list[ii];
@@ -210,7 +219,8 @@ int PairSymmetrixMACE::pack_forward_comm(int n, int *list, double *buf, int /*pb
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::unpack_forward_comm(int n, int first, double *buf)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::unpack_forward_comm(int n, int first, double *buf)
 {
   for (int i=0; i<n; ++i) {
     for (int k=0; k<mace->num_LM*mace->num_channels; ++k) {
@@ -221,7 +231,8 @@ void PairSymmetrixMACE::unpack_forward_comm(int n, int first, double *buf)
 
 /* ---------------------------------------------------------------------- */
 
-int PairSymmetrixMACE::pack_reverse_comm(int n, int first, double *buf)
+template <typename Precision>
+int PairSymmetrixMACE<Precision>::pack_reverse_comm(int n, int first, double *buf)
 {
   for (int i=0; i<n; ++i) {
     for (int k=0; k<mace->num_LM*mace->num_channels; ++k) {
@@ -233,7 +244,8 @@ int PairSymmetrixMACE::pack_reverse_comm(int n, int first, double *buf)
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::unpack_reverse_comm(int n, int *list, double *buf)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::unpack_reverse_comm(int n, int *list, double *buf)
 {
   for (int ii=0; ii<n; ++ii) {
     const int i = list[ii];
@@ -245,7 +257,8 @@ void PairSymmetrixMACE::unpack_reverse_comm(int n, int *list, double *buf)
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::compute_no_domain_decomposition(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
@@ -379,7 +392,8 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
@@ -556,7 +570,8 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
+template <typename Precision>
+void PairSymmetrixMACE<Precision>::compute_no_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
@@ -756,3 +771,6 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   if (vflag_atom)
     error->all(FLERR, "Atomic virials not yet supported by pair_style symmetrix/mace.");
 }
+
+template class LAMMPS_NS::PairSymmetrixMACE<double>;
+template class LAMMPS_NS::PairSymmetrixMACE<float>;

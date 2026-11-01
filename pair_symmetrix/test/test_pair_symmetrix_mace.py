@@ -26,8 +26,6 @@ import pytest
 def test_h20(cmdargs, pair_style):
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
-    if "float32" in pair_style and "kk" not in cmdargs:
-        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -109,8 +107,6 @@ def test_h20(cmdargs, pair_style):
 def test_h20_zbl(cmdargs, pair_style):
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
-    if "float32" in pair_style and "kk" not in cmdargs:
-        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -186,8 +182,6 @@ def test_h20_zbl(cmdargs, pair_style):
 def test_water(cmdargs, pair_style):
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
-    if "float32" in pair_style and "kk" not in cmdargs:
-        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)
@@ -289,8 +283,6 @@ def test_water(cmdargs, pair_style):
 def test_hea(cmdargs, pair_style):
     if "float32" in pair_style:
         pytest.skip("Skipping float32 lammps tests.")
-    if "float32" in pair_style and "kk" not in cmdargs:
-        pytest.skip("Kokkos required for symmetrix/mace/float32.")
 
     # ----- setup -----
     lmp = lammps(cmdargs=cmdargs)

@@ -10,12 +10,14 @@
 
 #include "mace.hpp"
 
-MACE::MACE(std::string filename)
+template <typename Precision>
+MACE<Precision>::MACE(std::string filename)
 {
     load_from_json(filename);
 }
 
-void MACE::compute_node_energies_forces(
+template <typename Precision>
+void MACE<Precision>::compute_node_energies_forces(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -66,7 +68,8 @@ void MACE::compute_node_energies_forces(
     reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
-void MACE::prepare_neigh_list(
+template <typename Precision>
+void MACE<Precision>::prepare_neigh_list(
     const int num_nodes,
     std::span<const int> num_neigh)
 {
@@ -74,7 +77,8 @@ void MACE::prepare_neigh_list(
     std::exclusive_scan(num_neigh.begin(), num_neigh.begin()+num_nodes, first_neigh.begin(), 0);
 }
 
-void MACE::compute_R0(
+template <typename Precision>
+void MACE<Precision>::compute_R0(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -95,14 +99,15 @@ void MACE::compute_R0(
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
-            auto R0_ij = std::span<double>(R0.data()+ij*num_spl,num_spl);
-            auto R0_deriv_ij = std::span<double>(R0_deriv.data()+ij*num_spl,num_spl);
+            auto R0_ij = std::span<Precision>(R0.data()+ij*num_spl,num_spl);
+            auto R0_deriv_ij = std::span<Precision>(R0_deriv.data()+ij*num_spl,num_spl);
             spl_set_0[type_ij]->evaluate_derivs(r[ij], R0_ij, R0_deriv_ij);
         }
     }
 }
 
-void MACE::compute_R1(
+template <typename Precision>
+void MACE<Precision>::compute_R1(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -120,23 +125,25 @@ void MACE::compute_R1(
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
-            auto R1_ij = std::span<double>(R1.data()+ij*num_spl,num_spl);
-            auto R1_deriv_ij = std::span<double>(R1_deriv.data()+ij*num_spl,num_spl);
+            auto R1_ij = std::span<Precision>(R1.data()+ij*num_spl,num_spl);
+            auto R1_deriv_ij = std::span<Precision>(R1_deriv.data()+ij*num_spl,num_spl);
             spl_set_1[type_ij]->evaluate_derivs(r[ij], R1_ij, R1_deriv_ij);
         }
     }
 }
 
-void MACE::compute_Y(
+template <typename Precision>
+void MACE<Precision>::compute_Y(
     std::span<const double> xyz)
 {
     if (xyz.size() == 0) return;
     const int num = xyz.size()/3;
     Y.resize(num*num_lm);
     Y_grad.resize(3*num*num_lm);
-    sphericart::SphericalHarmonics<double> sphericart(l_max);
+    const auto xyz_p = std::vector<Precision>(xyz.begin(), xyz.end());
+    sphericart::SphericalHarmonics<Precision> sphericart(l_max);
     sphericart.compute_array_with_gradients(
-        xyz.data(), xyz.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
+        xyz_p.data(), xyz_p.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
     // normalize to match e3nn conventions
     #pragma omp parallel for
     for (int i=0; i<Y.size(); ++i)
@@ -146,7 +153,8 @@ void MACE::compute_Y(
         Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
 }
 
-void MACE::compute_A0(
+template <typename Precision>
+void MACE<Precision>::compute_A0(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -158,7 +166,7 @@ void MACE::compute_A0(
     for (int i=0; i<num_nodes; ++i) {
 
         // compute Phi0_i
-        auto Phi0_i = std::vector<double>(num_lm*num_channels, 0.0);
+        auto Phi0_i = std::vector<Precision>(num_lm*num_channels, 0.0);
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto Y_ij = Y.data()+ij*num_lm;
             auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
@@ -166,7 +174,7 @@ void MACE::compute_A0(
                 auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
                 for (int m=-l; m<=l; ++m) {
                     const int lm = l*l+l+m;
-                    const double Y_ij_lm = Y_ij[lm];
+                    const Precision Y_ij_lm = Y_ij[lm];
                     auto Phi0_i_lm = Phi0_i.data()+lm*num_channels;
                     for (int k=0; k<num_channels; ++k) {
                         Phi0_i_lm[k] += R0_ij_l[k] * Y_ij_lm * H0_ij[k];
@@ -190,7 +198,8 @@ void MACE::compute_A0(
     }
 }
 
-void MACE::reverse_A0(
+template <typename Precision>
+void MACE<Precision>::reverse_A0(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -201,7 +210,7 @@ void MACE::reverse_A0(
     #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
 
-        auto Phi0_adj_i = std::vector<double>(num_lm*num_channels);
+        auto Phi0_adj_i = std::vector<Precision>(num_lm*num_channels);
 
         // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k
         for (int l=0; l<=l_max; ++l) {
@@ -210,7 +219,7 @@ void MACE::reverse_A0(
                 auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
                 auto A0_adj_i_lm = A0_adj.data()+(i*num_lm+lm)*num_channels;
                 for (int k=0; k<num_channels; ++k) {
-                    double Phi0_adj_i_lm_k = 0.0;
+                    Precision Phi0_adj_i_lm_k = 0.0;
                     for (int kp=0; kp<num_channels; ++kp)
                         Phi0_adj_i_lm_k += A0_adj_i_lm[kp] * A0_weights_il[k*num_channels+kp];
                     Phi0_adj_i_lm[k] = Phi0_adj_i_lm_k;
@@ -226,15 +235,15 @@ void MACE::reverse_A0(
             auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
             auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
             auto node_forces_ij = node_forces.data()+ij*3;
-            double dE_dr = 0.0;
+            Precision dE_dr = 0.0;
             for (int l=0; l<=l_max; ++l) {
                 auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
                 auto R0_deriv_ij_l = R0_deriv.data()+ij*(l_max+1)*num_channels+l*num_channels;
                 for (int m=-l; m<=l; ++m) {
                     const int lm = l*l+l+m;
                     auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
-                    double dE_dr_lm = 0.0;
-                    double dE_dY_lm = 0.0;
+                    Precision dE_dr_lm = 0.0;
+                    Precision dE_dY_lm = 0.0;
                     for (int k=0; k<num_channels; ++k) {
                         dE_dr_lm += Phi0_adj_i_lm[k] * R0_deriv_ij_l[k] * H0_ij[k];
                         dE_dY_lm += Phi0_adj_i_lm[k] * R0_ij_l[k] * H0_ij[k];
@@ -250,7 +259,8 @@ void MACE::reverse_A0(
     }
 }
 
-void MACE::compute_A0_scaled(
+template <typename Precision>
+void MACE<Precision>::compute_A0_scaled(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -275,7 +285,8 @@ void MACE::compute_A0_scaled(
     }
 }
 
-void MACE::reverse_A0_scaled(
+template <typename Precision>
+void MACE<Precision>::reverse_A0_scaled(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -321,7 +332,8 @@ void MACE::reverse_A0_scaled(
     }
 }
 
-void MACE::compute_M0(
+template <typename Precision>
+void MACE<Precision>::compute_M0(
     const int num_nodes,
     std::span<const int> node_types)
 {
@@ -348,14 +360,15 @@ void MACE::compute_M0(
     }
 }
 
-void MACE::reverse_M0(
+template <typename Precision>
+void MACE<Precision>::reverse_M0(
     const int num_nodes,
     std::span<const int> node_types)
 {
     A0_adj.assign(A0.size(), 0.0);
     #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
-        auto B0_adj_i = std::vector<double>(num_B0*num_channels);
+        auto B0_adj_i = std::vector<Precision>(num_B0*num_channels);
         auto A0_adj_i = A0_adj.data()+i*num_lm*num_channels;
         auto M0_adj_i = M0_adj.data()+i*num_LM*num_channels;
         auto B0_i = B0.data()+i*num_B0*num_channels;
@@ -369,7 +382,7 @@ void MACE::reverse_M0(
         for (int t=B0_spec.size()-1; t>=0; --t) {
             const auto [q, a, b] = B0_spec[t];
             for (int k=0; k<num_channels; ++k) {
-                const double g = B0_coefficients[t] * B0_adj_i[q*num_channels+k];
+                const Precision g = B0_coefficients[t] * B0_adj_i[q*num_channels+k];
                 B0_adj_i[a*num_channels+k] += g * B0_i[b*num_channels+k];
                 B0_adj_i[b*num_channels+k] += g * B0_i[a*num_channels+k];
             }
@@ -378,7 +391,8 @@ void MACE::reverse_M0(
     }
 }
 
-void MACE::compute_H1(
+template <typename Precision>
+void MACE<Precision>::compute_H1(
     const int num_nodes)
 {
     // [H1_il]_mk = \sum_k' [M0_il]_mk' [W_l]_k'k
@@ -398,7 +412,8 @@ void MACE::compute_H1(
     }
 }
 
-void MACE::reverse_H1(
+template <typename Precision>
+void MACE<Precision>::reverse_H1(
     const int num_nodes)
 {
     // [dE/dM0_il]_mk += \sum_k' [dE/dH1_il]_mk' [trans(W_l)]_k'k
@@ -411,7 +426,7 @@ void MACE::reverse_H1(
                 const auto H1_adj_ilm = H1_adj.data()+(i*num_LM+lm)*num_channels;
                 auto M0_adj_ilm = M0_adj.data()+(i*num_LM+lm)*num_channels;
                 for (int k=0; k<num_channels; ++k) {
-                    double M0_adj_ilm_k = 0.0;
+                    Precision M0_adj_ilm_k = 0.0;
                     for (int kp=0; kp<num_channels; ++kp)
                         M0_adj_ilm_k += H1_adj_ilm[kp] * H1_weights_l[k*num_channels+kp];
                     M0_adj_ilm[k] += M0_adj_ilm_k;
@@ -421,7 +436,8 @@ void MACE::reverse_H1(
     }
 }
 
-void MACE::compute_Phi1(
+template <typename Precision>
+void MACE<Precision>::compute_Phi1(
     const int num_nodes,
     std::span<const int> num_neigh,
     std::span<const int> neigh_indices)
@@ -432,7 +448,7 @@ void MACE::compute_Phi1(
     #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
-        auto CG_Y = std::vector<double>(Phi1_spec.size());
+        auto CG_Y = std::vector<Precision>(Phi1_spec.size());
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
@@ -454,7 +470,8 @@ void MACE::compute_Phi1(
     }
 }
 
-void MACE::reverse_Phi1(
+template <typename Precision>
+void MACE<Precision>::reverse_Phi1(
     const int num_nodes,
     std::span<const int> num_neigh,
     std::span<const int> neigh_indices,
@@ -474,9 +491,9 @@ void MACE::reverse_Phi1(
     #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
-        auto CG_Y = std::vector<double>(Phi1_spec.size());
-        auto CG_Y_adj = std::vector<double>(Phi1_spec.size());
-        auto H1_adj_ij = std::vector<double>(num_LM*num_channels);
+        auto CG_Y = std::vector<Precision>(Phi1_spec.size());
+        auto CG_Y_adj = std::vector<Precision>(Phi1_spec.size());
+        auto H1_adj_ij = std::vector<Precision>(num_LM*num_channels);
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto node_forces_ij = node_forces.data()+3*ij;
             auto xyz_ij = xyz.data()+3*ij;
@@ -492,7 +509,7 @@ void MACE::reverse_Phi1(
                 const auto [q, lm1] = Phi1_cg_spec[p];
                 CG_Y[q] += Phi1_clebsch_gordan[p] * Y_ij[lm1];
             }
-            double dE_dr = 0.0;
+            Precision dE_dr = 0.0;
             for (int q=0; q<Phi1_spec.size(); ++q) {
                 const auto [lme, lel1l2, lm2] = Phi1_spec[q];
                 auto dPhi1_i_lme = dPhi1_i+lme*num_channels;
@@ -500,7 +517,7 @@ void MACE::reverse_Phi1(
                 auto R1_deriv_ij_lel1l2 = R1_deriv_ij+lel1l2*num_channels;
                 auto H1_ij_lm2 = H1_ij+lm2*num_channels;
                 auto H1_adj_ij_lm2 = H1_adj_ij.data()+lm2*num_channels;
-                double g = 0.0;
+                Precision g = 0.0;
                 for (int k=0; k<num_channels; ++k) {
                     g += dPhi1_i_lme[k] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
                     dE_dr += dPhi1_i_lme[k] * CG_Y[q] * R1_deriv_ij_lel1l2[k] * H1_ij_lm2[k];
@@ -525,7 +542,8 @@ void MACE::reverse_Phi1(
     }
 }
 
-void MACE::compute_A1(
+template <typename Precision>
+void MACE<Precision>::compute_A1(
     const int num_nodes)
 {
     // The core matrix multiplication is:
@@ -541,12 +559,12 @@ void MACE::compute_A1(
         for (int l=0; l<=l_max; ++l) {
             const int num_ek = num_e[l]*num_channels;
             for (int m=0; m<2*l+1; ++m) {
-                const double* Phi1_ilm[4];
+                const Precision* Phi1_ilm[4];
                 for (int b=0; b<4; ++b)
                     Phi1_ilm[b] = Phi1.data()+(std::min(i0+b,num_nodes-1)*num_lme+lme+m*num_e[l])*num_channels;
                 for (int k=0; k<num_channels; ++k) {
                     auto A1_weights_trans_lk = A1_weights_trans[l].data()+k*num_ek;
-                    double A1_ilm_k[4] = {};
+                    Precision A1_ilm_k[4] = {};
                     for (int ekp=0; ekp<num_ek; ++ekp)
                         for (int b=0; b<4; ++b)
                             A1_ilm_k[b] += Phi1_ilm[b][ekp] * A1_weights_trans_lk[ekp];
@@ -559,7 +577,8 @@ void MACE::compute_A1(
     }
 }
 
-void MACE::reverse_A1(
+template <typename Precision>
+void MACE<Precision>::reverse_A1(
     const int num_nodes)
 {
     // The core matrix multiplication is:
@@ -575,12 +594,12 @@ void MACE::reverse_A1(
         for (int l=0; l<=l_max; ++l) {
             const int num_ek = num_e[l]*num_channels;
             for (int m=0; m<2*l+1; ++m) {
-                const double* A1_adj_ilm[4];
+                const Precision* A1_adj_ilm[4];
                 for (int b=0; b<4; ++b)
                     A1_adj_ilm[b] = A1_adj.data()+(std::min(i0+b,num_nodes-1)*num_lm+l*l+m)*num_channels;
                 for (int ek=0; ek<num_ek; ++ek) {
                     auto A1_weights_lek = A1_weights[l].data()+ek*num_channels;
-                    double dPhi1_ilm_ek[4] = {};
+                    Precision dPhi1_ilm_ek[4] = {};
                     for (int kp=0; kp<num_channels; ++kp)
                         for (int b=0; b<4; ++b)
                             dPhi1_ilm_ek[b] += A1_adj_ilm[b][kp] * A1_weights_lek[kp];
@@ -593,7 +612,8 @@ void MACE::reverse_A1(
     }
 }
 
-void MACE::compute_A1_scaled(
+template <typename Precision>
+void MACE<Precision>::compute_A1_scaled(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -618,7 +638,8 @@ void MACE::compute_A1_scaled(
     }
 }
 
-void MACE::reverse_A1_scaled(
+template <typename Precision>
+void MACE<Precision>::reverse_A1_scaled(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
@@ -667,7 +688,8 @@ void MACE::reverse_A1_scaled(
     }
 }
 
-void MACE::compute_M1(
+template <typename Precision>
+void MACE<Precision>::compute_M1(
     const int num_nodes,
     std::span<const int> node_types)
 {
@@ -693,14 +715,15 @@ void MACE::compute_M1(
     }
 }
 
-void MACE::reverse_M1(
+template <typename Precision>
+void MACE<Precision>::reverse_M1(
     const int num_nodes,
     std::span<const int> node_types)
 {
     A1_adj.assign(A1.size(), 0.0);
     #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
-        auto B1_adj_i = std::vector<double>(num_B1*num_channels);
+        auto B1_adj_i = std::vector<Precision>(num_B1*num_channels);
         auto A1_adj_i = A1_adj.data()+i*num_lm*num_channels;
         auto M1_adj_i = M1_adj.data()+i*num_channels;
         auto B1_i = B1.data()+i*num_B1*num_channels;
@@ -713,7 +736,7 @@ void MACE::reverse_M1(
         for (int t=B1_spec.size()-1; t>=0; --t) {
             const auto [q, a, b] = B1_spec[t];
             for (int k=0; k<num_channels; ++k) {
-                const double g = B1_coefficients[t] * B1_adj_i[q*num_channels+k];
+                const Precision g = B1_coefficients[t] * B1_adj_i[q*num_channels+k];
                 B1_adj_i[a*num_channels+k] += g * B1_i[b*num_channels+k];
                 B1_adj_i[b*num_channels+k] += g * B1_i[a*num_channels+k];
             }
@@ -722,7 +745,8 @@ void MACE::reverse_M1(
     }
 }
 
-void MACE::compute_H2(
+template <typename Precision>
+void MACE<Precision>::compute_H2(
     const int num_nodes,
     std::span<const int> node_types)
 {
@@ -740,7 +764,8 @@ void MACE::compute_H2(
     }
 }
 
-void MACE::reverse_H2(
+template <typename Precision>
+void MACE<Precision>::reverse_H2(
     const int num_nodes,
     std::span<const int> node_types)
 {
@@ -753,8 +778,8 @@ void MACE::reverse_H2(
         auto M1_adj_i = M1_adj.data()+i*num_channels;
         auto H2_weights_for_M0_i = H2_weights_for_M0[node_types[i]].data();
         for (int kp=0; kp<num_channels; ++kp) {
-            double M0_adj_i_kp = 0.0;
-            double M1_adj_i_kp = 0.0;
+            Precision M0_adj_i_kp = 0.0;
+            Precision M1_adj_i_kp = 0.0;
             for (int k=0; k<num_channels; ++k) {
                 M0_adj_i_kp += H2_weights_for_M0_i[kp*num_channels+k] * H2_adj_i[k];
                 M1_adj_i_kp += H2_weights_for_M1[kp*num_channels+k] * H2_adj_i[k];
@@ -765,7 +790,8 @@ void MACE::reverse_H2(
     }
 }
 
-void MACE::compute_readouts(
+template <typename Precision>
+void MACE<Precision>::compute_readouts(
     const int num_nodes,
     std::span<const int> node_types)
 {
@@ -795,7 +821,8 @@ void MACE::compute_readouts(
     }
 }
 
-void MACE::load_from_json(
+template <typename Precision>
+void MACE<Precision>::load_from_json(
     const std::string filename)
 {
     std::ifstream f(filename);
@@ -828,17 +855,17 @@ void MACE::load_from_json(
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
     for (int i=0; i<spl_values_0.size(); ++i)
-        spl_set_0.push_back(std::make_unique<CubicSplineSet>(spl_r_min, r_cut, spl_values_0[i], spl_derivs_0[i]));
+        spl_set_0.push_back(std::make_unique<CubicSplineSet<Precision>>(spl_r_min, r_cut, spl_values_0[i], spl_derivs_0[i]));
     auto spl_values_1 = file["radial_spline_values_1"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_1 = file["radial_spline_derivs_1"].get<std::vector<std::vector<std::vector<double>>>>();
     for (int i=0; i<spl_values_1.size(); ++i)
-        spl_set_1.push_back(std::make_unique<CubicSplineSet>(spl_r_min, r_cut, spl_values_1[i], spl_derivs_1[i]));
+        spl_set_1.push_back(std::make_unique<CubicSplineSet<Precision>>(spl_r_min, r_cut, spl_values_1[i], spl_derivs_1[i]));
 
     // H0
-    H0_weights = file["H0_weights"].get<std::vector<double>>();
+    H0_weights = file["H0_weights"].get<std::vector<Precision>>();
 
     // A0
-    A0_weights = file["A0_weights"].get<std::vector<std::vector<std::vector<double>>>>();
+    A0_weights = file["A0_weights"].get<std::vector<std::vector<std::vector<Precision>>>>();
 
     // A0 scaling
     A0_scaled = file["A0_scaled"].get<bool>();
@@ -853,7 +880,7 @@ void MACE::load_from_json(
     // M0
     auto load_contraction = [&] (std::string l, auto& B_spec, auto& B_coefficients, auto& M_spec, auto& M_weights) {
         B_spec = file["B"+l+"_spec"].get<std::vector<std::array<int,3>>>();
-        B_coefficients = file["B"+l+"_coefficients"].get<std::vector<double>>();
+        B_coefficients = file["B"+l+"_coefficients"].get<std::vector<Precision>>();
         M_spec = file["M"+l+"_spec"].get<std::vector<std::array<int,3>>>();
         for (const auto& w_a : file["M"+l+"_weights"])
             for (const auto& w_ae : w_a)
@@ -867,19 +894,19 @@ void MACE::load_from_json(
     num_B0 = load_contraction("0", B0_spec, B0_coefficients, M0_spec, M0_weights);
 
     // H1
-    H1_weights = file["H1_weights"].get<std::vector<double>>();
+    H1_weights = file["H1_weights"].get<std::vector<Precision>>();
 
     // Phi1
     Phi1_l = file["Phi1_l"].get<std::vector<int>>();
     Phi1_spec = file["Phi1_spec"].get<std::vector<std::array<int,3>>>();
     Phi1_cg_spec = file["Phi1_cg_spec"].get<std::vector<std::array<int,2>>>();
-    Phi1_clebsch_gordan = file["Phi1_clebsch_gordan"].get<std::vector<double>>();
+    Phi1_clebsch_gordan = file["Phi1_clebsch_gordan"].get<std::vector<Precision>>();
     num_lme = 0;
     for (auto l : Phi1_l)
         num_lme += 2*l+1;
 
     // A1
-    A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();
+    A1_weights = file["A1_weights"].get<std::vector<std::vector<Precision>>>();
     A1_weights_trans = A1_weights;
     for (int l=0; l<A1_weights.size(); ++l) {
         const int num_ek = A1_weights[l].size()/num_channels;
@@ -902,12 +929,12 @@ void MACE::load_from_json(
     num_B1 = load_contraction("1", B1_spec, B1_coefficients, M1_spec, M1_weights);
 
     // H2
-    H2_weights_for_M0 = file["H2_weights_for_M0"].get<std::vector<std::vector<double>>>();
-    H2_weights_for_M1 = file["H2_weights_for_M1"].get<std::vector<double>>();
+    H2_weights_for_M0 = file["H2_weights_for_M0"].get<std::vector<std::vector<Precision>>>();
+    H2_weights_for_M1 = file["H2_weights_for_M1"].get<std::vector<Precision>>();
 
     // Readouts
     // TODO! hardcoded 16
-    readout_1_weights_for_M0 = file["readout_1_weights_for_M0"].get<std::vector<double>>();
+    readout_1_weights_for_M0 = file["readout_1_weights_for_M0"].get<std::vector<Precision>>();
     auto readout_2_weights_1 = file["readout_2_weights_1"].get<std::vector<double>>();
     auto readout_2_weights_2 = file["readout_2_weights_2"].get<std::vector<double>>();
     readout_2 = std::make_unique<MultilayerPerceptron>(
@@ -915,3 +942,6 @@ void MACE::load_from_json(
         std::vector<std::vector<double>>{readout_2_weights_1, readout_2_weights_2},
         file["readout_2_scale_factor"]);
 }
+
+template class MACE<double>;
+template class MACE<float>;

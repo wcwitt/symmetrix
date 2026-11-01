@@ -9,6 +9,7 @@
 #include "multilayer_perceptron.hpp"
 #include "zbl.hpp"
 
+template <typename Precision>
 class MACE {
 
 public:
@@ -43,9 +44,9 @@ bool has_zbl;
 ZBL zbl;
 
 // Radial functions
-std::vector<std::unique_ptr<CubicSplineSet>> spl_set_0;
+std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_0;
 double R0_spline_r_min;
-std::vector<double> R0, R0_deriv;
+std::vector<Precision> R0, R0_deriv;
 void compute_R0(const int num_nodes,
                 std::span<const int> node_types,
                 std::span<const int> num_neigh,
@@ -53,8 +54,8 @@ void compute_R0(const int num_nodes,
                 std::span<const double> r);
 
 // R1
-std::vector<std::unique_ptr<CubicSplineSet>> spl_set_1;
-std::vector<double> R1, R1_deriv;
+std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_1;
+std::vector<Precision> R1, R1_deriv;
 void compute_R1(const int num_nodes,
                 std::span<const int> node_types,
                 std::span<const int> num_neigh,
@@ -62,15 +63,15 @@ void compute_R1(const int num_nodes,
                 std::span<const double> r);
 
 // Spherical harmonics
-std::vector<double> Y, Y_grad;
+std::vector<Precision> Y, Y_grad;
 void compute_Y(std::span<const double> xyz);
 
 // H0
-std::vector<double> H0_weights;
+std::vector<Precision> H0_weights;
 
 // A0
-std::vector<double> A0, A0_adj;
-std::vector<std::vector<std::vector<double>>> A0_weights;
+std::vector<Precision> A0, A0_adj;
+std::vector<std::vector<std::vector<Precision>>> A0_weights;
 void compute_A0(
     const int num_nodes,
     std::span<const int> node_types,
@@ -102,33 +103,33 @@ void reverse_A0_scaled(
     std::span<const double> r);
 
 // M0
-std::vector<double> M0, M0_adj;
-std::vector<double> B0;
+std::vector<Precision> M0, M0_adj;
+std::vector<Precision> B0;
 std::vector<std::array<int,3>> B0_spec, M0_spec;
-std::vector<double> B0_coefficients, M0_weights;
+std::vector<Precision> B0_coefficients, M0_weights;
 int num_B0;
 void compute_M0(const int num_nodes, std::span<const int> node_types);
 void reverse_M0(const int num_nodes, std::span<const int> node_types);
 
 // H1
-std::vector<double> H1, H1_adj;
-std::vector<double> H1_weights;
+std::vector<Precision> H1, H1_adj;
+std::vector<Precision> H1_weights;
 void compute_H1(const int num_nodes);
 void reverse_H1(const int num_nodes);
 
 // Phi1
 int num_lme;
-std::vector<double> Phi1, dPhi1;
+std::vector<Precision> Phi1, dPhi1;
 std::vector<int> Phi1_l;
 std::vector<std::array<int,3>> Phi1_spec;
 std::vector<std::array<int,2>> Phi1_cg_spec;
-std::vector<double> Phi1_clebsch_gordan;
+std::vector<Precision> Phi1_clebsch_gordan;
 void compute_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices);
 void reverse_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices, std::span<const double> xyz, std::span<const double> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
 // A1
-std::vector<double> A1, A1_adj;
-std::vector<std::vector<double>> A1_weights, A1_weights_trans;
+std::vector<Precision> A1, A1_adj;
+std::vector<std::vector<Precision>> A1_weights, A1_weights_trans;
 void compute_A1(const int num_nodes);
 void reverse_A1(const int num_nodes);
 
@@ -151,23 +152,23 @@ void reverse_A1_scaled(
     bool zero_dxyz = true);
 
 // M1
-std::vector<double> M1, M1_adj;
-std::vector<double> B1;
+std::vector<Precision> M1, M1_adj;
+std::vector<Precision> B1;
 std::vector<std::array<int,3>> B1_spec, M1_spec;
-std::vector<double> B1_coefficients, M1_weights;
+std::vector<Precision> B1_coefficients, M1_weights;
 int num_B1;
 void compute_M1(const int num_nodes, std::span<const int> node_types);
 void reverse_M1(const int num_nodes, std::span<const int> node_types);
 
 // H2
-std::vector<double> H2, H2_adj;
-std::vector<std::vector<double>> H2_weights_for_M0;
-std::vector<double> H2_weights_for_M1;
+std::vector<Precision> H2, H2_adj;
+std::vector<std::vector<Precision>> H2_weights_for_M0;
+std::vector<Precision> H2_weights_for_M1;
 void compute_H2(const int num_nodes, std::span<const int> node_types);
 void reverse_H2(const int num_nodes, std::span<const int> node_types);
 
 // Readouts
-std::vector<double> readout_1_weights_for_M0;
+std::vector<Precision> readout_1_weights_for_M0;
 std::unique_ptr<MultilayerPerceptron> readout_2;
 void compute_readouts(const int num_nodes, std::span<const int> node_types);
 

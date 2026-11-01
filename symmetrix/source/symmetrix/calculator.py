@@ -56,9 +56,7 @@ class Symmetrix(Calculator):
                 else symmetrix.MACEKokkosFloat
             )
         else:
-            if dtype == "float32":
-                raise ValueError(f"dtype '{dtype}' requires `use_kokkos = True`")
-            MACE = symmetrix.MACE
+            MACE = symmetrix.MACE if dtype == "float64" else symmetrix.MACEFloat
         try:
             self.evaluator = MACE(str(model_file))
         except RuntimeError:  # expecting json.exception.parse_error.101
