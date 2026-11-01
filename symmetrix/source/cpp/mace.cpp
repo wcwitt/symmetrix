@@ -56,6 +56,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_R0(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -70,6 +71,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_R1(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -87,6 +89,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> node_types,
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_A0(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -100,6 +103,7 @@ void bind_mace(py::module_ &m)
                            py::array_t<int> neigh_types,
                            py::array_t<double> xyz,
                            py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.reverse_A0(num_nodes,
                                 std::span<const int>(node_types.data(), node_types.size()),
                                 std::span<const int>(num_neigh.data(), num_neigh.size()),
@@ -114,6 +118,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_A0_scaled(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -129,6 +134,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> neigh_types,
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.reverse_A0_scaled(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -155,6 +161,7 @@ void bind_mace(py::module_ &m)
             [](MACE& self, const int num_nodes,
                            py::array_t<int> num_neigh,
                            py::array_t<int> neigh_indices) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_Phi1(num_nodes,
                                   std::span<const int>(num_neigh.data(), num_neigh.size()),
                                   std::span<const int>(neigh_indices.data(), neigh_indices.size()));
@@ -167,6 +174,7 @@ void bind_mace(py::module_ &m)
                            py::array_t<double> r,
                            bool zero_dxyz,
                            bool zero_H1_adj) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.reverse_Phi1(num_nodes,
                                   std::span<const int>(num_neigh.data(), num_neigh.size()),
                                   std::span<const int>(neigh_indices.data(), neigh_indices.size()),
@@ -184,6 +192,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.compute_A1_scaled(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),
@@ -199,6 +208,7 @@ void bind_mace(py::module_ &m)
                     py::array_t<int> neigh_types,
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
+                self.prepare_neigh_list(num_nodes, std::span<const int>(num_neigh.data(), num_neigh.size()));
                 self.reverse_A1_scaled(
                     num_nodes,
                     std::span<const int>(node_types.data(), node_types.size()),

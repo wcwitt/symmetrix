@@ -452,6 +452,8 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
   mace->node_forces.resize(xyz.size());
   std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
 
+  mace->prepare_neigh_list(num_nodes, num_neigh);
+
   if (mace->has_zbl)
     mace->zbl.compute_ZBL(
       num_nodes, node_types, num_neigh, neigh_types,
@@ -669,6 +671,8 @@ void PairSymmetrixMACE::compute_no_mpi_message_passing(int eflag, int vflag)
   std::fill(mace->node_energies.begin(), mace->node_energies.end(), 0.0);
   mace->node_forces.resize(xyz.size());
   std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
+
+  mace->prepare_neigh_list(num_local_nodes+num_ghost_nodes, num_neigh);
 
   if (mace->has_zbl)
     mace->zbl.compute_ZBL(

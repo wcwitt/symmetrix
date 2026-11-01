@@ -24,6 +24,10 @@ int L_max, num_LM;
 std::vector<int> atomic_numbers;
 std::vector<double> atomic_energies;
 
+// Neighbor list
+std::vector<int> first_neigh;
+void prepare_neigh_list(const int num_nodes, std::span<const int> num_neigh);
+
 // Node energies and forces
 std::vector<double> node_energies, node_forces;
 void compute_node_energies_forces(const int num_nodes,

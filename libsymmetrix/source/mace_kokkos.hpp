@@ -28,9 +28,9 @@ int L_max, num_LM;
 Kokkos::View<int*> atomic_numbers;
 Kokkos::View<double*> atomic_energies;
 
-// Graph
+// Neighbor list
 Kokkos::View<int*> first_neigh, i_list;
-void compute_graph(const int num_nodes, Kokkos::View<const int*> num_neigh);
+void prepare_neigh_list(const int num_nodes, Kokkos::View<const int*> num_neigh);
 
 // Node energies and forces
 Kokkos::View<double*> node_energies, node_forces;

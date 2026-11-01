@@ -28,6 +28,8 @@ void MACE::compute_node_energies_forces(
     node_forces.resize(xyz.size());
     std::fill(node_forces.begin(), node_forces.end(), 0.0);
 
+    prepare_neigh_list(num_nodes, num_neigh);
+
     if (has_zbl)
         zbl.compute_ZBL(
             num_nodes, node_types, num_neigh, neigh_types,
@@ -62,6 +64,14 @@ void MACE::compute_node_energies_forces(
     reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 }
 
+void MACE::prepare_neigh_list(
+    const int num_nodes,
+    std::span<const int> num_neigh)
+{
+    first_neigh.resize(num_nodes);
+    std::exclusive_scan(num_neigh.begin(), num_neigh.begin()+num_nodes, first_neigh.begin(), 0);
+}
+
 void MACE::compute_R0(
     const int num_nodes,
     std::span<const int> node_types,
@@ -72,10 +82,9 @@ void MACE::compute_R0(
     const int num_spl = spl_set_0[0]->num_splines;
     R0.resize(r.size()*num_spl);
     R0_deriv.resize(R0.size());
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
@@ -83,7 +92,6 @@ void MACE::compute_R0(
             auto R0_ij = std::span<double>(R0.data()+ij*num_spl,num_spl);
             auto R0_deriv_ij = std::span<double>(R0_deriv.data()+ij*num_spl,num_spl);
             spl_set_0[type_ij]->evaluate_derivs(r[ij], R0_ij, R0_deriv_ij);
-            ij += 1;
         }
     }
 }
@@ -98,10 +106,9 @@ void MACE::compute_R1(
     const int num_spl = spl_set_1[0]->num_splines;
     R1.resize(r.size()*num_spl);
     R1_deriv.resize(R1.size());
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
@@ -109,7 +116,6 @@ void MACE::compute_R1(
             auto R1_ij = std::span<double>(R1.data()+ij*num_spl,num_spl);
             auto R1_deriv_ij = std::span<double>(R1_deriv.data()+ij*num_spl,num_spl);
             spl_set_1[type_ij]->evaluate_derivs(r[ij], R1_ij, R1_deriv_ij);
-            ij += 1;
         }
     }
 }
@@ -139,12 +145,11 @@ void MACE::compute_A0(
 {
     A0.resize(num_nodes*num_lm*num_channels);
 
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
 
         // compute Phi0_i
         auto Phi0_i = std::vector<double>(num_lm*num_channels, 0.0);
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto Y_ij = Y.data()+ij*num_lm;
             auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
             for (int l=0; l<=l_max; ++l) {
@@ -158,7 +163,6 @@ void MACE::compute_A0(
                     }
                 }
             }
-            ij += 1;
         }
 
         // [A0_il]_mk = \sum_k' [Phi0_il]_mk' [W_il]_k'k
@@ -184,7 +188,6 @@ void MACE::reverse_A0(
     std::span<const double> xyz,
     std::span<const double> r)
 {
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
 
         auto Phi0_adj_i = std::vector<double>(num_lm*num_channels);
@@ -205,7 +208,7 @@ void MACE::reverse_A0(
         }
 
         // Warning: Assumes node_forces have been initialized elsewhere
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto xyz_ij = xyz.data()+ij*3;
             auto r_ij = r[ij];
             auto Y_ij = Y.data()+ij*num_lm;
@@ -235,7 +238,6 @@ void MACE::reverse_A0(
                     }
                 }
             }
-            ij += 1;
         }
     }
 }
@@ -248,17 +250,15 @@ void MACE::compute_A0_scaled(
     std::span<const double> r)
 {
     if (not A0_scaled) return;
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         double A0_scale_factor = 1.0;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
             A0_scale_factor += A0_splines[type_ij].evaluate(r[ij]);
-            ij += 1;
         }
         auto A0_i = A0.data()+i*num_lm*num_channels;
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)
@@ -276,27 +276,24 @@ void MACE::reverse_A0_scaled(
 {
     if (not A0_scaled) return;
     // Warning: Assumes node_forces have been initialized elsewhere
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         auto A0_i = A0.data()+i*num_lm*num_channels;
         auto A0_adj_i = A0_adj.data()+i*num_lm*num_channels;
         // recompute the scale factor
         double A0_scale_factor = 1.0;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
             A0_scale_factor += A0_splines[type_ij].evaluate(r[ij]);
-            ij += 1;
         }
         // update dE/dxyz
         double dA0_dot_A0 = 0.0;
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)
             dA0_dot_A0 += A0_adj_i[lmk] * A0_i[lmk];
-        ij = ij - num_neigh[i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
@@ -307,7 +304,6 @@ void MACE::reverse_A0_scaled(
             node_forces_ij[0] += dA0_dot_A0/A0_scale_factor*d*xyz_ij[0]/r[ij];
             node_forces_ij[1] += dA0_dot_A0/A0_scale_factor*d*xyz_ij[1]/r[ij];
             node_forces_ij[2] += dA0_dot_A0/A0_scale_factor*d*xyz_ij[2]/r[ij];
-            ij += 1;
         }
         // update dE/dA0
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)
@@ -421,10 +417,9 @@ void MACE::compute_Phi1(
     Phi1.resize(num_nodes*num_lme*num_channels);
     std::fill(Phi1.begin(), Phi1.end(), 0.0);
     auto CG_Y = std::vector<double>(Phi1_spec.size());
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
@@ -441,7 +436,6 @@ void MACE::compute_Phi1(
                 for (int k=0; k<num_channels; ++k)
                     Phi1_i_lme[k] += CG_Y[q] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
             }
-            ij += 1;
         }
     }
 }
@@ -464,10 +458,9 @@ void MACE::reverse_Phi1(
         std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
     auto CG_Y = std::vector<double>(Phi1_spec.size());
     auto CG_Y_adj = std::vector<double>(Phi1_spec.size());
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto node_forces_ij = node_forces.data()+3*ij;
             auto xyz_ij = xyz.data()+3*ij;
             auto r_ij = r[ij];
@@ -505,7 +498,6 @@ void MACE::reverse_Phi1(
                 for (int a=0; a<3; ++a)
                     node_forces_ij[a] -= Phi1_clebsch_gordan[p] * Y_grad_ij[a*num_lm+lm1] * CG_Y_adj[q];
             }
-            ij += 1;
         }
     }
 }
@@ -584,17 +576,15 @@ void MACE::compute_A1_scaled(
     std::span<const double> r)
 {
     if (not A1_scaled) return;
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         double A1_scale_factor = 1.0;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
             A1_scale_factor += A1_splines[type_ij].evaluate(r[ij]);
-            ij += 1;
         }
         auto A1_i = A1.data()+i*num_lm*num_channels;
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)
@@ -615,27 +605,24 @@ void MACE::reverse_A1_scaled(
     node_forces.resize(xyz.size());
     if (zero_dxyz)
         std::fill(node_forces.begin(), node_forces.end(), 0.0);
-    int ij = 0;
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         auto A1_i = A1.data()+i*num_lm*num_channels;
         auto A1_adj_i = A1_adj.data()+i*num_lm*num_channels;
         // recompute the scale factor
         double A1_scale_factor = 1.0;
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
                 : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
             A1_scale_factor += A1_splines[type_ij].evaluate(r[ij]);
-            ij += 1;
         }
         // update dE/dxyz
         double dA1_dot_A1 = 0.0;
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)
             dA1_dot_A1 += A1_adj_i[lmk] * A1_i[lmk];
-        ij = ij - num_neigh[i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int type_ij = (type_i <= type_j)
                 ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
@@ -646,7 +633,6 @@ void MACE::reverse_A1_scaled(
             node_forces_ij[0] += dA1_dot_A1/A1_scale_factor*d*xyz_ij[0]/r[ij];
             node_forces_ij[1] += dA1_dot_A1/A1_scale_factor*d*xyz_ij[1]/r[ij];
             node_forces_ij[2] += dA1_dot_A1/A1_scale_factor*d*xyz_ij[2]/r[ij];
-            ij += 1;
         }
         // update dE/dA1
         for (int lmk=0; lmk<num_lm*num_channels; ++lmk)

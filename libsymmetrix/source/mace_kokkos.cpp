@@ -62,7 +62,7 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
     Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_energies, 0.0);
     Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_forces, 0.0);
 
-    compute_graph(num_nodes, num_neigh);
+    prepare_neigh_list(num_nodes, num_neigh);
 
     if (has_zbl)
         zbl.compute_ZBL(
@@ -99,7 +99,7 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
 }
 
 template <typename Precision>
-void MACEKokkos<Precision>::compute_graph(
+void MACEKokkos<Precision>::prepare_neigh_list(
     const int num_nodes,
     Kokkos::View<const int*> num_neigh)
 {
@@ -107,7 +107,7 @@ void MACEKokkos<Precision>::compute_graph(
         Kokkos::realloc(first_neigh, num_nodes);
     auto first_neigh = this->first_neigh;
     int num_edges;
-    Kokkos::parallel_scan("MACEKokkos::compute_graph::first_neigh",
+    Kokkos::parallel_scan("MACEKokkos::prepare_neigh_list::first_neigh",
         num_nodes,
         KOKKOS_LAMBDA (const int i, int& update, const bool final) {
             if (final)
@@ -118,7 +118,7 @@ void MACEKokkos<Precision>::compute_graph(
     if (i_list.extent(0) < num_edges)
         Kokkos::realloc(i_list, num_edges);
     auto i_list = this->i_list;
-    Kokkos::parallel_for("MACEKokkos::compute_graph::i_list",
+    Kokkos::parallel_for("MACEKokkos::prepare_neigh_list::i_list",
         num_nodes,
         KOKKOS_LAMBDA (const int i) {
             for (int j=0; j<num_neigh(i); ++j)

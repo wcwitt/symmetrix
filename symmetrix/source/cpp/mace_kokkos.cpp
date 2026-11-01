@@ -69,7 +69,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_R0(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -94,7 +94,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_R1(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -132,7 +132,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> node_types,
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_A0(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -147,7 +147,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> neigh_types,
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.reverse_A0(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -163,7 +163,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_A0_scaled(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -179,7 +179,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> neigh_types,
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.reverse_A0_scaled(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -262,7 +262,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     const int num_nodes,
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_Phi1(
                     num_nodes,
                     create_kokkos_view("num_neigh", num_neigh),
@@ -277,7 +277,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<double> r,
                     bool zero_dxyz,
                     bool zero_H1_adj) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.reverse_Phi1(
                     num_nodes,
                     create_kokkos_view("num_neigh", num_neigh),
@@ -319,7 +319,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> num_neigh,
                     py::array_t<int> neigh_types,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.compute_A1_scaled(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
@@ -335,7 +335,7 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     py::array_t<int> neigh_types,
                     py::array_t<double> xyz,
                     py::array_t<double> r) {
-                self.compute_graph(num_nodes, create_kokkos_view("num_neigh", num_neigh));
+                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
                 self.reverse_A1_scaled(
                     num_nodes,
                     create_kokkos_view("node_types", node_types),
