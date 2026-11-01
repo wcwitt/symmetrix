@@ -6,7 +6,6 @@
 #include "nlohmann/json.hpp"
 #include "sphericart.hpp"
 
-#include "cblas.hpp"
 #include "mace.hpp"
 
 MACE::MACE(std::string filename)
@@ -164,23 +163,15 @@ void MACE::compute_A0(
 
         // [A0_il]_mk = \sum_k' [Phi0_il]_mk' [W_il]_k'k
         for (int l=0; l<=l_max; ++l) {
-            auto Phi0_il = Phi0_i.data()+l*l*num_channels;
-            auto A0_il = A0.data()+(i*num_lm+l*l)*num_channels;
-            cblas_dgemm(
-                CblasRowMajor,                        // const CBLAS_LAYOUT Layout
-                CblasNoTrans,                         // const CBLAS_TRANSPOSE transa
-                CblasNoTrans,                         // const CBLAS_TRANSPOSE transb
-                (2*l+1),                              // const MKL_INT m
-                num_channels,                         // const MKL_INT n
-                num_channels,                         // const MKL_INT k
-                1.0,                                  // const double alpha
-                Phi0_il,                              // const double *a
-                num_channels,                         // const MKL_INT lda
-                A0_weights[node_types[i]][l].data(),  // const double *b
-                num_channels,                         // const MKL_INT ldb
-                0.0,                                  // const double beta
-                A0_il,                                // double *c
-                num_channels);                        // const MKL_INT ldc
+            auto A0_weights_il = A0_weights[node_types[i]][l].data();
+            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                auto Phi0_i_lm = Phi0_i.data()+lm*num_channels;
+                auto A0_i_lm = A0.data()+(i*num_lm+lm)*num_channels;
+                std::fill(A0_i_lm, A0_i_lm+num_channels, 0.0);
+                for (int kp=0; kp<num_channels; ++kp)
+                    for (int k=0; k<num_channels; ++k)
+                        A0_i_lm[k] += Phi0_i_lm[kp] * A0_weights_il[kp*num_channels+k];
+            }
         }
     }
 }
@@ -200,23 +191,17 @@ void MACE::reverse_A0(
 
         // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k
         for (int l=0; l<=l_max; ++l) {
-            auto Phi0_adj_il = Phi0_adj_i.data()+l*l*num_channels;
-            auto A0_adj_il = A0_adj.data()+(i*num_lm+l*l)*num_channels;
-            cblas_dgemm(
-                CblasRowMajor,                        // const CBLAS_LAYOUT Layout
-                CblasNoTrans,                         // const CBLAS_TRANSPOSE transa
-                CblasTrans,                           // const CBLAS_TRANSPOSE transb
-                (2*l+1),                              // const MKL_INT m
-                num_channels,                         // const MKL_INT n
-                num_channels,                         // const MKL_INT k
-                1.0,                                  // const double alpha
-                A0_adj_il,                            // const double *a
-                num_channels,                         // const MKL_INT lda
-                A0_weights[node_types[i]][l].data(),  // const double *b
-                num_channels,                         // const MKL_INT ldb
-                0.0,                                  // const double beta
-                Phi0_adj_il,                          // double *c
-                num_channels);                        // const MKL_INT ldc
+            auto A0_weights_il = A0_weights[node_types[i]][l].data();
+            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
+                auto A0_adj_i_lm = A0_adj.data()+(i*num_lm+lm)*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    double Phi0_adj_i_lm_k = 0.0;
+                    for (int kp=0; kp<num_channels; ++kp)
+                        Phi0_adj_i_lm_k += A0_adj_i_lm[kp] * A0_weights_il[k*num_channels+kp];
+                    Phi0_adj_i_lm[k] = Phi0_adj_i_lm_k;
+                }
+            }
         }
 
         // Warning: Assumes node_forces have been initialized elsewhere
@@ -389,27 +374,18 @@ void MACE::reverse_M0(
 void MACE::compute_H1(
     const int num_nodes)
 {
-    H1.resize(M0.size());
+    // [H1_il]_mk = \sum_k' [M0_il]_mk' [W_l]_k'k
+    H1.assign(M0.size(), 0.0);
     for (int i=0; i<num_nodes; ++i) {
         for (int l=0; l<=L_max; ++l) {
-            const auto M0_il = M0.data()+(i*num_LM+l*l)*num_channels;
             const auto H1_weights_l = H1_weights.data()+l*num_channels*num_channels;
-            auto H1_il = H1.data()+(i*num_LM+l*l)*num_channels;
-            cblas_dgemm(
-                CblasRowMajor,  // const CBLAS_LAYOUT Layout
-                CblasNoTrans,   // const CBLAS_TRANSPOSE transa
-                CblasNoTrans,   // const CBLAS_TRANSPOSE transb
-                2*l+1,          // const MKL_INT m
-                num_channels,   // const MKL_INT n
-                num_channels,   // const MKL_INT k
-                1.0,            // const double alpha
-                M0_il,          // const double *a
-                num_channels,   // const MKL_INT lda
-                H1_weights_l,   // const double *b
-                num_channels,   // const MKL_INT ldb
-                0.0,            // const double beta
-                H1_il,          // double *c
-                num_channels);  // const MKL_INT ldc
+            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                const auto M0_ilm = M0.data()+(i*num_LM+lm)*num_channels;
+                auto H1_ilm = H1.data()+(i*num_LM+lm)*num_channels;
+                for (int kp=0; kp<num_channels; ++kp)
+                    for (int k=0; k<num_channels; ++k)
+                        H1_ilm[k] += M0_ilm[kp] * H1_weights_l[kp*num_channels+k];
+            }
         }
     }
 }
@@ -417,27 +393,21 @@ void MACE::compute_H1(
 void MACE::reverse_H1(
     const int num_nodes)
 {
+    // [dE/dM0_il]_mk = \sum_k' [dE/dH1_il]_mk' [trans(W_l)]_k'k
     M0_adj.resize(M0.size());
     for (int i=0; i<num_nodes; ++i) {
         for (int l=0; l<=L_max; ++l) {
-            const auto H1_adj_il = H1_adj.data()+(i*num_LM+l*l)*num_channels;
             const auto H1_weights_l = H1_weights.data()+l*num_channels*num_channels;
-            auto M0_adj_il = M0_adj.data()+(i*num_LM+l*l)*num_channels;
-            cblas_dgemm(
-                CblasRowMajor,  // const CBLAS_LAYOUT Layout
-                CblasNoTrans,   // const CBLAS_TRANSPOSE transa
-                CblasTrans,     // const CBLAS_TRANSPOSE transb
-                2*l+1,          // const MKL_INT m
-                num_channels,   // const MKL_INT n
-                num_channels,   // const MKL_INT k
-                1.0,            // const double alpha
-                H1_adj_il,      // const double *a
-                num_channels,   // const MKL_INT lda
-                H1_weights_l,   // const double *b
-                num_channels,   // const MKL_INT ldb
-                0.0,            // const double beta
-                M0_adj_il,      // double *c
-                num_channels);  // const MKL_INT ldc
+            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                const auto H1_adj_ilm = H1_adj.data()+(i*num_LM+lm)*num_channels;
+                auto M0_adj_ilm = M0_adj.data()+(i*num_LM+lm)*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    double M0_adj_ilm_k = 0.0;
+                    for (int kp=0; kp<num_channels; ++kp)
+                        M0_adj_ilm_k += H1_adj_ilm[kp] * H1_weights_l[k*num_channels+kp];
+                    M0_adj_ilm[k] = M0_adj_ilm_k;
+                }
+            }
         }
     }
 }
@@ -545,34 +515,30 @@ void MACE::compute_A1(
 {
     // The core matrix multiplication is:
     //         [A1_il]_mk = \sum_k' [Phi1_il]_m(ek') [W_il]_(ek')k
+    // for four nodes at a time, so each weight is loaded once for all four
     A1.resize(num_nodes*num_lm*num_channels);
-    int num_lme = 0;
     std::vector<int> num_e(l_max+1,0);
-    for (auto l : Phi1_l) {
-        num_lme += 2*l+1;
+    for (auto l : Phi1_l)
         num_e[l] += 1;
-    }
-    for (int i=0; i<num_nodes; ++i) {
-        auto Phi1_il = Phi1.data()+i*num_lme*num_channels;
-        auto A1_il = A1.data()+i*num_lm*num_channels;
+    for (int i0=0; i0<num_nodes; i0+=4) {
+        int lme = 0;
         for (int l=0; l<=l_max; ++l) {
-            cblas_dgemm(
-                CblasRowMajor,          // const CBLAS_LAYOUT Layout
-                CblasNoTrans,           // const CBLAS_TRANSPOSE transa
-                CblasNoTrans,           // const CBLAS_TRANSPOSE transb
-                (2*l+1),                // const MKL_INT m
-                num_channels,           // const MKL_INT n
-                num_e[l]*num_channels,  // const MKL_INT k
-                1.0,                    // const double alpha
-                Phi1_il,                // const double *a
-                num_e[l]*num_channels,  // const MKL_INT lda
-                A1_weights[l].data(),   // const double *b
-                num_channels,           // const MKL_INT ldb
-                0.0,                    // const double beta
-                A1_il,                  // double *c
-                num_channels);          // const MKL_INT ldc
-            Phi1_il += (2*l+1)*num_e[l]*num_channels;
-            A1_il += (2*l+1)*num_channels;
+            const int num_ek = num_e[l]*num_channels;
+            for (int m=0; m<2*l+1; ++m) {
+                const double* Phi1_ilm[4];
+                for (int b=0; b<4; ++b)
+                    Phi1_ilm[b] = Phi1.data()+(std::min(i0+b,num_nodes-1)*num_lme+lme+m*num_e[l])*num_channels;
+                for (int k=0; k<num_channels; ++k) {
+                    auto A1_weights_trans_lk = A1_weights_trans[l].data()+k*num_ek;
+                    double A1_ilm_k[4] = {};
+                    for (int ekp=0; ekp<num_ek; ++ekp)
+                        for (int b=0; b<4; ++b)
+                            A1_ilm_k[b] += Phi1_ilm[b][ekp] * A1_weights_trans_lk[ekp];
+                    for (int b=0; b<4 and i0+b<num_nodes; ++b)
+                        A1[((i0+b)*num_lm+l*l+m)*num_channels+k] = A1_ilm_k[b];
+                }
+            }
+            lme += (2*l+1)*num_e[l];
         }
     }
 }
@@ -582,34 +548,30 @@ void MACE::reverse_A1(
 {
     // The core matrix multiplication is:
     //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
+    // for four nodes at a time, so each weight is loaded once for all four
     dPhi1.resize(Phi1.size());
-    int num_lme = 0;
     std::vector<int> num_e(l_max+1,0);
-    for (auto l : Phi1_l) {
-        num_lme += 2*l+1;
+    for (auto l : Phi1_l)
         num_e[l] += 1;
-    }
-    for (int i=0; i<num_nodes; ++i) {
-        auto A1_adj_il = A1_adj.data()+i*num_lm*num_channels;
-        auto dPhi1_il = dPhi1.data()+i*num_lme*num_channels;
+    for (int i0=0; i0<num_nodes; i0+=4) {
+        int lme = 0;
         for (int l=0; l<=l_max; ++l) {
-            cblas_dgemm(
-                CblasRowMajor,          // const CBLAS_LAYOUT Layout
-                CblasNoTrans,           // const CBLAS_TRANSPOSE transa
-                CblasTrans,             // const CBLAS_TRANSPOSE transb
-                (2*l+1),                // const MKL_INT m
-                num_e[l]*num_channels,  // const MKL_INT n
-                num_channels,           // const MKL_INT k
-                1.0,                    // const double alpha
-                A1_adj_il,              // const double *a
-                num_channels,           // const MKL_INT lda
-                A1_weights[l].data(),   // const double *b
-                num_channels,           // const MKL_INT ldb
-                0.0,                    // const double beta
-                dPhi1_il,            // double *c
-                num_e[l]*num_channels); // const MKL_INT ldc
-            A1_adj_il += (2*l+1)*num_channels;
-            dPhi1_il += (2*l+1)*num_e[l]*num_channels;
+            const int num_ek = num_e[l]*num_channels;
+            for (int m=0; m<2*l+1; ++m) {
+                const double* A1_adj_ilm[4];
+                for (int b=0; b<4; ++b)
+                    A1_adj_ilm[b] = A1_adj.data()+(std::min(i0+b,num_nodes-1)*num_lm+l*l+m)*num_channels;
+                for (int ek=0; ek<num_ek; ++ek) {
+                    auto A1_weights_lek = A1_weights[l].data()+ek*num_channels;
+                    double dPhi1_ilm_ek[4] = {};
+                    for (int kp=0; kp<num_channels; ++kp)
+                        for (int b=0; b<4; ++b)
+                            dPhi1_ilm_ek[b] += A1_adj_ilm[b][kp] * A1_weights_lek[kp];
+                    for (int b=0; b<4 and i0+b<num_nodes; ++b)
+                        dPhi1[((i0+b)*num_lme+lme+m*num_e[l])*num_channels+ek] = dPhi1_ilm_ek[b];
+                }
+            }
+            lme += (2*l+1)*num_e[l];
         }
     }
 }
@@ -750,37 +712,16 @@ void MACE::compute_H2(
     const int num_nodes,
     std::span<const int> node_types)
 {
-    H2.resize(num_nodes*num_channels);
+    H2.assign(num_nodes*num_channels, 0.0);
     for (int i=0; i<num_nodes; ++i) {
         auto H2_i = H2.data()+i*num_channels;
         auto H1_i = H1.data()+i*num_LM*num_channels;
-        cblas_dgemv(
-            CblasRowMajor,                            // const CBLAS_LAYOUT Layout
-            CblasTrans,                               // const CBLAS_TRANSPOSE trans
-            num_channels,                             // const MKL_INT m
-            num_channels,                             // const MKL_INT n
-            1.0,                                      // const double alpha
-            H2_weights_for_H1[node_types[i]].data(),  // const double *a
-            num_channels,                             // const MKL_INT lda
-            H1_i,                                     // const double *x
-            1,                                        // const MKL_INT incx
-            0.0,                                      // const double beta
-            H2_i,                                     // double *y
-            1);                                       // const MKL_INT incy
         auto M1_i = M1.data()+i*num_channels;
-        cblas_dgemv(
-            CblasRowMajor,             // const CBLAS_LAYOUT Layout
-            CblasTrans,                // const CBLAS_TRANSPOSE trans
-            num_channels,              // const MKL_INT m
-            num_channels,              // const MKL_INT n
-            1.0,                       // const double alpha
-            H2_weights_for_M1.data(),  // const double *a
-            num_channels,              // const MKL_INT lda
-            M1_i,                      // const double *x
-            1,                         // const MKL_INT incx
-            1.0,                       // const double beta
-            H2_i,                      // double *y
-            1);                        // const MKL_INT incy
+        auto H2_weights_for_H1_i = H2_weights_for_H1[node_types[i]].data();
+        for (int kp=0; kp<num_channels; ++kp)
+            for (int k=0; k<num_channels; ++k)
+                H2_i[k] += H2_weights_for_H1_i[kp*num_channels+k] * H1_i[kp]
+                         + H2_weights_for_M1[kp*num_channels+k] * M1_i[kp];
     }
 }
 
@@ -796,33 +737,18 @@ void MACE::reverse_H2(
     for (int i=0; i<num_nodes; ++i) {
         auto H2_adj_i = H2_adj.data()+i*num_channels;
         auto H1_adj_i = H1_adj.data()+i*num_LM*num_channels;
-        cblas_dgemv(
-            CblasRowMajor,                            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,                             // const CBLAS_TRANSPOSE trans
-            num_channels,                             // const MKL_INT m
-            num_channels,                             // const MKL_INT n
-            1.0,                                      // const double alpha
-            H2_weights_for_H1[node_types[i]].data(),  // const double *a
-            num_channels,                             // const MKL_INT lda
-            H2_adj_i,                                 // const double *x
-            1,                                        // const MKL_INT incx
-            1.0,                                      // const double beta
-            H1_adj_i,                                 // double *y
-            1);                                       // const MKL_INT incy
         auto M1_adj_i = M1_adj.data()+i*num_channels;
-        cblas_dgemv(
-            CblasRowMajor,             // const CBLAS_LAYOUT Layout
-            CblasNoTrans,              // const CBLAS_TRANSPOSE trans
-            num_channels,              // const MKL_INT m
-            num_channels,              // const MKL_INT n
-            1.0,                       // const double alpha
-            H2_weights_for_M1.data(),  // const double *a
-            num_channels,              // const MKL_INT lda
-            H2_adj_i,                  // const double *x
-            1,                         // const MKL_INT incx
-            0.0,                       // const double beta
-            M1_adj_i,                  // double *y
-            1);                        // const MKL_INT incy
+        auto H2_weights_for_H1_i = H2_weights_for_H1[node_types[i]].data();
+        for (int kp=0; kp<num_channels; ++kp) {
+            double H1_adj_i_kp = 0.0;
+            double M1_adj_i_kp = 0.0;
+            for (int k=0; k<num_channels; ++k) {
+                H1_adj_i_kp += H2_weights_for_H1_i[kp*num_channels+k] * H2_adj_i[k];
+                M1_adj_i_kp += H2_weights_for_M1[kp*num_channels+k] * H2_adj_i[k];
+            }
+            H1_adj_i[kp] += H1_adj_i_kp;
+            M1_adj_i[kp] = M1_adj_i_kp;
+        }
     }
 }
 
@@ -939,6 +865,13 @@ void MACE::load_from_json(
 
     // A1
     A1_weights = file["A1_weights"].get<std::vector<std::vector<double>>>();
+    A1_weights_trans = A1_weights;
+    for (int l=0; l<A1_weights.size(); ++l) {
+        const int num_ek = A1_weights[l].size()/num_channels;
+        for (int ek=0; ek<num_ek; ++ek)
+            for (int k=0; k<num_channels; ++k)
+                A1_weights_trans[l][k*num_ek+ek] = A1_weights[l][ek*num_channels+k];
+    }
 
     // A1 scaling
     A1_scaled = file["A1_scaled"].get<bool>();

@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <map>
+#include <numeric>
 #include <set>
 
-#include "cblas.hpp"
 #include "tools.hpp"
 
 #include "multivariate_polynomial.hpp"
@@ -106,9 +106,7 @@ auto MultivariatePolynomial::evaluate(
 {
     initialize_forward_pass(x);
     forward_pass();
-    return cblas_ddot(node_coefficients.size(),
-                      node_coefficients.data(), 1,
-                      node_values.data(), 1);
+    return std::inner_product(node_coefficients.begin(), node_coefficients.end(), node_values.begin(), 0.0);
 }
 
 auto MultivariatePolynomial::evaluate_gradient(
@@ -117,9 +115,7 @@ auto MultivariatePolynomial::evaluate_gradient(
 {
     initialize_forward_pass(x);
     forward_pass();
-    auto f = cblas_ddot(node_coefficients.size(),
-                        node_coefficients.data(), 1,
-                        node_values.data(), 1);
+    auto f = std::inner_product(node_coefficients.begin(), node_coefficients.end(), node_values.begin(), 0.0);
     initialize_backward_pass();
     backward_pass();
     auto g = extract_gradient_from_graph();
@@ -163,9 +159,7 @@ void MultivariatePolynomial::forward_pass()
 
 void MultivariatePolynomial::initialize_backward_pass()
 {
-    cblas_dcopy(node_coefficients.size(),
-                node_coefficients.data(), 1,
-                node_adjoints.data(), 1);
+    std::copy(node_coefficients.begin(), node_coefficients.end(), node_adjoints.begin());
 }
 
 void MultivariatePolynomial::backward_pass()

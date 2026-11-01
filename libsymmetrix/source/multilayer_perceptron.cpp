@@ -1,7 +1,5 @@
 #include <cmath>
 
-#include "cblas.hpp"
-
 #include "multilayer_perceptron.hpp"
 
 MultilayerPerceptron::MultilayerPerceptron()
@@ -36,40 +34,15 @@ auto MultilayerPerceptron::evaluate(
         node_values[i].resize(shape[i]);
     }
     std::copy(input.begin(), input.end(), node_values[0].begin());
-    // Evaluate layers
-    for (int l=0; l<shape.size()-2; ++l) {
-        cblas_dgemv(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE trans
-            shape[l+1],               // const MKL_INT m
-            shape[l],                 // const MKL_INT n
-            1.0,                      // const double alpha
-            weights[l].data(),        // const double *a
-            shape[l],                 // const MKL_INT lda
-            node_values[l].data(),    // const double *x
-            1,                        // const MKL_INT incx
-            0.0,                      // const double beta
-            node_values[l+1].data(),  // double *y
-            1);                       // const MKL_INT incy
+    // Evaluate layers (no nonlinearity in the final one)
+    for (int l=0; l<shape.size()-1; ++l) {
         for (int i=0; i<shape[l+1]; ++i) {
-            const double x = node_values[l+1][i];
-            node_values[l+1][i] = activation_scale_factor*x/(1.0+std::exp(-x));
+            double x = 0.0;
+            for (int j=0; j<shape[l]; ++j)
+                x += weights[l][i*shape[l]+j] * node_values[l][j];
+            node_values[l+1][i] = (l < shape.size()-2) ? activation_scale_factor*x/(1.0+std::exp(-x)) : x;
         }
     }
-    // Evaluate final layer (no nonlinearity)
-    cblas_dgemv(
-        CblasRowMajor,                 // const CBLAS_LAYOUT Layout
-        CblasNoTrans,                  // const CBLAS_TRANSPOSE trans
-        shape.end()[-1],               // const MKL_INT m
-        shape.end()[-2],               // const MKL_INT n
-        1.0,                           // const double alpha
-        weights.back().data(),         // const double *a
-        shape.end()[-2],               // const MKL_INT lda
-        node_values.end()[-2].data(),  // const double *x
-        1,                             // const MKL_INT incx
-        0.0,                           // const double beta
-        node_values.end()[-1].data(),  // double *y
-        1);                            // const MKL_INT incy
     return node_values.back();
 }
 
@@ -85,43 +58,18 @@ auto  MultilayerPerceptron::evaluate_gradient(
         node_derivs[i].resize(shape.back()*shape[i]);
     }
     std::copy(input.begin(), input.end(), node_values[0].begin());
-    // Evaluate layers
-    for (int l=0; l<shape.size()-2; ++l) {
-        cblas_dgemv(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE trans
-            shape[l+1],               // const MKL_INT m
-            shape[l],                 // const MKL_INT n
-            1.0,                      // const double alpha
-            weights[l].data(),        // const double *a
-            shape[l],                 // const MKL_INT lda
-            node_values[l].data(),    // const double *x
-            1,                        // const MKL_INT incx
-            0.0,                      // const double beta
-            node_values[l+1].data(),  // double *y
-            1);                       // const MKL_INT incy
+    // Evaluate layers (no nonlinearity in the final one)
+    for (int l=0; l<shape.size()-1; ++l) {
         for (int i=0; i<shape[l+1]; ++i) {
-            const double x = node_values[l+1][i];
+            double x = 0.0;
+            for (int j=0; j<shape[l]; ++j)
+                x += weights[l][i*shape[l]+j] * node_values[l][j];
             const double sigmoid = 1.0/(1.0+std::exp(-x));
-            node_values[l+1][i] = activation_scale_factor*x*sigmoid;
+            node_values[l+1][i] = (l < shape.size()-2) ? activation_scale_factor*x*sigmoid : x;
             node_activation_derivs[l+1][i] = activation_scale_factor*sigmoid
                 + activation_scale_factor*x*sigmoid*(1-sigmoid);
         }
     }
-    // Evaluate final layer (no nonlinearity)
-    cblas_dgemv(
-        CblasRowMajor,                 // const CBLAS_LAYOUT Layout
-        CblasNoTrans,                  // const CBLAS_TRANSPOSE trans
-        shape.end()[-1],               // const MKL_INT m
-        shape.end()[-2],               // const MKL_INT n
-        1.0,                           // const double alpha
-        weights.back().data(),         // const double *a
-        shape.end()[-2],               // const MKL_INT lda
-        node_values.end()[-2].data(),  // const double *x
-        1,                             // const MKL_INT incx
-        0.0,                           // const double beta
-        node_values.end()[-1].data(),  // double *y
-        1);                            // const MKL_INT incy
     // Differentiate backwards
     node_derivs.end()[-2] = weights.back();
     for (int l=shape.size()-3; l>=0; --l) {
@@ -130,21 +78,13 @@ auto  MultilayerPerceptron::evaluate_gradient(
                 node_derivs[l+1][i*shape[l+1]+j] *= node_activation_derivs[l+1][j];
             }
         }
-        cblas_dgemm(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transa
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transb
-            shape.back(),             // const MKL_INT m
-            shape[l],                 // const MKL_INT n
-            shape[l+1],               // const MKL_INT k
-            1.0,                      // const double alpha
-            node_derivs[l+1].data(),  // const double *a
-            shape[l+1],               // const MKL_INT lda
-            weights[l].data(),        // const double *b
-            shape[l],                 // const MKL_INT ldb
-            0.0,                      // const double beta
-            node_derivs[l].data(),    // double *c
-            shape[l]);                // const MKL_INT ldc
+        for (int i=0; i<shape.back(); ++i)
+            for (int j=0; j<shape[l]; ++j) {
+                double d = 0.0;
+                for (int p=0; p<shape[l+1]; ++p)
+                    d += node_derivs[l+1][i*shape[l+1]+p] * weights[l][p*shape[l]+j];
+                node_derivs[l][i*shape[l]+j] = d;
+            }
     }
     return {node_values.back(), node_derivs[0]};
 }
@@ -160,44 +100,16 @@ auto MultilayerPerceptron::evaluate_batch(
         node_values[i].resize(batch_size*shape[i]);
     }
     std::copy(input.begin(), input.end(), node_values[0].begin());
-    // Evaluate layers
-    for (int l=0; l<shape.size()-2; ++l) {
-        cblas_dgemm(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transa
-            CblasTrans,               // const CBLAS_TRANSPOSE transb
-            batch_size,               // const MKL_INT m
-            shape[l+1],               // const MKL_INT n
-            shape[l],                 // const MKL_INT k
-            1.0,                      // const double alpha
-            node_values[l].data(),    // const double *a
-            shape[l],                 // const MKL_INT lda
-            weights[l].data(),        // const double *b
-            shape[l],                 // const MKL_INT ldb
-            0.0,                      // const double beta
-            node_values[l+1].data(),  // double *c
-            shape[l+1]);              // const MKL_INT ldc
-        for (int i=0; i<node_values[l+1].size(); ++i) {
-            const double x = node_values[l+1][i];
-            node_values[l+1][i] = activation_scale_factor*x/(1.0+std::exp(-x));
-        }
+    // Evaluate layers (no nonlinearity in the final one)
+    for (int l=0; l<shape.size()-1; ++l) {
+        for (int b=0; b<batch_size; ++b)
+            for (int i=0; i<shape[l+1]; ++i) {
+                double x = 0.0;
+                for (int j=0; j<shape[l]; ++j)
+                    x += weights[l][i*shape[l]+j] * node_values[l][b*shape[l]+j];
+                node_values[l+1][b*shape[l+1]+i] = (l < shape.size()-2) ? activation_scale_factor*x/(1.0+std::exp(-x)) : x;
+            }
     }
-    // Evaluate final layer (no nonlinearity)
-    cblas_dgemm(
-        CblasRowMajor,                 // const CBLAS_LAYOUT Layout
-        CblasNoTrans,                  // const CBLAS_TRANSPOSE transa
-        CblasTrans,                    // const CBLAS_TRANSPOSE transb
-        batch_size,                    // const MKL_INT m
-        shape.end()[-1],               // const MKL_INT n
-        shape.end()[-2],               // const MKL_INT k
-        1.0,                           // const double alpha
-        node_values.end()[-2].data(),  // const double *a
-        shape.end()[-2],               // const MKL_INT lda
-        weights.end()[-1].data(),      // const double *b
-        shape.end()[-2],               // const MKL_INT ldb
-        0.0,                           // const double beta
-        node_values.end()[-1].data(),  // double *c
-        shape.end()[-1]);              // const MKL_INT ldc
     return node_values.end()[-1];
 }
 
@@ -214,47 +126,19 @@ auto MultilayerPerceptron::evaluate_gradient_batch(
         node_derivs[i].resize(batch_size*shape.back()*shape[i]);
     }
     std::copy(input.begin(), input.end(), node_values[0].begin());
-    // Evaluate layers
-    for (int l=0; l<shape.size()-2; ++l) {
-        cblas_dgemm(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transa
-            CblasTrans,               // const CBLAS_TRANSPOSE transb
-            batch_size,               // const MKL_INT m
-            shape[l+1],               // const MKL_INT n
-            shape[l],                 // const MKL_INT k
-            1.0,                      // const double alpha
-            node_values[l].data(),    // const double *a
-            shape[l],                 // const MKL_INT lda
-            weights[l].data(),        // const double *b
-            shape[l],                 // const MKL_INT ldb
-            0.0,                      // const double beta
-            node_values[l+1].data(),  // double *c
-            shape[l+1]);              // const MKL_INT ldc
-        for (int i=0; i<node_values[l+1].size(); ++i) {
-            const double x = node_values[l+1][i];
-            const double sigmoid = 1.0/(1.0+std::exp(-x));
-            node_values[l+1][i] = activation_scale_factor*x*sigmoid;
-            node_activation_derivs[l+1][i] = activation_scale_factor*sigmoid
-                + activation_scale_factor*x*sigmoid*(1-sigmoid);
-        }
+    // Evaluate layers (no nonlinearity in the final one)
+    for (int l=0; l<shape.size()-1; ++l) {
+        for (int b=0; b<batch_size; ++b)
+            for (int i=0; i<shape[l+1]; ++i) {
+                double x = 0.0;
+                for (int j=0; j<shape[l]; ++j)
+                    x += weights[l][i*shape[l]+j] * node_values[l][b*shape[l]+j];
+                const double sigmoid = 1.0/(1.0+std::exp(-x));
+                node_values[l+1][b*shape[l+1]+i] = (l < shape.size()-2) ? activation_scale_factor*x*sigmoid : x;
+                node_activation_derivs[l+1][b*shape[l+1]+i] = activation_scale_factor*sigmoid
+                    + activation_scale_factor*x*sigmoid*(1-sigmoid);
+            }
     }
-    // Evaluate final layer (no nonlinearity)
-    cblas_dgemm(
-        CblasRowMajor,                 // const CBLAS_LAYOUT Layout
-        CblasNoTrans,                  // const CBLAS_TRANSPOSE transa
-        CblasTrans,                    // const CBLAS_TRANSPOSE transb
-        batch_size,                    // const MKL_INT m
-        shape.end()[-1],               // const MKL_INT n
-        shape.end()[-2],               // const MKL_INT k
-        1.0,                           // const double alpha
-        node_values.end()[-2].data(),  // const double *a
-        shape.end()[-2],               // const MKL_INT lda
-        weights.end()[-1].data(),      // const double *b
-        shape.end()[-2],               // const MKL_INT ldb
-        0.0,                           // const double beta
-        node_values.end()[-1].data(),  // double *c
-        shape.end()[-1]);              // const MKL_INT ldc
     // Differentiate backwards
     for (int i=0; i<batch_size; ++i) {
         std::copy(weights.back().begin(), weights.back().end(), node_derivs.end()[-2].begin()+i*weights.back().size());
@@ -267,21 +151,13 @@ auto MultilayerPerceptron::evaluate_gradient_batch(
                 }
             }
         }
-        cblas_dgemm(
-            CblasRowMajor,            // const CBLAS_LAYOUT Layout
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transa
-            CblasNoTrans,             // const CBLAS_TRANSPOSE transb
-            batch_size*shape.back(),  // const MKL_INT m
-            shape[l],                 // const MKL_INT n
-            shape[l+1],               // const MKL_INT k
-            1.0,                      // const double alpha
-            node_derivs[l+1].data(),  // const double *a
-            shape[l+1],               // const MKL_INT lda
-            weights[l].data(),        // const double *b
-            shape[l],                 // const MKL_INT ldb
-            0.0,                      // const double beta
-            node_derivs[l].data(),    // double *c
-            shape[l]);                // const MKL_INT ldc
+        for (int i=0; i<batch_size*shape.back(); ++i)
+            for (int j=0; j<shape[l]; ++j) {
+                double d = 0.0;
+                for (int p=0; p<shape[l+1]; ++p)
+                    d += node_derivs[l+1][i*shape[l+1]+p] * weights[l][p*shape[l]+j];
+                node_derivs[l][i*shape[l]+j] = d;
+            }
     }
     return {node_values.back(), node_derivs[0]};
 }

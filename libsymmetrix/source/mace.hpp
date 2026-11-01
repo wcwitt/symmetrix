@@ -123,7 +123,7 @@ void reverse_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span
 
 // A1
 std::vector<double> A1, A1_adj;
-std::vector<std::vector<double>> A1_weights;
+std::vector<std::vector<double>> A1_weights, A1_weights_trans;
 void compute_A1(const int num_nodes);
 void reverse_A1(const int num_nodes);
 
