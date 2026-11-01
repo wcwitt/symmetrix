@@ -51,18 +51,12 @@ void CubicSplineSet::evaluate(
     const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
-    double* c_i = c.data() + 4*i*num_splines;
+    const double* c0 = c.data() + 4*i*num_splines;
+    const double* c1 = c0 + num_splines;
+    const double* c2 = c1 + num_splines;
+    const double* c3 = c2 + num_splines;
     for (int j=0; j<num_splines; ++j)
-        values[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*x;
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*xx;
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*xxx;
+        values[j] = c0[j] + x*c1[j] + xx*c2[j] + xxx*c3[j];
 }
 
 void CubicSplineSet::evaluate_derivs(double r,
@@ -79,27 +73,12 @@ void CubicSplineSet::evaluate_derivs(double r,
     const double xxx = xx*x;
     const double two_x = 2*x;
     const double three_xx = 3*xx;
-    // compute values
-    double* c_i = c.data() + 4*i*num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += x*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += xx*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += xxx*c_i[j];
-    // compute derivs
-    c_i = c.data() + (4*i+1)*num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] += two_x*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] += three_xx*c_i[j];
+    const double* c0 = c.data() + 4*i*num_splines;
+    const double* c1 = c0 + num_splines;
+    const double* c2 = c1 + num_splines;
+    const double* c3 = c2 + num_splines;
+    for (int j=0; j<num_splines; ++j) {
+        values[j] = c0[j] + x*c1[j] + xx*c2[j] + xxx*c3[j];
+        derivs[j] = c1[j] + two_x*c2[j] + three_xx*c3[j];
+    }
 }
