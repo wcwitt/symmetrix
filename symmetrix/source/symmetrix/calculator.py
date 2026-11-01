@@ -16,13 +16,13 @@ except ImportError:
     logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
     from ase.neighborlist import neighbor_list
 
-from ase.calculators.calculator import Calculator, all_changes
+from ase.calculators.calculator import BaseCalculator, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
 from . import symmetrix
 
 
-class Symmetrix(Calculator):
+class Symmetrix(BaseCalculator):
     """ASE Calculator using symmetrix library to evaluate equivariant graph neural network
     potential energy functions
 
@@ -39,7 +39,7 @@ class Symmetrix(Calculator):
     implemented_properties = ["energy", "free_energy", "energies", "forces", "stress"]
 
     def __init__(self, model_file, dtype="float64", use_kokkos=True, **kwargs):
-        Calculator.__init__(self, **kwargs)
+        BaseCalculator.__init__(self)
         if dtype not in ["float32", "float64"]:
             raise ValueError(
                 f"Unsupported dtype '{dtype}'. Supported dtypes are 'float64' and 'float32'."
@@ -60,6 +60,8 @@ class Symmetrix(Calculator):
         try:
             self.evaluator = MACE(str(model_file))
         except RuntimeError:  # expecting json.exception.parse_error.101
+            if str(model_file).endswith(".json"):
+                raise
             # import this here so that torch/mace support isn't needed if file is already symmetrix json
             from .extract_mace_data import extract_mace_data
 
@@ -75,12 +77,14 @@ class Symmetrix(Calculator):
             with NamedTemporaryFile("w") as fout:
                 logging.warning(f"Converting via NamedTemporaryFile {fout.name}")
                 fout.write(json.dumps(data))
+                fout.flush()
                 self.evaluator = MACE(fout.name)
 
         self.cutoff = self.evaluator.r_cut
 
     def calculate(self, atoms=None, properties=["energy"], system_changes=all_changes):
-        Calculator.calculate(self, atoms, properties, system_changes)
+        if atoms is not None:
+            self.atoms = atoms.copy()
 
         ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
         mace_atomic_numbers = self.evaluator.atomic_numbers
@@ -95,10 +99,10 @@ class Symmetrix(Calculator):
             num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
         )
 
+        self.results["energies"] = np.asarray(self.evaluator.node_energies)[:num_nodes]
         self.results["energy"] = self.results["free_energy"] = np.sum(
-            self.evaluator.node_energies
+            self.results["energies"]
         )
-        self.results["energies"] = np.asarray(self.evaluator.node_energies)
 
         pair_forces = np.asarray(self.evaluator.node_forces).reshape((-1, 3))
         pair_forces = pair_forces[
