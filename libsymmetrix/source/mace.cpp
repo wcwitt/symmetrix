@@ -1,7 +1,9 @@
 #include <iostream> //TODO
 #include <fstream>
+#include <mutex>
 #include <numbers>
 #include <numeric>
+#include <stdexcept>
 
 #include "nlohmann/json.hpp"
 #include "sphericart.hpp"
@@ -79,9 +81,13 @@ void MACE::compute_R0(
     std::span<const int> neigh_types,
     std::span<const double> r)
 {
+    for (const double r_ij : r)
+        if (std::isnan(r_ij) or r_ij < R0_spline_r_min or r_ij > r_cut)
+            throw std::invalid_argument("Out of bounds in MACE::compute_R0. r=" + std::to_string(r_ij));
     const int num_spl = spl_set_0[0]->num_splines;
     R0.resize(r.size()*num_spl);
     R0_deriv.resize(R0.size());
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
@@ -106,6 +112,7 @@ void MACE::compute_R1(
     const int num_spl = spl_set_1[0]->num_splines;
     R1.resize(r.size()*num_spl);
     R1_deriv.resize(R1.size());
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
@@ -131,8 +138,10 @@ void MACE::compute_Y(
     sphericart.compute_array_with_gradients(
         xyz.data(), xyz.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
     // normalize to match e3nn conventions
+    #pragma omp parallel for
     for (int i=0; i<Y.size(); ++i)
         Y[i] *= 2*std::sqrt(std::numbers::pi);
+    #pragma omp parallel for
     for (int i=0; i<Y_grad.size(); ++i)
         Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
 }
@@ -145,6 +154,7 @@ void MACE::compute_A0(
 {
     A0.resize(num_nodes*num_lm*num_channels);
 
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
 
         // compute Phi0_i
@@ -188,6 +198,7 @@ void MACE::reverse_A0(
     std::span<const double> xyz,
     std::span<const double> r)
 {
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
 
         auto Phi0_adj_i = std::vector<double>(num_lm*num_channels);
@@ -250,6 +261,7 @@ void MACE::compute_A0_scaled(
     std::span<const double> r)
 {
     if (not A0_scaled) return;
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         double A0_scale_factor = 1.0;
@@ -276,6 +288,7 @@ void MACE::reverse_A0_scaled(
 {
     if (not A0_scaled) return;
     // Warning: Assumes node_forces have been initialized elsewhere
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         auto A0_i = A0.data()+i*num_lm*num_channels;
@@ -317,6 +330,7 @@ void MACE::compute_M0(
 {
     M0.assign(num_nodes*num_LM*num_channels, 0.0);
     B0.assign(num_nodes*num_B0*num_channels, 0.0);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto A0_i = A0.data()+i*num_lm*num_channels;
         auto M0_i = M0.data()+i*num_LM*num_channels;
@@ -342,13 +356,13 @@ void MACE::reverse_M0(
     std::span<const int> node_types)
 {
     A0_adj.assign(A0.size(), 0.0);
-    auto B0_adj_i = std::vector<double>(num_B0*num_channels);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
+        auto B0_adj_i = std::vector<double>(num_B0*num_channels);
         auto A0_adj_i = A0_adj.data()+i*num_lm*num_channels;
         auto M0_adj_i = M0_adj.data()+i*num_LM*num_channels;
         auto B0_i = B0.data()+i*num_B0*num_channels;
         auto M0_weights_i = M0_weights.data()+node_types[i]*M0_spec.size()*num_channels;
-        std::fill(B0_adj_i.begin(), B0_adj_i.end(), 0.0);
         for (int e=0; e<M0_spec.size(); ++e) {
             const auto [o, q, n] = M0_spec[e];
             for (int m=0; m<n; ++m)
@@ -372,6 +386,7 @@ void MACE::compute_H1(
 {
     // [H1_il]_mk = \sum_k' [M0_il]_mk' [W_l]_k'k
     H1.assign(M0.size(), 0.0);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         for (int l=0; l<=L_max; ++l) {
             const auto H1_weights_l = H1_weights.data()+l*num_channels*num_channels;
@@ -391,6 +406,7 @@ void MACE::reverse_H1(
 {
     // [dE/dM0_il]_mk = \sum_k' [dE/dH1_il]_mk' [trans(W_l)]_k'k
     M0_adj.resize(M0.size());
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         for (int l=0; l<=L_max; ++l) {
             const auto H1_weights_l = H1_weights.data()+l*num_channels*num_channels;
@@ -416,9 +432,10 @@ void MACE::compute_Phi1(
     // Compute Phi1 using CG coefficients contracted with Y (named CG_Y)
     Phi1.resize(num_nodes*num_lme*num_channels);
     std::fill(Phi1.begin(), Phi1.end(), 0.0);
-    auto CG_Y = std::vector<double>(Phi1_spec.size());
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
+        auto CG_Y = std::vector<double>(Phi1_spec.size());
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
             auto Y_ij = Y.data()+ij*num_lm;
@@ -456,10 +473,13 @@ void MACE::reverse_Phi1(
     H1_adj.resize(H1.size());
     if (zero_H1_adj)
         std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
-    auto CG_Y = std::vector<double>(Phi1_spec.size());
-    auto CG_Y_adj = std::vector<double>(Phi1_spec.size());
+    std::vector<std::mutex> H1_adj_locks(H1.size()/(num_LM*num_channels));
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
+        auto CG_Y = std::vector<double>(Phi1_spec.size());
+        auto CG_Y_adj = std::vector<double>(Phi1_spec.size());
+        auto H1_adj_ij = std::vector<double>(num_LM*num_channels);
         for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             auto node_forces_ij = node_forces.data()+3*ij;
             auto xyz_ij = xyz.data()+3*ij;
@@ -469,8 +489,8 @@ void MACE::reverse_Phi1(
             auto Y_ij = Y.data()+ij*num_lm;
             auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
             auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
-            auto H1_adj_ij = H1_adj.data()+neigh_indices[ij]*num_LM*num_channels;
             std::fill(CG_Y.begin(), CG_Y.end(), 0.0);
+            std::fill(H1_adj_ij.begin(), H1_adj_ij.end(), 0.0);
             for (int p=0; p<Phi1_cg_spec.size(); ++p) {
                 const auto [q, lm1] = Phi1_cg_spec[p];
                 CG_Y[q] += Phi1_clebsch_gordan[p] * Y_ij[lm1];
@@ -482,7 +502,7 @@ void MACE::reverse_Phi1(
                 auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
                 auto R1_deriv_ij_lel1l2 = R1_deriv_ij+lel1l2*num_channels;
                 auto H1_ij_lm2 = H1_ij+lm2*num_channels;
-                auto H1_adj_ij_lm2 = H1_adj_ij+lm2*num_channels;
+                auto H1_adj_ij_lm2 = H1_adj_ij.data()+lm2*num_channels;
                 double g = 0.0;
                 for (int k=0; k<num_channels; ++k) {
                     g += dPhi1_i_lme[k] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
@@ -498,6 +518,12 @@ void MACE::reverse_Phi1(
                 for (int a=0; a<3; ++a)
                     node_forces_ij[a] -= Phi1_clebsch_gordan[p] * Y_grad_ij[a*num_lm+lm1] * CG_Y_adj[q];
             }
+            const int j = neigh_indices[ij];
+            {
+                std::scoped_lock lock(H1_adj_locks[j]);
+                for (int LMk=0; LMk<num_LM*num_channels; ++LMk)
+                    H1_adj[j*num_LM*num_channels+LMk] += H1_adj_ij[LMk];
+            }
         }
     }
 }
@@ -512,6 +538,7 @@ void MACE::compute_A1(
     std::vector<int> num_e(l_max+1,0);
     for (auto l : Phi1_l)
         num_e[l] += 1;
+    #pragma omp parallel for
     for (int i0=0; i0<num_nodes; i0+=4) {
         int lme = 0;
         for (int l=0; l<=l_max; ++l) {
@@ -545,6 +572,7 @@ void MACE::reverse_A1(
     std::vector<int> num_e(l_max+1,0);
     for (auto l : Phi1_l)
         num_e[l] += 1;
+    #pragma omp parallel for
     for (int i0=0; i0<num_nodes; i0+=4) {
         int lme = 0;
         for (int l=0; l<=l_max; ++l) {
@@ -576,6 +604,7 @@ void MACE::compute_A1_scaled(
     std::span<const double> r)
 {
     if (not A1_scaled) return;
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         double A1_scale_factor = 1.0;
@@ -605,6 +634,7 @@ void MACE::reverse_A1_scaled(
     node_forces.resize(xyz.size());
     if (zero_dxyz)
         std::fill(node_forces.begin(), node_forces.end(), 0.0);
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         auto A1_i = A1.data()+i*num_lm*num_channels;
@@ -646,6 +676,7 @@ void MACE::compute_M1(
 {
     M1.assign(num_nodes*1*num_channels, 0.0);
     B1.assign(num_nodes*num_B1*num_channels, 0.0);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto A1_i = A1.data()+i*num_lm*num_channels;
         auto M1_i = M1.data()+i*num_channels;
@@ -670,13 +701,13 @@ void MACE::reverse_M1(
     std::span<const int> node_types)
 {
     A1_adj.assign(A1.size(), 0.0);
-    auto B1_adj_i = std::vector<double>(num_B1*num_channels);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
+        auto B1_adj_i = std::vector<double>(num_B1*num_channels);
         auto A1_adj_i = A1_adj.data()+i*num_lm*num_channels;
         auto M1_adj_i = M1_adj.data()+i*num_channels;
         auto B1_i = B1.data()+i*num_B1*num_channels;
         auto M1_weights_i = M1_weights.data()+node_types[i]*M1_spec.size()*num_channels;
-        std::fill(B1_adj_i.begin(), B1_adj_i.end(), 0.0);
         for (int e=0; e<M1_spec.size(); ++e) {
             const auto [o, q, n] = M1_spec[e];
             for (int k=0; k<num_channels; ++k)
@@ -699,6 +730,7 @@ void MACE::compute_H2(
     std::span<const int> node_types)
 {
     H2.assign(num_nodes*num_channels, 0.0);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto H2_i = H2.data()+i*num_channels;
         auto H1_i = H1.data()+i*num_LM*num_channels;
@@ -720,6 +752,7 @@ void MACE::reverse_H2(
     M1_adj.resize(M1.size());
     if (zero_H1_adj)
         std::fill(H1_adj.begin(), H1_adj.end(), 0.0);
+    #pragma omp parallel for
     for (int i=0; i<num_nodes; ++i) {
         auto H2_adj_i = H2_adj.data()+i*num_channels;
         auto H1_adj_i = H1_adj.data()+i*num_LM*num_channels;
@@ -796,6 +829,7 @@ void MACE::load_from_json(
 
     // Radial splines
     const double spl_r_min = file.at("radial_spline_r_min");
+    R0_spline_r_min = spl_r_min;
     auto spl_values_0 = file["radial_spline_values_0"].get<std::vector<std::vector<std::vector<double>>>>();
     auto spl_derivs_0 = file["radial_spline_derivs_0"].get<std::vector<std::vector<std::vector<double>>>>();
     for (int i=0; i<spl_values_0.size(); ++i)

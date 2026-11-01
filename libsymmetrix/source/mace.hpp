@@ -44,6 +44,7 @@ ZBL zbl;
 
 // Radial functions
 std::vector<std::unique_ptr<CubicSplineSet>> spl_set_0;
+double R0_spline_r_min;
 std::vector<double> R0, R0_deriv;
 void compute_R0(const int num_nodes,
                 std::span<const int> node_types,

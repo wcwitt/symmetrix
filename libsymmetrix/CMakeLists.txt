@@ -61,6 +61,10 @@ target_include_directories(symmetrix
 
 target_link_libraries(symmetrix
     PRIVATE sphericart)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(symmetrix PRIVATE OpenMP::OpenMP_CXX)
+endif()
 if(SYMMETRIX_KOKKOS)
     target_link_libraries(symmetrix
         PRIVATE Kokkos::kokkos
