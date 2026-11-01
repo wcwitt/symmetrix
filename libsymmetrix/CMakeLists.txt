@@ -69,6 +69,9 @@ if(SYMMETRIX_KOKKOS)
     target_link_libraries(symmetrix
         PRIVATE Kokkos::kokkos
                 Kokkos::kokkoskernels)
+    if(Kokkos_ENABLE_CUDA)
+        target_compile_options(symmetrix PRIVATE $<$<CONFIG:Release>:--use_fast_math>)
+    endif()
 endif()
 
 
