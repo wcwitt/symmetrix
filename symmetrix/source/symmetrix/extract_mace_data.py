@@ -176,7 +176,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
             model_j = model.atomic_numbers.tolist().index(a_j)
             bessels = model.radial_embedding(
                 torch.tensor(
-                    r, dtype=torch.get_default_dtype(), device=device
+                    r, dtype=torch.float64, device=device
                 ).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers), device=device),
                 torch.tensor([[model_i], [model_j]], dtype=torch.int64, device=device),
@@ -241,7 +241,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
                     torch.tensor(
-                        r, dtype=torch.get_default_dtype(), device=device
+                        r, dtype=torch.float64, device=device
                     ).unsqueeze(-1),
                     torch.eye(len(model.atomic_numbers), device=device),
                     torch.tensor(
@@ -398,7 +398,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
                     torch.tensor(
-                        r, dtype=torch.get_default_dtype(), device=device
+                        r, dtype=torch.float64, device=device
                     ).unsqueeze(-1),
                     torch.eye(len(model.atomic_numbers), device=device),
                     torch.tensor(
