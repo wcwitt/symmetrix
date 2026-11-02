@@ -9,8 +9,8 @@ pip install .
 ```
 
 If CUDA is not detected, the defaults will build a CPU-only version, and the `use_kokkos`
-flag to the ASE calculator will switch between non-Kokkos-serial and Kokkkos-OpenMP
-CPU implementations.
+flag to the ASE calculator will switch between the non-Kokkos implementation, which runs
+on `OMP_NUM_THREADS` OpenMP threads, and Kokkos-Serial. Both accept `dtype="float32"`.
 
 If CUDA is available at build time, the defaults should produce a Kokkos-CUDA GPU version
 of the package. The `use_kokkos` flag to the ASE calculator
