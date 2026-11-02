@@ -4,9 +4,7 @@
 #include <stdexcept>
 
 // TODO: remove some of these headers?
-#include "KokkosBatched_Util.hpp"
 #include "KokkosBlas.hpp"
-#include "KokkosBatched_Gemm_Decl.hpp"
 #include "nlohmann/json.hpp"
 #include "sphericart.hpp"
 #include "sphericart_cuda.hpp"
@@ -576,25 +574,19 @@ void MACEKokkos<Precision>::compute_H1(
     if (H1.extent(0) < M0.extent(0))
         Kokkos::realloc(H1, M0.extent(0), M0.extent(1), M0.extent(2));
 
-    auto L_max = this->L_max;
-    auto H1 = this->H1;
-    auto H1_weights = this->H1_weights;
-    auto M0 = this->M0;
+    if (num_nodes == 0)
+        return;
 
-    Kokkos::parallel_for("Compute H1",
-        Kokkos::TeamPolicy<>(num_nodes*(L_max+1), Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (L_max+1);
-            const int l = team_member.league_rank() % (L_max+1);
-            auto M0_il = Kokkos::subview(M0, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(H1_weights, l, Kokkos::ALL, Kokkos::ALL);
-            auto H1_il = Kokkos::subview(H1, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Unblocked>
-                ::invoke(team_member, 1.0, M0_il, W_il, 0.0, H1_il);
-        });
+    const auto M0 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->M0.data(), num_nodes, num_LM*num_channels);
+    const auto H1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->H1.data(), num_nodes, num_LM*num_channels);
+    for (int l=0; l<=L_max; ++l)
+        for (int m=0; m<2*l+1; ++m)
+            KokkosBlas::gemm("N", "N", 1.0,
+                Kokkos::subview(M0, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                Kokkos::subview(H1_weights, l, Kokkos::ALL, Kokkos::ALL), 0.0,
+                Kokkos::subview(H1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
 }
 
 template <typename Precision>
@@ -604,25 +596,19 @@ void MACEKokkos<Precision>::reverse_H1(
     if (M0_adj.extent(0) < M0.extent(0))
         Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
 
-    auto L_max = this->L_max;
-    auto M0_adj = this->M0_adj;
-    auto H1_weights_trans = this->H1_weights_trans;
-    auto H1_adj = this->H1_adj;
+    if (num_nodes == 0)
+        return;
 
-    Kokkos::parallel_for("Reverse H1",
-        Kokkos::TeamPolicy<>(num_nodes*(L_max+1), Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (L_max+1);
-            const int l = team_member.league_rank() % (L_max+1);
-            auto H1_adj_il = Kokkos::subview(H1_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            auto W_il = Kokkos::subview(H1_weights_trans, l, Kokkos::ALL, Kokkos::ALL);
-            auto M0_adj_il = Kokkos::subview(M0_adj, i, Kokkos::make_pair(l*l, l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Unblocked>
-                ::invoke(team_member, 1.0, H1_adj_il, W_il, l == 0 ? 1.0 : 0.0, M0_adj_il);
-        });
+    const auto H1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->H1_adj.data(), num_nodes, num_LM*num_channels);
+    const auto M0_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->M0_adj.data(), num_nodes, num_LM*num_channels);
+    for (int l=0; l<=L_max; ++l)
+        for (int m=0; m<2*l+1; ++m)
+            KokkosBlas::gemm("N", "N", 1.0,
+                Kokkos::subview(H1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                Kokkos::subview(H1_weights_trans, l, Kokkos::ALL, Kokkos::ALL), l == 0 ? 1.0 : 0.0,
+                Kokkos::subview(M0_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
 }
 
 template <typename Precision>
@@ -808,37 +794,23 @@ void MACEKokkos<Precision>::compute_A1(int num_nodes)
     //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
     if (A1.extent(0) < num_nodes)
         Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
+    if (num_nodes == 0)
+        return;
 
-    const auto l_max = this->l_max;
-    const auto num_channels = this->num_channels;
-    const auto Phi1_l = this->Phi1_l;
-    const auto Phi1 = this->Phi1;
-    auto A1_weights = this->A1_weights;
-    auto A1 = this->A1;
-
-    Kokkos::parallel_for("Compute A1",
-        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (l_max+1);
-            const int l = team_member.league_rank() % (l_max+1);
-            int lme = 0;
-            int num_eta = 0;
-            for (int p=0; p<Phi1_l.size(); ++p) {
-                const int ll = Phi1_l(p);
-                if (ll < l)
-                    lme += 2*ll+1;
-                if (ll == l)
-                    num_eta += 1;
-            }
-            auto Phi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-                &Phi1(i,lme,0), 2*l+1, num_eta*num_channels);
-            auto A1_il = Kokkos::subview(A1, i, Kokkos::make_pair(l*l,l*(l+2)+1), Kokkos::ALL);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, Phi1_il, A1_weights(l), 0.0, A1_il);
-        });
+    const auto Phi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->Phi1.data(), num_nodes, num_lme*num_channels);
+    const auto A1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->A1.data(), num_nodes, num_lm*num_channels);
+    int lme = 0;
+    for (int l=0; l<=l_max; ++l) {
+        const int num_eta = A1_weights(l).extent(0)/num_channels;
+        for (int m=0; m<2*l+1; ++m)
+            KokkosBlas::gemm("N", "N", 1.0,
+                Kokkos::subview(Phi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)),
+                A1_weights(l), 0.0,
+                Kokkos::subview(A1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
+        lme += (2*l+1)*num_eta;
+    }
 }
 
 template <typename Precision>
@@ -848,37 +820,23 @@ void MACEKokkos<Precision>::reverse_A1(int num_nodes)
     //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
     if (dPhi1.extent(0) < num_nodes)
         Kokkos::realloc(dPhi1, num_nodes, num_lme, num_channels);
+    if (num_nodes == 0)
+        return;
 
-    const auto l_max = this->l_max;
-    const auto num_channels = this->num_channels;
-    const auto Phi1_l = this->Phi1_l;
-    const auto A1_adj = this->A1_adj;
-    const auto A1_weights_trans = this->A1_weights_trans;
-    auto dPhi1 = this->dPhi1;
-
-    Kokkos::parallel_for("Reverse A1",
-        Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / (l_max+1);
-            const int l = team_member.league_rank() % (l_max+1);
-            int lme = 0;
-            int num_eta = 0;
-            for (int p=0; p<Phi1_l.size(); ++p) {
-                const int ll = Phi1_l(p);
-                if (ll < l)
-                    lme += 2*ll+1;
-                if (ll == l)
-                    num_eta += 1;
-            }
-            auto dA1_il = Kokkos::subview(A1_adj, i, Kokkos::make_pair(l*l,l*l+2*l+1), Kokkos::ALL);
-            auto dPhi1_il = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-                &dPhi1(i,lme,0), 2*l+1, num_eta*num_channels);
-            KokkosBatched::TeamGemm<Kokkos::TeamPolicy<>::member_type,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Algo::Gemm::Blocked>
-                ::invoke(team_member, 1.0, dA1_il, A1_weights_trans(l), 0.0, dPhi1_il);
-        });
+    const auto A1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->A1_adj.data(), num_nodes, num_lm*num_channels);
+    const auto dPhi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+        this->dPhi1.data(), num_nodes, num_lme*num_channels);
+    int lme = 0;
+    for (int l=0; l<=l_max; ++l) {
+        const int num_eta = A1_weights_trans(l).extent(1)/num_channels;
+        for (int m=0; m<2*l+1; ++m)
+            KokkosBlas::gemm("N", "N", 1.0,
+                Kokkos::subview(A1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                A1_weights_trans(l), 0.0,
+                Kokkos::subview(dPhi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)));
+        lme += (2*l+1)*num_eta;
+    }
 }
 
 template <typename Precision>
