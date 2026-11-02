@@ -186,14 +186,14 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
             R = (model.interactions[0].conv_tp_weights(bessels) * cutoff).numpy(
                 force=True
             )
-            spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
+            spl = CubicSpline(r, 2 * np.sqrt(np.pi) * R, axis=0, bc_type=spline_bc_type)
             spline_values_0.append(spl(r).T.tolist())
             spline_derivatives_0.append(spl(r, 1).T.tolist())
             # radial basis for interaction 1
             R = (model.interactions[1].conv_tp_weights(bessels) * cutoff).numpy(
                 force=True
             )
-            spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
+            spl = CubicSpline(r, 2 * np.sqrt(np.pi) * R, axis=0, bc_type=spline_bc_type)
             spline_values_1.append(spl(r).T.tolist())
             spline_derivatives_1.append(spl(r, 1).T.tolist())
 

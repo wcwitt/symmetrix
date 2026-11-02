@@ -53,7 +53,7 @@ void MACE<Precision>::compute_first_layer(
     }
 
     // Y
-    // Y_{lm}(\hat{\mathbf{r}}_{ij}), normalized to \sum_m Y_{lm}^2 = 2l+1
+    // Y_{lm}(\hat{\mathbf{r}}_{ij})
     if (xyz.size() > 0) {
         const int num = xyz.size()/3;
         Y.resize(num*num_lm);
@@ -62,13 +62,6 @@ void MACE<Precision>::compute_first_layer(
         sphericart::SphericalHarmonics<Precision> sphericart(l_max);
         sphericart.compute_array_with_gradients(
             xyz_p.data(), xyz_p.size(), Y.data(), Y.size(), Y_grad.data(), Y_grad.size());
-        // normalize to match e3nn conventions
-        #pragma omp parallel for
-        for (int i=0; i<Y.size(); ++i)
-            Y[i] *= 2*std::sqrt(std::numbers::pi);
-        #pragma omp parallel for
-        for (int i=0; i<Y_grad.size(); ++i)
-            Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
     }
 
     // A0

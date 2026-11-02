@@ -96,7 +96,7 @@ void MACEKokkos<Precision>::compute_first_layer(
     }
 
     // Y
-    // Y_{lm}(\hat{\mathbf{r}}_{ij}), normalized to \sum_m Y_{lm}^2 = 2l+1
+    // Y_{lm}(\hat{\mathbf{r}}_{ij})
     {
 #if !defined (SYMMETRIX_SPHERICART_CUDA) && !defined (SYMMETRIX_SPHERICART_SYCL)
 
@@ -129,14 +129,6 @@ void MACEKokkos<Precision>::compute_first_layer(
         Kokkos::deep_copy(Y, h_Y);
         Kokkos::deep_copy(Y_grad, h_Y_grad);
 
-        // normalize to match e3nn conventions
-        Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
-            Y(i) *= 2*std::sqrt(M_PI);
-        });
-        Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
-            Y_grad(i) *= 2*std::sqrt(M_PI);
-        });
-
 #else // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
 
         const int num = xyz.extent(0) / 3;
@@ -167,15 +159,6 @@ void MACEKokkos<Precision>::compute_first_layer(
         static_cast<Sphericart*>(sphericart_calculator.get())->compute_with_gradients(
             xyz_sphericart.data(), num, Y.data(), Y_grad.data());
         Kokkos::fence();
-
-        // normalize to match e3nn conventions
-        const double normalization_factor = 2 * std::sqrt(M_PI);
-        Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
-            Y(i) *= normalization_factor;
-        });
-        Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
-            Y_grad(i) *= normalization_factor;
-        });
 
 #endif
     }
