@@ -30,6 +30,18 @@ def main():
         help="Head to keep, ignored unless model is multihead. "
         "Defaults to first non-PT head, same as mace.tools.script_utils.remove_pt_head",
     )
+    parser.add_argument(
+        "--num-spline-points",
+        type=int,
+        default=256,
+        help="Number of spline points.",
+    )
+    parser.add_argument(
+        "--r-min",
+        type=float,
+        default=1e-12,
+        help="Minimum distance covered by the splines.",
+    )
     parser.add_argument("--output", "-o", help="Output filename.")
     args = parser.parse_args()
 
@@ -44,7 +56,13 @@ def main():
     species = (
         args.atomic_numbers if args.chemical_symbols == [] else args.chemical_symbols
     )
-    output = extract_mace_data(args.model, species, args.head)
+    output = extract_mace_data(
+        args.model,
+        species,
+        args.head,
+        num_spline_points=args.num_spline_points,
+        r_min=args.r_min,
+    )
 
     ### ----- WRITE JSON -----
 
