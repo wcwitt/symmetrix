@@ -50,9 +50,9 @@ void CubicSplineSet<Precision>::evaluate(
     if (values.size() < num_splines)
         throw std::invalid_argument("CubicSplineSet::evaluate requires space for all splines.");
     const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
-    const double x = r - (r_min + h*i);
-    const double xx = x*x;
-    const double xxx = xx*x;
+    const Precision x = r - (r_min + h*i);
+    const Precision xx = x*x;
+    const Precision xxx = xx*x;
     const Precision* c0 = c.data() + 4*i*num_splines;
     const Precision* c1 = c0 + num_splines;
     const Precision* c2 = c1 + num_splines;
@@ -71,11 +71,11 @@ void CubicSplineSet<Precision>::evaluate_derivs(double r,
     if (values.size() < num_splines or derivs.size() < num_splines)
         throw std::invalid_argument("CubicSplineSet::evaluate_derivs requires space for all splines.");
     const int i = std::clamp(static_cast<int>((r - r_min) / h), 0, num_nodes - 2);
-    const double x = r - (r_min + h*i);
-    const double xx = x*x;
-    const double xxx = xx*x;
-    const double two_x = 2*x;
-    const double three_xx = 3*xx;
+    const Precision x = r - (r_min + h*i);
+    const Precision xx = x*x;
+    const Precision xxx = xx*x;
+    const Precision two_x = 2*x;
+    const Precision three_xx = 3*xx;
     const Precision* c0 = c.data() + 4*i*num_splines;
     const Precision* c1 = c0 + num_splines;
     const Precision* c2 = c1 + num_splines;
