@@ -76,11 +76,9 @@ ZBL zbl;
 // Radial functions
 std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_0;
 double R0_spline_r_min;
-std::vector<Precision> R0, R0_deriv;
 
 // R1
 std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_1;
-std::vector<Precision> R1, R1_deriv;
 
 // Spherical harmonics
 std::vector<Precision> Y, Y_grad;

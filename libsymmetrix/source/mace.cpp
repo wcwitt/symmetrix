@@ -45,6 +45,9 @@ void MACE<Precision>::compute_first_layer(
 {
     // neighbor list
     {
+        for (const double r_ij : r)
+            if (std::isnan(r_ij) or r_ij < R0_spline_r_min or r_ij > r_cut)
+                throw std::invalid_argument("Out of bounds in MACE. r=" + std::to_string(r_ij));
         first_neigh.resize(num_nodes);
         std::exclusive_scan(num_neigh.begin(), num_neigh.begin()+num_nodes, first_neigh.begin(), 0);
     }
@@ -68,30 +71,6 @@ void MACE<Precision>::compute_first_layer(
             Y_grad[i] *= 2*std::sqrt(std::numbers::pi);
     }
 
-    // R0
-    // R^{(0)}_{a_ia_j,kl}(r_{ij}) and \partial_r R^{(0)}_{a_ia_j,kl}(r_{ij})
-    {
-        for (const double r_ij : r)
-            if (std::isnan(r_ij) or r_ij < R0_spline_r_min or r_ij > r_cut)
-                throw std::invalid_argument("Out of bounds in MACE. r=" + std::to_string(r_ij));
-        const int num_spl = spl_set_0[0]->num_splines;
-        R0.resize(r.size()*num_spl);
-        R0_deriv.resize(R0.size());
-        #pragma omp parallel for schedule(dynamic)
-        for (int i=0; i<num_nodes; ++i) {
-            const int type_i = node_types[i];
-            for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
-                const int type_j = neigh_types[ij];
-                const int type_ij = (type_i <= type_j)
-                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
-                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
-                auto R0_ij = std::span<Precision>(R0.data()+ij*num_spl,num_spl);
-                auto R0_deriv_ij = std::span<Precision>(R0_deriv.data()+ij*num_spl,num_spl);
-                spl_set_0[type_ij]->evaluate_derivs(r[ij], R0_ij, R0_deriv_ij);
-            }
-        }
-    }
-
     // A0
     // \Phi^{(0)}_{i,klm} = \sum_j R^{(0)}_{a_ia_j,kl}(r_{ij}) Y_{lm}(\hat{\mathbf{r}}_{ij}) H^{(0)}_{a_j,k}
     // A^{(0)}_{i,klm} = \sum_{k'} w_{a_ikl,k'} \Phi^{(0)}_{i,k'lm}
@@ -100,14 +79,21 @@ void MACE<Precision>::compute_first_layer(
 
         #pragma omp parallel for schedule(dynamic)
         for (int i=0; i<num_nodes; ++i) {
+            const int type_i = node_types[i];
 
             // compute Phi0_i
             auto Phi0_i = std::vector<Precision>(num_lm*num_channels, 0.0);
+            auto R0_ij = std::vector<Precision>(spl_set_0[0]->num_splines);
             for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
+                const int type_j = neigh_types[ij];
+                const int type_ij = (type_i <= type_j)
+                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
+                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
+                spl_set_0[type_ij]->evaluate(r[ij], R0_ij);
                 auto Y_ij = Y.data()+ij*num_lm;
                 auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
                 for (int l=0; l<=l_max; ++l) {
-                    auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
+                    auto R0_ij_l = R0_ij.data()+l*num_channels;
                     for (int m=-l; m<=l; ++m) {
                         const int lm = l*l+l+m;
                         const Precision Y_ij_lm = Y_ij[lm];
@@ -210,27 +196,6 @@ void MACE<Precision>::compute_second_layer(
     std::span<const int> neigh_types,
     std::span<const double> r)
 {
-    // R1
-    // R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) and \partial_r R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij})
-    {
-        const int num_spl = spl_set_1[0]->num_splines;
-        R1.resize(r.size()*num_spl);
-        R1_deriv.resize(R1.size());
-        #pragma omp parallel for schedule(dynamic)
-        for (int i=0; i<num_nodes; ++i) {
-            const int type_i = node_types[i];
-            for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
-                const int type_j = neigh_types[ij];
-                const int type_ij = (type_i <= type_j)
-                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
-                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
-                auto R1_ij = std::span<Precision>(R1.data()+ij*num_spl,num_spl);
-                auto R1_deriv_ij = std::span<Precision>(R1_deriv.data()+ij*num_spl,num_spl);
-                spl_set_1[type_ij]->evaluate_derivs(r[ij], R1_ij, R1_deriv_ij);
-            }
-        }
-    }
-
     // Phi1
     // \Phi^{(1)}_{i,klm\eta} = \sum_j \sum_{l_1m_1l_2m_2} C^{lm\eta}_{l_1m_1l_2m_2} R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) Y_{l_1m_1}(\hat{\mathbf{r}}_{ij}) H^{(1)}_{j,kl_2m_2}
     {
@@ -239,10 +204,16 @@ void MACE<Precision>::compute_second_layer(
         std::fill(Phi1.begin(), Phi1.end(), 0.0);
         #pragma omp parallel for schedule(dynamic)
         for (int i=0; i<num_nodes; ++i) {
+            const int type_i = node_types[i];
             auto Phi1_i = Phi1.data()+i*num_lme*num_channels;
             auto CG_Y = std::vector<Precision>(Phi1_spec.size());
+            auto R1_ij = std::vector<Precision>(spl_set_1[0]->num_splines);
             for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
-                auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
+                const int type_j = neigh_types[ij];
+                const int type_ij = (type_i <= type_j)
+                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
+                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
+                spl_set_1[type_ij]->evaluate(r[ij], R1_ij);
                 auto Y_ij = Y.data()+ij*num_lm;
                 auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
                 std::fill(CG_Y.begin(), CG_Y.end(), 0.0);
@@ -253,7 +224,7 @@ void MACE<Precision>::compute_second_layer(
                 for (int q=0; q<Phi1_spec.size(); ++q) {
                     const auto [lme, lel1l2, lm2] = Phi1_spec[q];
                     auto Phi1_i_lme = Phi1_i+lme*num_channels;
-                    auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
+                    auto R1_ij_lel1l2 = R1_ij.data()+lel1l2*num_channels;
                     auto H1_ij_lm2 = H1_ij+lm2*num_channels;
                     for (int k=0; k<num_channels; ++k)
                         Phi1_i_lme[k] += CG_Y[q] * R1_ij_lel1l2[k] * H1_ij_lm2[k];
@@ -554,16 +525,22 @@ void MACE<Precision>::reverse_second_layer(
         std::vector<std::mutex> H1_adj_locks(H1.size()/(num_LM*num_channels));
         #pragma omp parallel for schedule(dynamic)
         for (int i=0; i<num_nodes; ++i) {
+            const int type_i = node_types[i];
             auto dPhi1_i = dPhi1.data()+i*num_lme*num_channels;
             auto CG_Y = std::vector<Precision>(Phi1_spec.size());
             auto CG_Y_adj = std::vector<Precision>(Phi1_spec.size());
             auto H1_adj_ij = std::vector<Precision>(num_LM*num_channels);
+            auto R1_ij = std::vector<Precision>(spl_set_1[0]->num_splines);
+            auto R1_deriv_ij = std::vector<Precision>(R1_ij.size());
             for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
                 auto node_forces_ij = node_forces.data()+3*ij;
                 auto xyz_ij = xyz.data()+3*ij;
                 auto r_ij = r[ij];
-                auto R1_ij = R1.data()+ij*spl_set_1[0]->num_splines;
-                auto R1_deriv_ij = R1_deriv.data()+ij*spl_set_1[0]->num_splines;
+                const int type_j = neigh_types[ij];
+                const int type_ij = (type_i <= type_j)
+                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
+                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
+                spl_set_1[type_ij]->evaluate_derivs(r_ij, R1_ij, R1_deriv_ij);
                 auto Y_ij = Y.data()+ij*num_lm;
                 auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
                 auto H1_ij = H1.data()+neigh_indices[ij]*num_LM*num_channels;
@@ -577,8 +554,8 @@ void MACE<Precision>::reverse_second_layer(
                 for (int q=0; q<Phi1_spec.size(); ++q) {
                     const auto [lme, lel1l2, lm2] = Phi1_spec[q];
                     auto dPhi1_i_lme = dPhi1_i+lme*num_channels;
-                    auto R1_ij_lel1l2 = R1_ij+lel1l2*num_channels;
-                    auto R1_deriv_ij_lel1l2 = R1_deriv_ij+lel1l2*num_channels;
+                    auto R1_ij_lel1l2 = R1_ij.data()+lel1l2*num_channels;
+                    auto R1_deriv_ij_lel1l2 = R1_deriv_ij.data()+lel1l2*num_channels;
                     auto H1_ij_lm2 = H1_ij+lm2*num_channels;
                     auto H1_adj_ij_lm2 = H1_adj_ij.data()+lm2*num_channels;
                     Precision g = 0.0;
@@ -714,8 +691,11 @@ void MACE<Precision>::reverse_first_layer(
     {
         #pragma omp parallel for schedule(dynamic)
         for (int i=0; i<num_nodes; ++i) {
+            const int type_i = node_types[i];
 
             auto Phi0_adj_i = std::vector<Precision>(num_lm*num_channels);
+            auto R0_ij = std::vector<Precision>(spl_set_0[0]->num_splines);
+            auto R0_deriv_ij = std::vector<Precision>(R0_ij.size());
 
             // [dE/dPhi0_il]_mk = \sum_k' [dE/dA0_il]_mk' [trans(W_il)]_k'k
             for (int l=0; l<=l_max; ++l) {
@@ -739,10 +719,15 @@ void MACE<Precision>::reverse_first_layer(
                 auto Y_grad_ij = Y_grad.data()+ij*3*num_lm;
                 auto H0_ij = H0_weights.data()+neigh_types[ij]*num_channels;
                 auto node_forces_ij = node_forces.data()+ij*3;
+                const int type_j = neigh_types[ij];
+                const int type_ij = (type_i <= type_j)
+                    ? type_i*(2*atomic_numbers.size()-type_i-1)/2 + type_j
+                    : type_j*(2*atomic_numbers.size()-type_j-1)/2 + type_i;
+                spl_set_0[type_ij]->evaluate_derivs(r_ij, R0_ij, R0_deriv_ij);
                 Precision dE_dr = 0.0;
                 for (int l=0; l<=l_max; ++l) {
-                    auto R0_ij_l = R0.data()+ij*(l_max+1)*num_channels+l*num_channels;
-                    auto R0_deriv_ij_l = R0_deriv.data()+ij*(l_max+1)*num_channels+l*num_channels;
+                    auto R0_ij_l = R0_ij.data()+l*num_channels;
+                    auto R0_deriv_ij_l = R0_deriv_ij.data()+l*num_channels;
                     for (int m=-l; m<=l; ++m) {
                         const int lm = l*l+l+m;
                         auto Phi0_adj_i_lm = Phi0_adj_i.data()+lm*num_channels;
