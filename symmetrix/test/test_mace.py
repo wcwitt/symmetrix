@@ -62,6 +62,11 @@ evaluator.compute_node_energies_forces(
 )
 
 
+def teardown_module():
+    global evaluator
+    del evaluator
+
+
 def numerical_gradient(f, x):
     h = 1e-4
     grad = np.zeros(len(x))
