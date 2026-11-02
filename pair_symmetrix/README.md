@@ -24,6 +24,11 @@ cores
 OMP_NUM_THREADS=8 mpirun -np 8 lmp -in in.lammps
 ```
 
+On GPUs, run the Kokkos styles with `newton on` and half neighbor lists:
+```
+mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos newton on neigh half -in in.lammps
+```
+
 ### Building LAMMPS
 
 Some (probably incomplete) prerequisites are:
@@ -126,7 +131,6 @@ cmake \
     -D CMAKE_BUILD_TYPE=Release \
     -D CMAKE_CXX_STANDARD=20 \
     -D CMAKE_CXX_STANDARD_REQUIRED=ON \
-    -D CMAKE_CXX_COMPILER=$(pwd)/lib/kokkos/bin/nvcc_wrapper \
     -D CMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS} -march=native -ffast-math" \
     -D BUILD_SHARED_LIBS=ON \
     -D BUILD_OMP=ON \

@@ -11,6 +11,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # sphericart fetches gpu-lite at configure time; use the vendored submodule so builds work offline.
 set(FETCHCONTENT_SOURCE_DIR_GPULITE ${CMAKE_CURRENT_SOURCE_DIR}/external/gpu-lite CACHE PATH "")
+if(SYMMETRIX_SPHERICART_CUDA)
+    set(SPHERICART_ENABLE_CUDA ON CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(external/sphericart)
 option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
