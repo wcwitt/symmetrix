@@ -53,6 +53,561 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
+    // E = \sum_i E_i,  \mathbf{r}_{ij} = \mathbf{x}_j - \mathbf{x}_i,  \mathbf{F}_{ij} = -\partial E / \partial \mathbf{r}_{ij},  \bar{X} = \partial E / \partial X
+    compute_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+    compute_second_layer(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, r);
+    compute_readouts(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+    reverse_second_layer(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
+    reverse_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+}
+
+template <typename Precision>
+void MACEKokkos<Precision>::compute_first_layer(
+    const int num_nodes,
+    Kokkos::View<const int*> node_types,
+    Kokkos::View<const int*> num_neigh,
+    Kokkos::View<const int*> neigh_types,
+    Kokkos::View<const double*> xyz,
+    Kokkos::View<const double*> r)
+{
+    // neighbor list
+    {
+        if (first_neigh.extent(0) < num_nodes)
+            Kokkos::realloc(first_neigh, num_nodes);
+        auto first_neigh = this->first_neigh;
+        int num_edges;
+        Kokkos::parallel_scan("MACEKokkos::prepare_neigh_list::first_neigh",
+            num_nodes,
+            KOKKOS_LAMBDA (const int i, int& update, const bool final) {
+                if (final)
+                    first_neigh(i) = update;
+                update += num_neigh(i);
+            }, num_edges);
+
+        if (i_list.extent(0) < num_edges)
+            Kokkos::realloc(i_list, num_edges);
+        auto i_list = this->i_list;
+        Kokkos::parallel_for("MACEKokkos::prepare_neigh_list::i_list",
+            num_nodes,
+            KOKKOS_LAMBDA (const int i) {
+                for (int j=0; j<num_neigh(i); ++j)
+                    i_list(first_neigh(i)+j) = i;
+            });
+    }
+
+    // Y
+    // Y_{lm}(\hat{\mathbf{r}}_{ij}), normalized to \sum_m Y_{lm}^2 = 2l+1
+    {
+#if !defined (SYMMETRIX_SPHERICART_CUDA) && !defined (SYMMETRIX_SPHERICART_SYCL)
+
+        const int num = xyz.extent(0) / 3;
+        if (Y.extent(0) < num*num_lm) {
+            Kokkos::realloc(Y, num*num_lm);
+            Kokkos::realloc(Y_grad, 3*num*num_lm);
+        }
+
+        const auto num_lm = this->num_lm;
+        auto Y = this->Y;
+        auto Y_grad = this->Y_grad;
+
+        if (xyz_sphericart.extent(0) < 3*num)
+            Kokkos::realloc(xyz_sphericart, 3*num);
+        auto xyz_sphericart = this->xyz_sphericart;
+        Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+            xyz_sphericart(i) = xyz(i);
+        });
+
+        // call sphericart on host
+        auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_sphericart);
+        auto h_Y = Kokkos::create_mirror_view(Y);
+        auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
+        using Sphericart = sphericart::SphericalHarmonics<Precision>;
+        if (not sphericart_calculator)
+            sphericart_calculator = std::make_shared<Sphericart>(l_max);
+        static_cast<Sphericart*>(sphericart_calculator.get())->compute_array_with_gradients(
+            h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm);
+        Kokkos::deep_copy(Y, h_Y);
+        Kokkos::deep_copy(Y_grad, h_Y_grad);
+
+        // normalize to match e3nn conventions
+        Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
+            Y(i) *= 2*std::sqrt(M_PI);
+        });
+        Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
+            Y_grad(i) *= 2*std::sqrt(M_PI);
+        });
+
+#else // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
+
+        const int num = xyz.extent(0) / 3;
+        const int num_lm = (l_max+1)*(l_max+1);
+        if (Y.size() < num*num_lm) {
+            Kokkos::realloc(Y, num*num_lm);
+            Kokkos::realloc(Y_grad, 3*num*num_lm);
+        }
+        auto Y = this->Y;
+        auto Y_grad = this->Y_grad;
+
+        if (xyz_sphericart.extent(0) < 3*num)
+            Kokkos::realloc(xyz_sphericart, 3*num);
+        auto xyz_sphericart = this->xyz_sphericart;
+        Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+            xyz_sphericart(i) = xyz(i);
+        });
+        Kokkos::fence();
+
+        // call sphericart
+#if defined (SYMMETRIX_SPHERICART_CUDA)
+        using Sphericart = sphericart::cuda::SphericalHarmonics<Precision>;
+#elif defined (SYMMETRIX_SPHERICART_SYCL)
+        using Sphericart = sphericart::sycl::SphericalHarmonics<Precision>;
+#endif
+        if (not sphericart_calculator)
+            sphericart_calculator = std::make_shared<Sphericart>(l_max);
+        static_cast<Sphericart*>(sphericart_calculator.get())->compute_with_gradients(
+            xyz_sphericart.data(), num, Y.data(), Y_grad.data());
+        Kokkos::fence();
+
+        // normalize to match e3nn conventions
+        const double normalization_factor = 2 * std::sqrt(M_PI);
+        Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
+            Y(i) *= normalization_factor;
+        });
+        Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
+            Y_grad(i) *= normalization_factor;
+        });
+
+#endif
+    }
+
+    // R0
+    // \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) and \partial_r \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}),  \tilde{R}^{(0)}_{a_ia_j,kl} = \sum_{k'} w_{a_ikl,k'} R^{(0)}_{a_ia_j,k'l} H^{(0)}_{a_j,k'}
+    {
+        if (r.size() > R0.extent(0)) {
+            Kokkos::realloc(R0, r.size(), (l_max+1)*num_channels);
+            Kokkos::realloc(R0_deriv, r.size(), (l_max+1)*num_channels);
+        }
+
+        const auto i_list = this->i_list;
+        const int l_max = this->l_max;
+        const int num_channels = this->num_channels;
+        const auto num_types = atomic_numbers.size();
+        const auto h = R0_spline_h;
+        const auto r_min = R0_spline_r_min;
+        const auto c = R0_spline_coefficients;
+        const int num_intervals = c.extent(1);
+        check_spline_bounds(r, r_min, r_cut, "MACEKokkos");
+        auto R0 = this->R0;
+        auto R0_deriv = this->R0_deriv;
+
+        Kokkos::parallel_for(
+            "Compute R0",
+            Kokkos::TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int ij = team_member.league_rank();
+                const int type_i = node_types(i_list(ij));
+                const int type_j = neigh_types(ij);
+                const int type_ij = type_i*num_types+type_j;
+                // compute x, x^2, x^3
+                const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
+                const double x = r(ij) - (r_min + h*n);
+                const double xx = x*x;
+                const double xxx = xx*x;
+                const double two_x = 2*x;
+                const double three_xx = 3*xx;
+                // compute function values
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorRange(team_member, (l_max+1)*num_channels),
+                    [&] (const int lk) {
+                        const double c0 = c(type_ij,n,0,lk);
+                        const double c1 = c(type_ij,n,1,lk);
+                        const double c2 = c(type_ij,n,2,lk);
+                        const double c3 = c(type_ij,n,3,lk);
+                        R0(ij,lk) = c0 + c1*x + c2*xx + c3*xxx;
+                        R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
+                    });
+            });
+    }
+
+    // A0
+    // A^{(0)}_{i,klm} = \sum_j \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) Y_{lm}(\hat{\mathbf{r}}_{ij})
+    {
+        if (A0.extent(0) != num_nodes)
+            Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), A0, 0.0);
+
+        const auto first_neigh = this->first_neigh;
+        const int num_lm = this->num_lm;
+        const int num_channels = this->num_channels;
+        const auto R0 = this->R0;
+        const auto Y = this->Y;
+        auto A0 = this->A0;
+
+        parallel_for("Compute A0",
+            TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank() / num_lm;
+                const int lm = team_member.league_rank() % num_lm;
+                const int l = Kokkos::sqrt(lm);
+                for (int j=0; j<num_neigh(i); ++j) {
+                    const int ij = first_neigh(i) + j;
+                    const double Y_ij_lm = Y(ij*num_lm+lm);
+                    parallel_for(
+                        TeamVectorRange(team_member, num_channels),
+                        [=] (const int k) {
+                            A0(i,lm,k) += R0(ij,l*num_channels+k) * Y_ij_lm;
+                        });
+                }
+            });
+    }
+
+    // A0 scaling
+    // A^{(0)}_{i,klm} \leftarrow A^{(0)}_{i,klm} / s^{(0)}_i,  s^{(0)}_i = 1 + \sum_j \rho^{(0)}_{a_ia_j}(r_{ij})
+    if (A0_scaled) {
+        // compute A0 splines
+        if (r.size() > A0_spline_values.extent(0)) {
+            Kokkos::realloc(A0_spline_values, r.size(), 1);
+            Kokkos::realloc(A0_spline_derivs, r.size(), 1);
+        }
+        A0_splines.evaluate(node_types, i_list, neigh_types, r, A0_spline_values, A0_spline_derivs);
+
+        // perform the scaling
+        const auto first_neigh = this->first_neigh;
+        const auto A0_spline_values = this->A0_spline_values;
+        const auto A0_spline_derivs = this->A0_spline_derivs;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto A0 = this->A0;
+        Kokkos::parallel_for(
+            "MACEKokkos::compute_A0_scaled",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                // compute scale factor
+                double A0_scale_factor;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j, double& lsum) {
+                        lsum += A0_spline_values(first_neigh(i)+j,0);
+                    }, A0_scale_factor);
+                A0_scale_factor += 1.0;
+                team_member.team_barrier();
+                // perform the scaling
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (int lmk) {
+                        A0(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
+                    });
+            });
+    }
+
+    // M0
+    // M^{(0)}_{i,klm} = \sum_{\nu\mathbf{l}'\mathbf{m}'} w_{a_iklm,\nu\mathbf{l}'\mathbf{m}'} \prod_{\xi=1}^{\nu} A^{(0)}_{i,kl'_\xi m'_\xi}
+    {
+        if (M0.extent(0) < num_nodes)
+            Kokkos::realloc(M0, num_nodes, num_LM, num_channels);
+        if (B0.extent(0) < num_nodes)
+            Kokkos::realloc(B0, num_nodes, B0.extent(1), num_channels);
+        Kokkos::deep_copy(M0, 0.0);
+
+        const auto A0 = this->A0;
+        const auto B0_spec = this->B0_spec;
+        const auto B0_coefficients = this->B0_coefficients;
+        const auto M0_spec = this->M0_spec;
+        const auto M0_weights = this->M0_weights;
+        const auto B0 = this->B0;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto M0 = this->M0;
+
+        Kokkos::parallel_for("Compute M0",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int q=0; q<B0.extent(1); ++q)
+                        B0(i,q,k) = (q < num_lm) ? A0(i,q,k) : 0.0;
+                });
+                for (int t=0; t<B0_spec.extent(0); ++t)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        B0(i,B0_spec(t,0),k) +=
+                            B0_coefficients(t) * B0(i,B0_spec(t,1),k) * B0(i,B0_spec(t,2),k);
+                    });
+                for (int e=0; e<M0_spec.extent(0); ++e)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        for (int m=0; m<M0_spec(e,2); ++m)
+                            M0(i,M0_spec(e,0)+m,k) += M0_weights(node_types(i),e,k) * B0(i,M0_spec(e,1)+m,k);
+                    });
+            });
+    }
+
+    // H1
+    // H^{(1)}_{i,klm} = \sum_{k'} w_{kl,k'} M^{(0)}_{i,k'lm}
+    {
+        if (H1.extent(0) < M0.extent(0))
+            Kokkos::realloc(H1, M0.extent(0), M0.extent(1), M0.extent(2));
+
+
+        const auto M0 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->M0.data(), num_nodes, num_LM*num_channels);
+        const auto H1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->H1.data(), num_nodes, num_LM*num_channels);
+        for (int l=0; l<=L_max and num_nodes>0; ++l)
+            for (int m=0; m<2*l+1; ++m)
+                KokkosBlas::gemm("N", "N", 1.0,
+                    Kokkos::subview(M0, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                    Kokkos::subview(H1_weights, l, Kokkos::ALL, Kokkos::ALL), 0.0,
+                    Kokkos::subview(H1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
+    }
+}
+
+template <typename Precision>
+void MACEKokkos<Precision>::compute_second_layer(
+    const int num_nodes,
+    Kokkos::View<const int*> node_types,
+    Kokkos::View<const int*> num_neigh,
+    Kokkos::View<const int*> neigh_indices,
+    Kokkos::View<const int*> neigh_types,
+    Kokkos::View<const double*> r)
+{
+    // R1
+    // R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) and \partial_r R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij})
+    {
+        if (r.size() > R1.extent(0)) {
+            Kokkos::realloc(R1, r.size(), Phi1_l.size()*num_channels);
+            Kokkos::realloc(R1_deriv, r.size(), Phi1_l.size()*num_channels);
+        }
+        radial_1.evaluate(node_types, i_list, neigh_types, r, R1, R1_deriv);
+    }
+
+    // Phi1
+    // \Phi^{(1)}_{i,klm\eta} = \sum_j \sum_{l_1m_1l_2m_2} C^{lm\eta}_{l_1m_1l_2m_2} R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) Y_{l_1m_1}(\hat{\mathbf{r}}_{ij}) H^{(1)}_{j,kl_2m_2}
+    {
+        // Compute Phi1_lelm1lm2 (named Phi1r)
+        if (Phi1r.extent(0) < num_nodes)
+            Kokkos::realloc(Phi1r, num_nodes, num_lelm1lm2, num_channels);
+        if (Phi1.extent(0) < num_nodes)
+            Kokkos::realloc(Phi1, num_nodes, num_lme, num_channels);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), Phi1, 0.0);
+
+        const auto first_neigh = this->first_neigh;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        const auto num_lelm1lm2 = this->num_lelm1lm2;
+        const auto Phi1_lm1 = this->Phi1_lm1;
+        const auto Phi1_lm2 = this->Phi1_lm2;
+        const auto Phi1_lel1l2 = this->Phi1_lel1l2;
+        const auto Phi1_lme = this->Phi1_lme;
+        const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
+        const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
+        const auto R1 = this->R1;
+        const auto Y = this->Y;
+        const auto H1 = this->H1;
+        auto Phi1 = this->Phi1;
+        auto Phi1r = this->Phi1r;
+
+        Kokkos::parallel_for("Compute Phi1r",
+            Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
+                 .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(Precision))),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank() / num_lelm1lm2;
+                const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
+                const int i0 = first_neigh(i);
+                const int lm1 = Phi1_lm1(lelm1lm2);
+                const int lm2 = Phi1_lm2(lelm1lm2);
+                const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+                // initialize Phi1r_i_lelm1lm2 in scratch space
+                auto Phi1r_i_lelm1lm2 = Kokkos::View<Precision*>(team_member.team_scratch(0), num_channels);
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorRange(team_member, num_channels),
+                    [=] (const int k) {
+                        Phi1r_i_lelm1lm2(k) = 0.0;
+                    });
+                team_member.team_barrier();
+                // compute Phi1r_i_lelm1lm2
+                for (int j=0; j<num_neigh(i); ++j) {
+                    const int ij = i0 + j;
+                    Kokkos::parallel_for(
+                        Kokkos::TeamVectorRange(team_member, num_channels),
+                        [=] (const int k) {
+                            Phi1r_i_lelm1lm2(k) += R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * H1(neigh_indices(ij),lm2,k);
+                        });
+                }
+                team_member.team_barrier();
+                // store Phi1r_i_lelm1lm2
+                Kokkos::parallel_for(
+                    Kokkos::TeamVectorRange(team_member, num_channels),
+                    [=] (const int k) {
+                        Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
+                    });
+            });
+
+        // Compute Phi1 using CG coefficients
+        Kokkos::parallel_for("Compute Phi1",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
+                    const double C = Phi1_clebsch_gordan(p);
+                    Kokkos::parallel_for(
+                        Kokkos::TeamVectorRange(team_member, num_channels),
+                        [&] (const int k) {
+                            Phi1(i,Phi1_lme(p),k) += C * Phi1r(i,Phi1_lelm1lm2(p),k);
+                        });
+                }
+            });
+    }
+
+    // A1
+    // A^{(1)}_{i,klm} = \sum_{k'\eta'} w_{kl,k'\eta'} \Phi^{(1)}_{i,k'lm\eta'}
+    {
+        // The core matrix multiplication is:
+        //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
+        if (A1.extent(0) < num_nodes)
+            Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
+
+        const auto Phi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->Phi1.data(), num_nodes, num_lme*num_channels);
+        const auto A1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->A1.data(), num_nodes, num_lm*num_channels);
+        int lme = 0;
+        for (int l=0; l<=l_max and num_nodes>0; ++l) {
+            const int num_eta = A1_weights(l).extent(0)/num_channels;
+            for (int m=0; m<2*l+1; ++m)
+                KokkosBlas::gemm("N", "N", 1.0,
+                    Kokkos::subview(Phi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)),
+                    A1_weights(l), 0.0,
+                    Kokkos::subview(A1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
+            lme += (2*l+1)*num_eta;
+        }
+    }
+
+    // A1 scaling
+    // A^{(1)}_{i,klm} \leftarrow A^{(1)}_{i,klm} / s^{(1)}_i,  s^{(1)}_i = 1 + \sum_j \rho^{(1)}_{a_ia_j}(r_{ij})
+    if (A1_scaled) {
+        // compute A1 splines
+        if (A1_spline_values.extent(0) < r.size()) {
+            Kokkos::realloc(A1_spline_values, r.size(), 1);
+            Kokkos::realloc(A1_spline_derivs, r.size(), 1);
+        }
+        A1_splines.evaluate(node_types, i_list, neigh_types, r, A1_spline_values, A1_spline_derivs);
+
+        // perform the scaling
+        const auto first_neigh = this->first_neigh;
+        auto A1 = this->A1;
+        auto A1_spline_values = this->A1_spline_values;
+        auto A1_spline_derivs = this->A1_spline_derivs;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        Kokkos::parallel_for(
+            "MACEKokkos::compute_A1_scaled",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                const int i0 = first_neigh(i);
+                // compute scale factor
+                double A1_scale_factor;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j, double& lsum) {
+                        lsum += A1_spline_values(i0+j,0);
+                    }, A1_scale_factor);
+                A1_scale_factor += 1.0;
+                team_member.team_barrier();
+                // perform the scaling
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (int lmk) {
+                        A1(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
+                    });
+            });
+    }
+
+    // M1
+    // M^{(1)}_{i,k} = \sum_{\nu\mathbf{l}'\mathbf{m}'} w_{a_ik,\nu\mathbf{l}'\mathbf{m}'} \prod_{\xi=1}^{\nu} A^{(1)}_{i,kl'_\xi m'_\xi}
+    {
+        if (M1.extent(0) < num_nodes)
+            Kokkos::realloc(M1, num_nodes, num_channels);
+        if (B1.extent(0) < num_nodes)
+            Kokkos::realloc(B1, num_nodes, B1.extent(1), num_channels);
+        Kokkos::deep_copy(M1, 0.0);
+
+        const auto A1 = this->A1;
+        const auto B1_spec = this->B1_spec;
+        const auto B1_coefficients = this->B1_coefficients;
+        const auto M1_spec = this->M1_spec;
+        const auto M1_weights = this->M1_weights;
+        const auto B1 = this->B1;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto M1 = this->M1;
+
+        Kokkos::parallel_for("Compute M1",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int q=0; q<B1.extent(1); ++q)
+                        B1(i,q,k) = (q < num_lm) ? A1(i,q,k) : 0.0;
+                });
+                for (int t=0; t<B1_spec.extent(0); ++t)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        B1(i,B1_spec(t,0),k) +=
+                            B1_coefficients(t) * B1(i,B1_spec(t,1),k) * B1(i,B1_spec(t,2),k);
+                    });
+                for (int e=0; e<M1_spec.extent(0); ++e)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        M1(i,k) += M1_weights(node_types(i),e,k) * B1(i,M1_spec(e,1),k);
+                    });
+            });
+    }
+
+    // H2
+    // H^{(2)}_{i,k} = \sum_{k'} w_{k,k'} M^{(1)}_{i,k'} + \sum_{k'} w_{a_ik,k'} M^{(0)}_{i,k'00}
+    {
+        if (H2.extent(0) < num_nodes or H2.extent(1) != num_channels)
+            Kokkos::realloc(H2, num_nodes, num_channels);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H2, 0.0);
+
+        auto num_channels = this->num_channels;
+        auto H2 = this->H2;
+        auto H2_weights_for_M0 = this->H2_weights_for_M0;
+        auto M0 = this->M0;
+        auto H2_weights_for_M1 = this->H2_weights_for_M1;
+        auto M1 = this->M1;
+
+        Kokkos::parallel_for(
+            "Compute H2 from M0",
+            num_nodes*num_channels,
+            KOKKOS_LAMBDA (const int ik) {
+                const int i = ik / num_channels;
+                const int k = ik % num_channels;
+                    for (int kp=0; kp<num_channels; ++kp) {
+                        H2(i,k) += H2_weights_for_M0(node_types(i),kp*num_channels+k) * M0(i,0,kp);
+                    }
+            });
+        Kokkos::parallel_for(
+            "Compute H2 from M1",
+            num_nodes*num_channels,
+            KOKKOS_LAMBDA (const int ik) {
+                const int i = ik / num_channels;
+                const int k = ik % num_channels;
+                for (int kp=0; kp<num_channels; ++kp) {
+                    H2(i,k) += H2_weights_for_M1(kp*num_channels+k) * M1(i,kp);
+                }
+            });
+    }
+}
+
+template <typename Precision>
+void MACEKokkos<Precision>::compute_readouts(
+    const int num_nodes,
+    Kokkos::View<const int*> node_types,
+    Kokkos::View<const int*> num_neigh,
+    Kokkos::View<const int*> neigh_types,
+    Kokkos::View<const double*> xyz,
+    Kokkos::View<const double*> r)
+{
     if (node_energies.size() < num_nodes)
         Kokkos::realloc(node_energies, num_nodes);
     if (node_forces.size() < xyz.size())
@@ -60,828 +615,314 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
     Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_energies, 0.0);
     Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_forces, 0.0);
 
-    prepare_neigh_list(num_nodes, num_neigh);
-
+    // ZBL
+    // E_i += \frac{1}{2} \sum_j V^{\mathrm{ZBL}}_{Z_iZ_j}(r_{ij})
     if (has_zbl)
         zbl.compute_ZBL(
             num_nodes, node_types, num_neigh, first_neigh, neigh_types,
             atomic_numbers, r, xyz, node_energies, node_forces);
 
-    compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
-    compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
-    compute_Y(xyz);
+    // readouts
+    // E_i += E^{(0)}_{a_i} + \sum_k w_k M^{(0)}_{i,k00} + \mathrm{MLP}(\{H^{(2)}_{i,k}\})
+    // \bar{M}^{(0)}_{i,k00} = w_k,  \bar{H}^{(2)}_{i,k} = \partial \mathrm{MLP} / \partial H^{(2)}_{i,k}
+    {
+        if (M0_adj.extent(0) < M0.extent(0))
+            Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
+        if (H2_adj.extent(0) < num_nodes or H2_adj.extent(1) != num_channels)
+            Kokkos::realloc(H2_adj, num_nodes, num_channels);
+        if (readout_2_output.extent(0) < num_nodes)
+            Kokkos::realloc(readout_2_output, num_nodes);
 
-    compute_A0(num_nodes, node_types, num_neigh, neigh_types);
-    compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-    compute_M0(num_nodes, node_types);
-    compute_H1(num_nodes);
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M0_adj, 0.0);
 
-    compute_Phi1(num_nodes, num_neigh, neigh_indices);
-    compute_A1(num_nodes);
-    compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-    compute_M1(num_nodes, node_types);
-    compute_H2(num_nodes, node_types);
+        auto num_channels = this->num_channels;
+        auto node_energies = this->node_energies;
+        auto atomic_energies = this->atomic_energies;
+        auto M0 = this->M0;
+        auto M0_adj = this->M0_adj;
+        auto readout_1_weights_for_M0 = this->readout_1_weights_for_M0;
 
-    compute_readouts(num_nodes, node_types);
-
-    reverse_H2(num_nodes, node_types);
-    reverse_M1(num_nodes, node_types);
-    reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-    reverse_A1(num_nodes);
-    reverse_Phi1(num_nodes, num_neigh, neigh_indices, xyz, r, false, false);
-
-    reverse_H1(num_nodes);
-    reverse_M0(num_nodes, node_types);
-    reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-    reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::prepare_neigh_list(
-    const int num_nodes,
-    Kokkos::View<const int*> num_neigh)
-{
-    if (first_neigh.extent(0) < num_nodes)
-        Kokkos::realloc(first_neigh, num_nodes);
-    auto first_neigh = this->first_neigh;
-    int num_edges;
-    Kokkos::parallel_scan("MACEKokkos::prepare_neigh_list::first_neigh",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i, int& update, const bool final) {
-            if (final)
-                first_neigh(i) = update;
-            update += num_neigh(i);
-        }, num_edges);
-
-    if (i_list.extent(0) < num_edges)
-        Kokkos::realloc(i_list, num_edges);
-    auto i_list = this->i_list;
-    Kokkos::parallel_for("MACEKokkos::prepare_neigh_list::i_list",
-        num_nodes,
-        KOKKOS_LAMBDA (const int i) {
-            for (int j=0; j<num_neigh(i); ++j)
-                i_list(first_neigh(i)+j) = i;
+        // atomic energies
+        Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
+            node_energies(i) += atomic_energies(node_types(i));
         });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_R0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r)
-{
-    if (r.size() > R0.extent(0)) {
-        Kokkos::realloc(R0, r.size(), (l_max+1)*num_channels);
-        Kokkos::realloc(R0_deriv, r.size(), (l_max+1)*num_channels);
-    }
-
-    const auto i_list = this->i_list;
-    const int l_max = this->l_max;
-    const int num_channels = this->num_channels;
-    const auto num_types = atomic_numbers.size();
-    const auto h = R0_spline_h;
-    const auto r_min = R0_spline_r_min;
-    const auto c = R0_spline_coefficients;
-    const int num_intervals = c.extent(1);
-    check_spline_bounds(r, r_min, r_cut, "MACEKokkos::compute_R0");
-    auto R0 = this->R0;
-    auto R0_deriv = this->R0_deriv;
-
-    Kokkos::parallel_for(
-        "Compute R0",
-        Kokkos::TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int ij = team_member.league_rank();
-            const int type_i = node_types(i_list(ij));
-            const int type_j = neigh_types(ij);
-            const int type_ij = type_i*num_types+type_j;
-            // compute x, x^2, x^3
-            const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
-            const double x = r(ij) - (r_min + h*n);
-            const double xx = x*x;
-            const double xxx = xx*x;
-            const double two_x = 2*x;
-            const double three_xx = 3*xx;
-            // compute function values
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorRange(team_member, (l_max+1)*num_channels),
-                [&] (const int lk) {
-                    const double c0 = c(type_ij,n,0,lk);
-                    const double c1 = c(type_ij,n,1,lk);
-                    const double c2 = c(type_ij,n,2,lk);
-                    const double c3 = c(type_ij,n,3,lk);
-                    R0(ij,lk) = c0 + c1*x + c2*xx + c3*xxx;
-                    R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_R1(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r)
-{
-    if (r.size() > R1.extent(0)) {
-        Kokkos::realloc(R1, r.size(), Phi1_l.size()*num_channels);
-        Kokkos::realloc(R1_deriv, r.size(), Phi1_l.size()*num_channels);
-    }
-    radial_1.evaluate(node_types, i_list, neigh_types, r, R1, R1_deriv);
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_Y(Kokkos::View<const double*> xyz) {
-
-#if !defined (SYMMETRIX_SPHERICART_CUDA) && !defined (SYMMETRIX_SPHERICART_SYCL)
-
-    const int num = xyz.extent(0) / 3;
-    if (Y.extent(0) < num*num_lm) {
-        Kokkos::realloc(Y, num*num_lm);
-        Kokkos::realloc(Y_grad, 3*num*num_lm);
-    }
-
-    const auto num_lm = this->num_lm;
-    auto Y = this->Y;
-    auto Y_grad = this->Y_grad;
-
-    if (xyz_sphericart.extent(0) < 3*num)
-        Kokkos::realloc(xyz_sphericart, 3*num);
-    auto xyz_sphericart = this->xyz_sphericart;
-    Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
-        xyz_sphericart(i) = xyz(i);
-    });
-
-    // call sphericart on host
-    auto h_xyz = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), xyz_sphericart);
-    auto h_Y = Kokkos::create_mirror_view(Y);
-    auto h_Y_grad = Kokkos::create_mirror_view(Y_grad);
-    using Sphericart = sphericart::SphericalHarmonics<Precision>;
-    if (not sphericart_calculator)
-        sphericart_calculator = std::make_shared<Sphericart>(l_max);
-    static_cast<Sphericart*>(sphericart_calculator.get())->compute_array_with_gradients(
-        h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm);
-    Kokkos::deep_copy(Y, h_Y);
-    Kokkos::deep_copy(Y_grad, h_Y_grad);
-
-    // normalize to match e3nn conventions
-    Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
-        Y(i) *= 2*std::sqrt(M_PI);
-    });
-    Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
-        Y_grad(i) *= 2*std::sqrt(M_PI);
-    });
-
-#else // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
-
-    const int num = xyz.extent(0) / 3;
-    const int num_lm = (l_max+1)*(l_max+1);
-    if (Y.size() < num*num_lm) {
-        Kokkos::realloc(Y, num*num_lm);
-        Kokkos::realloc(Y_grad, 3*num*num_lm);
-    }
-    auto Y = this->Y;
-    auto Y_grad = this->Y_grad;
-
-    if (xyz_sphericart.extent(0) < 3*num)
-        Kokkos::realloc(xyz_sphericart, 3*num);
-    auto xyz_sphericart = this->xyz_sphericart;
-    Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
-        xyz_sphericart(i) = xyz(i);
-    });
-    Kokkos::fence();
-
-    // call sphericart
-#if defined (SYMMETRIX_SPHERICART_CUDA)
-    using Sphericart = sphericart::cuda::SphericalHarmonics<Precision>;
-#elif defined (SYMMETRIX_SPHERICART_SYCL)
-    using Sphericart = sphericart::sycl::SphericalHarmonics<Precision>;
-#endif
-    if (not sphericart_calculator)
-        sphericart_calculator = std::make_shared<Sphericart>(l_max);
-    static_cast<Sphericart*>(sphericart_calculator.get())->compute_with_gradients(
-        xyz_sphericart.data(), num, Y.data(), Y_grad.data());
-    Kokkos::fence();
-
-    // normalize to match e3nn conventions
-    const double normalization_factor = 2 * std::sqrt(M_PI);
-    Kokkos::parallel_for("normalize_Y", num*num_lm, KOKKOS_LAMBDA (int i) {
-        Y(i) *= normalization_factor;
-    });
-    Kokkos::parallel_for("normalize_Y_grad", 3*num*num_lm, KOKKOS_LAMBDA (int i) {
-        Y_grad(i) *= normalization_factor;
-    });
-
-#endif
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_A0(
-    const int num_nodes,
-    View<const int*> node_types,
-    View<const int*> num_neigh,
-    View<const int*> neigh_types)
-{
-    if (A0.extent(0) != num_nodes)
-        Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), A0, 0.0);
-
-    const auto first_neigh = this->first_neigh;
-    const int num_lm = this->num_lm;
-    const int num_channels = this->num_channels;
-    const auto R0 = this->R0;
-    const auto Y = this->Y;
-    auto A0 = this->A0;
-
-    parallel_for("Compute A0",
-        TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_lm;
-            const int lm = team_member.league_rank() % num_lm;
-            const int l = Kokkos::sqrt(lm);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = first_neigh(i) + j;
-                const double Y_ij_lm = Y(ij*num_lm+lm);
-                parallel_for(
-                    TeamVectorRange(team_member, num_channels),
-                    [=] (const int k) {
-                        A0(i,lm,k) += R0(ij,l*num_channels+k) * Y_ij_lm;
-                    });
+        // first readout
+        Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
+            for (int k=0; k<num_channels; ++k) {
+                node_energies(i) += readout_1_weights_for_M0(k) * M0(i,0,k);
+                M0_adj(i,0,k) = readout_1_weights_for_M0(k);
             }
         });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_A0(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> xyz,
-    Kokkos::View<const double*> r)
-{
-    auto A0_adj = this->A0_adj;
-    auto num_lm = this->num_lm;
-    auto num_channels = this->num_channels;
-    auto l_max = this->l_max;
-    auto R0 = this->R0;
-    auto R0_deriv = this->R0_deriv;
-    auto Y = this->Y;
-    auto Y_grad = this->Y_grad;
-    auto node_forces = this->node_forces;
-    const auto first_neigh = this->first_neigh;
-
-    Kokkos::parallel_for("Reverse A0",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_neigh(i)), [&] (const int j) {
-                const int ij = first_neigh(i) + j;
-                double f_r, f_x, f_y, f_z;
-                Kokkos::parallel_reduce(Kokkos::ThreadVectorRange(team_member, num_channels),
-                    [&] (const int k, double& f_r, double& f_x, double& f_y, double& f_z) {
-                        for (int l=0; l<=l_max; ++l) {
-                            const Precision R = R0(ij,l*num_channels+k);
-                            const Precision R_deriv = R0_deriv(ij,l*num_channels+k);
-                            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
-                                const double a = A0_adj(i,lm,k);
-                                f_r += R_deriv * a * Y(ij*num_lm+lm);
-                                f_x += R * a * Y_grad(3*ij*num_lm+lm);
-                                f_y += R * a * Y_grad((3*ij+1)*num_lm+lm);
-                                f_z += R * a * Y_grad((3*ij+2)*num_lm+lm);
-                            }
-                        }
-                    }, f_r, f_x, f_y, f_z);
-                Kokkos::single(Kokkos::PerThread(team_member), [&]() {
-                    node_forces(3*ij) -= f_r*xyz(3*ij)/r(ij) + f_x;
-                    node_forces(3*ij+1) -= f_r*xyz(3*ij+1)/r(ij) + f_y;
-                    node_forces(3*ij+2) -= f_r*xyz(3*ij+2)/r(ij) + f_z;
-                });
-            });
+        Kokkos::fence();
+        // second readout
+        auto H2 = Kokkos::subview(this->H2, make_pair(0,num_nodes), Kokkos::ALL);
+        auto readout_2_output = Kokkos::subview(this->readout_2_output, make_pair(0,num_nodes));
+        auto H2_adj = Kokkos::subview(this->H2_adj, make_pair(0,num_nodes), Kokkos::ALL);
+        readout_2.evaluate_gradient(H2, readout_2_output, H2_adj);
+        Kokkos::parallel_for("Compute Readouts 2", num_nodes, KOKKOS_LAMBDA (const int i) {
+            node_energies(i) += readout_2_output(i);
         });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_A0_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r)
-{
-    if (not A0_scaled) return;
-
-    // compute A0 splines
-    if (r.size() > A0_spline_values.extent(0)) {
-        Kokkos::realloc(A0_spline_values, r.size(), 1);
-        Kokkos::realloc(A0_spline_derivs, r.size(), 1);
     }
-    A0_splines.evaluate(node_types, i_list, neigh_types, r, A0_spline_values, A0_spline_derivs);
-
-    // perform the scaling
-    const auto first_neigh = this->first_neigh;
-    const auto A0_spline_values = this->A0_spline_values;
-    const auto A0_spline_derivs = this->A0_spline_derivs;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto A0 = this->A0;
-    Kokkos::parallel_for(
-        "MACEKokkos::compute_A0_scaled",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            // compute scale factor
-            double A0_scale_factor;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j, double& lsum) {
-                    lsum += A0_spline_values(first_neigh(i)+j,0);
-                }, A0_scale_factor);
-            A0_scale_factor += 1.0;
-            team_member.team_barrier();
-            // perform the scaling
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (int lmk) {
-                    A0(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
-                });
-        });
 }
 
 template <typename Precision>
-void MACEKokkos<Precision>::reverse_A0_scaled(
+void MACEKokkos<Precision>::reverse_second_layer(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> xyz,
-    Kokkos::View<const double*> r)
-{
-    if (not A0_scaled) return;
-
-    // update the derivatives
-    // Warning: Assumes node_forces have been initialized elsewhere
-    const auto first_neigh = this->first_neigh;
-    const auto A0 = this->A0;
-    const auto A0_adj = this->A0_adj;
-    const auto A0_spline_values = this->A0_spline_values;
-    const auto A0_spline_derivs = this->A0_spline_derivs;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto node_forces = this->node_forces;
-    Kokkos::parallel_for(
-        "MACEKokkos::reverse_A0_scaled",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            // compute scale factor
-            double A0_scale_factor;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j, double& lsum) {
-                    lsum += A0_spline_values(first_neigh(i)+j,0);
-                }, A0_scale_factor);
-            A0_scale_factor += 1.0;
-            team_member.team_barrier();
-            // update dE/dxyz
-            double dA0_dot_A0;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (const int lmk, double& lsum) {
-                    const int lm = lmk / num_channels;
-                    const int k = lmk % num_channels;
-                    lsum += A0_adj(i,lm,k) * A0(i,lm,k);
-                }, dA0_dot_A0);
-            team_member.team_barrier();
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j) {
-                    const int ij = first_neigh(i) + j;
-                    const double f = A0_spline_values(ij,0);
-                    const double d = A0_spline_derivs(ij,0);
-                    node_forces(3*ij+0) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+0)/r(ij);
-                    node_forces(3*ij+1) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+1)/r(ij);
-                    node_forces(3*ij+2) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+2)/r(ij);
-                });
-            // update dE/dA0
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (int lmk) {
-                    A0_adj(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M0(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (M0.extent(0) < num_nodes)
-        Kokkos::realloc(M0, num_nodes, num_LM, num_channels);
-    if (B0.extent(0) < num_nodes)
-        Kokkos::realloc(B0, num_nodes, B0.extent(1), num_channels);
-    Kokkos::deep_copy(M0, 0.0);
-
-    const auto A0 = this->A0;
-    const auto B0_spec = this->B0_spec;
-    const auto B0_coefficients = this->B0_coefficients;
-    const auto M0_spec = this->M0_spec;
-    const auto M0_weights = this->M0_weights;
-    const auto B0 = this->B0;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto M0 = this->M0;
-
-    Kokkos::parallel_for("Compute M0",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int q=0; q<B0.extent(1); ++q)
-                    B0(i,q,k) = (q < num_lm) ? A0(i,q,k) : 0.0;
-            });
-            for (int t=0; t<B0_spec.extent(0); ++t)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    B0(i,B0_spec(t,0),k) +=
-                        B0_coefficients(t) * B0(i,B0_spec(t,1),k) * B0(i,B0_spec(t,2),k);
-                });
-            for (int e=0; e<M0_spec.extent(0); ++e)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    for (int m=0; m<M0_spec(e,2); ++m)
-                        M0(i,M0_spec(e,0)+m,k) += M0_weights(node_types(i),e,k) * B0(i,M0_spec(e,1)+m,k);
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M0(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (A0_adj.extent(0) < num_nodes)
-        Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
-    if (B0_adj.extent(0) < num_nodes)
-        Kokkos::realloc(B0_adj, num_nodes, B0.extent(1), num_channels);
-
-    const auto M0_adj = this->M0_adj;
-    const auto B0_spec = this->B0_spec;
-    const auto B0_coefficients = this->B0_coefficients;
-    const auto M0_spec = this->M0_spec;
-    const auto M0_weights = this->M0_weights;
-    const auto B0 = this->B0;
-    const auto B0_adj = this->B0_adj;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto A0_adj = this->A0_adj;
-
-    Kokkos::parallel_for("Reverse M0",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int q=0; q<B0_adj.extent(1); ++q)
-                    B0_adj(i,q,k) = 0.0;
-            });
-            for (int e=0; e<M0_spec.extent(0); ++e)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    for (int m=0; m<M0_spec(e,2); ++m)
-                        B0_adj(i,M0_spec(e,1)+m,k) += M0_weights(node_types(i),e,k) * M0_adj(i,M0_spec(e,0)+m,k);
-                });
-            for (int t=B0_spec.extent(0)-1; t>=0; --t)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    const Precision g = B0_coefficients(t) * B0_adj(i,B0_spec(t,0),k);
-                    B0_adj(i,B0_spec(t,1),k) += g * B0(i,B0_spec(t,2),k);
-                    B0_adj(i,B0_spec(t,2),k) += g * B0(i,B0_spec(t,1),k);
-                });
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int lm=0; lm<num_lm; ++lm)
-                    A0_adj(i,lm,k) = B0_adj(i,lm,k);
-            });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_H1(
-    const int num_nodes)
-{
-    if (H1.extent(0) < M0.extent(0))
-        Kokkos::realloc(H1, M0.extent(0), M0.extent(1), M0.extent(2));
-
-    if (num_nodes == 0)
-        return;
-
-    const auto M0 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->M0.data(), num_nodes, num_LM*num_channels);
-    const auto H1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->H1.data(), num_nodes, num_LM*num_channels);
-    for (int l=0; l<=L_max; ++l)
-        for (int m=0; m<2*l+1; ++m)
-            KokkosBlas::gemm("N", "N", 1.0,
-                Kokkos::subview(M0, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
-                Kokkos::subview(H1_weights, l, Kokkos::ALL, Kokkos::ALL), 0.0,
-                Kokkos::subview(H1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_H1(
-    const int num_nodes)
-{
-    if (M0_adj.extent(0) < M0.extent(0))
-        Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
-
-    if (num_nodes == 0)
-        return;
-
-    const auto H1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->H1_adj.data(), num_nodes, num_LM*num_channels);
-    const auto M0_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->M0_adj.data(), num_nodes, num_LM*num_channels);
-    for (int l=0; l<=L_max; ++l)
-        for (int m=0; m<2*l+1; ++m)
-            KokkosBlas::gemm("N", "N", 1.0,
-                Kokkos::subview(H1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
-                Kokkos::subview(H1_weights_trans, l, Kokkos::ALL, Kokkos::ALL), l == 0 ? 1.0 : 0.0,
-                Kokkos::subview(M0_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_Phi1(
-    const int num_nodes,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_indices)
-{
-    // Compute Phi1_lelm1lm2 (named Phi1r)
-    if (Phi1r.extent(0) < num_nodes)
-        Kokkos::realloc(Phi1r, num_nodes, num_lelm1lm2, num_channels);
-    if (Phi1.extent(0) < num_nodes)
-        Kokkos::realloc(Phi1, num_nodes, num_lme, num_channels);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), Phi1, 0.0);
-
-    const auto first_neigh = this->first_neigh;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    const auto num_lelm1lm2 = this->num_lelm1lm2;
-    const auto Phi1_lm1 = this->Phi1_lm1;
-    const auto Phi1_lm2 = this->Phi1_lm2;
-    const auto Phi1_lel1l2 = this->Phi1_lel1l2;
-    const auto Phi1_lme = this->Phi1_lme;
-    const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
-    const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
-    const auto R1 = this->R1;
-    const auto Y = this->Y;
-    const auto H1 = this->H1;
-    auto Phi1 = this->Phi1;
-    auto Phi1r = this->Phi1r;
-
-    Kokkos::parallel_for("Compute Phi1r",
-        Kokkos::TeamPolicy<>(num_nodes*num_lelm1lm2, Kokkos::AUTO, 32)
-             .set_scratch_size(0, Kokkos::PerTeam(num_channels*sizeof(Precision))),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank() / num_lelm1lm2;
-            const int lelm1lm2 = team_member.league_rank() % num_lelm1lm2;
-            const int i0 = first_neigh(i);
-            const int lm1 = Phi1_lm1(lelm1lm2);
-            const int lm2 = Phi1_lm2(lelm1lm2);
-            const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-            // initialize Phi1r_i_lelm1lm2 in scratch space
-            auto Phi1r_i_lelm1lm2 = Kokkos::View<Precision*>(team_member.team_scratch(0), num_channels);
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorRange(team_member, num_channels),
-                [=] (const int k) {
-                    Phi1r_i_lelm1lm2(k) = 0.0;
-                });
-            team_member.team_barrier();
-            // compute Phi1r_i_lelm1lm2
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [=] (const int k) {
-                        Phi1r_i_lelm1lm2(k) += R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * H1(neigh_indices(ij),lm2,k);
-                    });
-            }
-            team_member.team_barrier();
-            // store Phi1r_i_lelm1lm2
-            Kokkos::parallel_for(
-                Kokkos::TeamVectorRange(team_member, num_channels),
-                [=] (const int k) {
-                    Phi1r(i,lelm1lm2,k) = Phi1r_i_lelm1lm2(k);
-                });
-        });
-
-    // Compute Phi1 using CG coefficients
-    Kokkos::parallel_for("Compute Phi1",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
-                const double C = Phi1_clebsch_gordan(p);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        Phi1(i,Phi1_lme(p),k) += C * Phi1r(i,Phi1_lelm1lm2(p),k);
-                    });
-            }
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_Phi1(
-    const int num_nodes,
     Kokkos::View<const int*> num_neigh,
     Kokkos::View<const int*> neigh_indices,
+    Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> xyz,
-    Kokkos::View<const double*> r,
-    bool zero_dxyz,
-    bool zero_H1_adj)
+    Kokkos::View<const double*> r)
 {
-    if (dPhi1r.extent(0) < Phi1r.extent(0))
-        Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2));
-    if (node_forces.size() < xyz.size())
-        Kokkos::resize(node_forces, xyz.size());
-    if (H1_adj.extent(0) < H1.extent(0))
-        Kokkos::resize(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
-    if (zero_dxyz)
-        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), node_forces, 0.0);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), dPhi1r, 0.0);
-    if (zero_H1_adj)
+    // H2
+    // \bar{M}^{(1)}_{i,k'} = \sum_k w_{k,k'} \bar{H}^{(2)}_{i,k},  \bar{M}^{(0)}_{i,k'00} += \sum_k w_{a_ik,k'} \bar{H}^{(2)}_{i,k}
+    {
+        if (M0_adj.extent(0) < M0.extent(0))
+            Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
+        if (M1_adj.extent(0) < M1.extent(0))
+            Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
+
+        auto num_channels = this->num_channels;
+        auto M0_adj = this->M0_adj;
+        auto M1_adj = this->M1_adj;
+        auto H2_adj = this->H2_adj;
+        auto H2_weights_for_M0_trans = this->H2_weights_for_M0_trans;
+        auto H2_weights_for_M1_trans = this->H2_weights_for_M1_trans;
+
+        Kokkos::parallel_for(
+            "Reverse H2",
+            num_nodes*num_channels,
+            KOKKOS_LAMBDA (const int ik) {
+                const int i = ik / num_channels;
+                const int k = ik % num_channels;
+                double M0_adj_ik = 0;
+                double M1_adj_ik = 0;
+                for (int kp=0; kp<num_channels; ++kp) {
+                    M0_adj_ik += H2_weights_for_M0_trans(node_types(i),kp*num_channels+k) * H2_adj(i,kp);
+                    M1_adj_ik += H2_weights_for_M1_trans(kp*num_channels+k) * H2_adj(i,kp);
+                }
+                M0_adj(i,0,k) += M0_adj_ik;
+                M1_adj(i,k) = M1_adj_ik;
+            });
+    }
+
+    // M1
+    // \bar{A}^{(1)}_{i,klm} = \bar{M}^{(1)}_{i,k} \partial M^{(1)}_{i,k} / \partial A^{(1)}_{i,klm}
+    {
+        if (A1_adj.extent(0) < num_nodes)
+            Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
+        if (B1_adj.extent(0) < num_nodes)
+            Kokkos::realloc(B1_adj, num_nodes, B1.extent(1), num_channels);
+
+        const auto M1_adj = this->M1_adj;
+        const auto B1_spec = this->B1_spec;
+        const auto B1_coefficients = this->B1_coefficients;
+        const auto M1_spec = this->M1_spec;
+        const auto M1_weights = this->M1_weights;
+        const auto B1 = this->B1;
+        const auto B1_adj = this->B1_adj;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto A1_adj = this->A1_adj;
+
+        Kokkos::parallel_for("Reverse M1",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int q=0; q<B1_adj.extent(1); ++q)
+                        B1_adj(i,q,k) = 0.0;
+                });
+                for (int e=0; e<M1_spec.extent(0); ++e)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        B1_adj(i,M1_spec(e,1),k) += M1_weights(node_types(i),e,k) * M1_adj(i,k);
+                    });
+                for (int t=B1_spec.extent(0)-1; t>=0; --t)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        const Precision g = B1_coefficients(t) * B1_adj(i,B1_spec(t,0),k);
+                        B1_adj(i,B1_spec(t,1),k) += g * B1(i,B1_spec(t,2),k);
+                        B1_adj(i,B1_spec(t,2),k) += g * B1(i,B1_spec(t,1),k);
+                    });
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int lm=0; lm<num_lm; ++lm)
+                        A1_adj(i,lm,k) = B1_adj(i,lm,k);
+                });
+            });
+    }
+
+    // A1 scaling
+    // \mathbf{F}_{ij} += \partial_r \rho^{(1)}_{a_ia_j}(r_{ij}) \hat{\mathbf{r}}_{ij} \sum_{klm} \bar{A}^{(1)}_{i,klm} A^{(1)}_{i,klm} / s^{(1)}_i
+    // \bar{A}^{(1)}_{i,klm} \leftarrow \bar{A}^{(1)}_{i,klm} / s^{(1)}_i
+    if (A1_scaled) {
+        // update the derivatives
+        const auto first_neigh = this->first_neigh;
+        const auto A1 = this->A1;
+        const auto A1_adj = this->A1_adj;
+        const auto A1_spline_values = this->A1_spline_values;
+        const auto A1_spline_derivs = this->A1_spline_derivs;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto node_forces = this->node_forces;
+        Kokkos::parallel_for(
+            "MACEKokkos::reverse_A1_scaled",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                const int i0 = first_neigh(i);
+                // scale factor
+                double A1_scale_factor;// = 1.0;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j, double& lsum) {
+                        lsum += A1_spline_values(i0+j,0);
+                    }, A1_scale_factor);
+                A1_scale_factor += 1.0;
+                team_member.team_barrier();
+                // update dE/dxyz
+                double dA1_dot_A1;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (const int lmk, double& lsum) {
+                        const int lm = lmk / num_channels;
+                        const int k = lmk % num_channels;
+                        lsum += A1_adj(i,lm,k) * A1(i,lm,k);
+                    }, dA1_dot_A1);
+                team_member.team_barrier();
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j) {
+                        const int ij = first_neigh(i) + j;
+                        const double f = A1_spline_values(ij,0);
+                        const double d = A1_spline_derivs(ij,0);
+                        node_forces(3*ij+0) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+0)/r(ij);
+                        node_forces(3*ij+1) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+1)/r(ij);
+                        node_forces(3*ij+2) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+2)/r(ij);
+                    });
+                // update dE/dA1
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (int lmk) {
+                        A1_adj(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
+                    });
+            });
+    }
+
+    // A1
+    // \bar{\Phi}^{(1)}_{i,k'lm\eta'} = \sum_k w_{kl,k'\eta'} \bar{A}^{(1)}_{i,klm}
+    {
+        // The core matrix multiplication is:
+        //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
+        if (dPhi1.extent(0) < num_nodes)
+            Kokkos::realloc(dPhi1, num_nodes, num_lme, num_channels);
+
+        const auto A1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->A1_adj.data(), num_nodes, num_lm*num_channels);
+        const auto dPhi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->dPhi1.data(), num_nodes, num_lme*num_channels);
+        int lme = 0;
+        for (int l=0; l<=l_max and num_nodes>0; ++l) {
+            const int num_eta = A1_weights_trans(l).extent(1)/num_channels;
+            for (int m=0; m<2*l+1; ++m)
+                KokkosBlas::gemm("N", "N", 1.0,
+                    Kokkos::subview(A1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                    A1_weights_trans(l), 0.0,
+                    Kokkos::subview(dPhi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)));
+            lme += (2*l+1)*num_eta;
+        }
+    }
+
+    // Phi1
+    // \bar{H}^{(1)}_{j,kl_2m_2} = \sum_i \sum_{lm\eta l_1m_1} C^{lm\eta}_{l_1m_1l_2m_2} R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) Y_{l_1m_1}(\hat{\mathbf{r}}_{ij}) \bar{\Phi}^{(1)}_{i,klm\eta}
+    // \mathbf{F}_{ij} -= \sum_{klm\eta l_1m_1l_2m_2} C^{lm\eta}_{l_1m_1l_2m_2} \nabla_{\mathbf{r}_{ij}}[R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) Y_{l_1m_1}(\hat{\mathbf{r}}_{ij})] H^{(1)}_{j,kl_2m_2} \bar{\Phi}^{(1)}_{i,klm\eta}
+    {
+        if (H1_adj.extent(0) < H1.extent(0))
+            Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
+        // Warning: Although it doesn't appear necessary to set H1_adj to zero,
+        //          it matters when the number of nodes associated with H1 is greater than num_nodes.
+        //          There is probably a better way to manage this.
         Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
 
-    const auto num_lm = this->num_lm;
-    const auto num_channels = this->num_channels;
-    const auto num_lelm1lm2 = this->num_lelm1lm2;
-    const auto Phi1_lm1 = this->Phi1_lm1;
-    const auto Phi1_lm2 = this->Phi1_lm2;
-    const auto Phi1_lel1l2 = this->Phi1_lel1l2;
-    const auto Phi1_lme = this->Phi1_lme;
-    const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
-    const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
-    const auto R1 = this->R1;
-    const auto R1_deriv = this->R1_deriv;
-    const auto Y = this->Y;
-    const auto Y_grad = this->Y_grad;
-    const auto H1 = this->H1;
-    const auto H1_adj = this->H1_adj;
-    const auto node_forces = this->node_forces;
-    auto dPhi1r = this->dPhi1r;
-    auto dPhi1 = this->dPhi1;
+        if (dPhi1r.extent(0) < Phi1r.extent(0))
+            Kokkos::realloc(dPhi1r, Phi1r.extent(0), Phi1r.extent(1), Phi1r.extent(2));
+        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), dPhi1r, 0.0);
 
-    // Compute dE/dPhi1 (named dPhi1)
-    Kokkos::parallel_for("Reverse Phi1",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
-                const double C = Phi1_clebsch_gordan(p);
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, num_channels),
-                    [&] (const int k) {
-                        dPhi1r(i,Phi1_lelm1lm2(p),k) += C * dPhi1(i,Phi1_lme(p),k);
+        const auto num_lm = this->num_lm;
+        const auto num_channels = this->num_channels;
+        const auto num_lelm1lm2 = this->num_lelm1lm2;
+        const auto Phi1_lm1 = this->Phi1_lm1;
+        const auto Phi1_lm2 = this->Phi1_lm2;
+        const auto Phi1_lel1l2 = this->Phi1_lel1l2;
+        const auto Phi1_lme = this->Phi1_lme;
+        const auto Phi1_lelm1lm2 = this->Phi1_lelm1lm2;
+        const auto Phi1_clebsch_gordan = this->Phi1_clebsch_gordan;
+        const auto R1 = this->R1;
+        const auto R1_deriv = this->R1_deriv;
+        const auto Y = this->Y;
+        const auto Y_grad = this->Y_grad;
+        const auto H1 = this->H1;
+        const auto H1_adj = this->H1_adj;
+        const auto node_forces = this->node_forces;
+        auto dPhi1r = this->dPhi1r;
+        auto dPhi1 = this->dPhi1;
+
+        // Compute dE/dPhi1 (named dPhi1)
+        Kokkos::parallel_for("Reverse Phi1",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                for (int p=0; p<Phi1_clebsch_gordan.size(); ++p) {
+                    const double C = Phi1_clebsch_gordan(p);
+                    Kokkos::parallel_for(
+                        Kokkos::TeamVectorRange(team_member, num_channels),
+                        [&] (const int k) {
+                            dPhi1r(i,Phi1_lelm1lm2(p),k) += C * dPhi1(i,Phi1_lme(p),k);
+                        });
+                }
+            });
+
+        const auto first_neigh = this->first_neigh;
+        Kokkos::parallel_for("Reverse Phi1r",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                const int i0 = first_neigh(i);
+                for (int j=0; j<num_neigh(i); ++j) {
+                    const int ij = i0 + j;
+                    double f_x, f_y, f_z;
+                    Kokkos::parallel_reduce(
+                        Kokkos::TeamThreadRange(team_member, num_lelm1lm2),
+                        [=] (const int lelm1lm2, double& f_x, double& f_y, double& f_z) {
+                            const int lm1 = Phi1_lm1(lelm1lm2);
+                            const int lm2 = Phi1_lm2(lelm1lm2);
+                            const int lel1l2 = Phi1_lel1l2(lelm1lm2);
+                            Precision t1, t2;
+                            Kokkos::parallel_reduce(
+                                Kokkos::ThreadVectorRange(team_member, num_channels),
+                                [=] (const int k, Precision& t1, Precision& t2) {
+                                    t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
+                                    t2 += R1(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
+                                    Kokkos::atomic_add(
+                                        &H1_adj(neigh_indices(ij),lm2,k),
+                                        R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * dPhi1r(i,lelm1lm2,k));
+                                }, t1, t2);
+                            f_x += t1*xyz(3*ij)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad(3*ij*num_lm+lm1);
+                            f_y += t1*xyz(3*ij+1)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+1)*num_lm+lm1);
+                            f_z += t1*xyz(3*ij+2)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+2)*num_lm+lm1);
+                        }, f_x, f_y, f_z);
+                    team_member.team_barrier();
+                    Kokkos::single(Kokkos::PerTeam(team_member), [=]() {
+                        node_forces(3*ij)   -= f_x;
+                        node_forces(3*ij+1) -= f_y;
+                        node_forces(3*ij+2) -= f_z;
                     });
-            }
-        });
-
-    const auto first_neigh = this->first_neigh;
-    Kokkos::parallel_for("Reverse Phi1r",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            const int i0 = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                double f_x, f_y, f_z;
-                Kokkos::parallel_reduce(
-                    Kokkos::TeamThreadRange(team_member, num_lelm1lm2),
-                    [=] (const int lelm1lm2, double& f_x, double& f_y, double& f_z) {
-                        const int lm1 = Phi1_lm1(lelm1lm2);
-                        const int lm2 = Phi1_lm2(lelm1lm2);
-                        const int lel1l2 = Phi1_lel1l2(lelm1lm2);
-                        Precision t1, t2;
-                        Kokkos::parallel_reduce(
-                            Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [=] (const int k, Precision& t1, Precision& t2) {
-                                t1 += R1_deriv(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
-                                t2 += R1(ij,lel1l2*num_channels+k) * H1(neigh_indices(ij),lm2,k) * dPhi1r(i,lelm1lm2,k);
-                                Kokkos::atomic_add(
-                                    &H1_adj(neigh_indices(ij),lm2,k),
-                                    R1(ij,lel1l2*num_channels+k) * Y(ij*num_lm+lm1) * dPhi1r(i,lelm1lm2,k));
-                            }, t1, t2);
-                        f_x += t1*xyz(3*ij)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad(3*ij*num_lm+lm1);
-                        f_y += t1*xyz(3*ij+1)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+1)*num_lm+lm1);
-                        f_z += t1*xyz(3*ij+2)/r(ij)*Y(ij*num_lm+lm1) + t2*Y_grad((3*ij+2)*num_lm+lm1);
-                    }, f_x, f_y, f_z);
-                team_member.team_barrier();
-                Kokkos::single(Kokkos::PerTeam(team_member), [=]() {
-                    node_forces(3*ij)   -= f_x;
-                    node_forces(3*ij+1) -= f_y;
-                    node_forces(3*ij+2) -= f_z;
-                });
-            }
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_A1(int num_nodes)
-{
-    // The core matrix multiplication is:
-    //         [A1_il]_mk = \sum_(ek') [Phi1_il]_m(ek') [W_il]_(ek')k
-    if (A1.extent(0) < num_nodes)
-        Kokkos::realloc(A1, num_nodes, num_lm, num_channels);
-    if (num_nodes == 0)
-        return;
-
-    const auto Phi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->Phi1.data(), num_nodes, num_lme*num_channels);
-    const auto A1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->A1.data(), num_nodes, num_lm*num_channels);
-    int lme = 0;
-    for (int l=0; l<=l_max; ++l) {
-        const int num_eta = A1_weights(l).extent(0)/num_channels;
-        for (int m=0; m<2*l+1; ++m)
-            KokkosBlas::gemm("N", "N", 1.0,
-                Kokkos::subview(Phi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)),
-                A1_weights(l), 0.0,
-                Kokkos::subview(A1, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
-        lme += (2*l+1)*num_eta;
+                }
+            });
     }
 }
 
 template <typename Precision>
-void MACEKokkos<Precision>::reverse_A1(int num_nodes)
-{
-    // The core matrix multiplication is:
-    //         [dE/dPhi1_il]_m(ek) = \sum_k' [dE/dA1_il]_mk' [trans(W_il)]_k'(ek)
-    if (dPhi1.extent(0) < num_nodes)
-        Kokkos::realloc(dPhi1, num_nodes, num_lme, num_channels);
-    if (num_nodes == 0)
-        return;
-
-    const auto A1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->A1_adj.data(), num_nodes, num_lm*num_channels);
-    const auto dPhi1 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
-        this->dPhi1.data(), num_nodes, num_lme*num_channels);
-    int lme = 0;
-    for (int l=0; l<=l_max; ++l) {
-        const int num_eta = A1_weights_trans(l).extent(1)/num_channels;
-        for (int m=0; m<2*l+1; ++m)
-            KokkosBlas::gemm("N", "N", 1.0,
-                Kokkos::subview(A1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
-                A1_weights_trans(l), 0.0,
-                Kokkos::subview(dPhi1, Kokkos::ALL, Kokkos::make_pair((lme+m*num_eta)*num_channels, (lme+(m+1)*num_eta)*num_channels)));
-        lme += (2*l+1)*num_eta;
-    }
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_A1_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r)
-{
-    if (not A1_scaled) return;
-
-    // compute A1 splines
-    if (A1_spline_values.extent(0) < r.size()) {
-        Kokkos::realloc(A1_spline_values, r.size(), 1);
-        Kokkos::realloc(A1_spline_derivs, r.size(), 1);
-    }
-    A1_splines.evaluate(node_types, i_list, neigh_types, r, A1_spline_values, A1_spline_derivs);
-
-    // perform the scaling
-    const auto first_neigh = this->first_neigh;
-    auto A1 = this->A1;
-    auto A1_spline_values = this->A1_spline_values;
-    auto A1_spline_derivs = this->A1_spline_derivs;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    Kokkos::parallel_for(
-        "MACEKokkos::compute_A1_scaled",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            const int i0 = first_neigh(i);
-            // compute scale factor
-            double A1_scale_factor;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j, double& lsum) {
-                    lsum += A1_spline_values(i0+j,0);
-                }, A1_scale_factor);
-            A1_scale_factor += 1.0;
-            team_member.team_barrier();
-            // perform the scaling
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (int lmk) {
-                    A1(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_A1_scaled(
+void MACEKokkos<Precision>::reverse_first_layer(
     const int num_nodes,
     Kokkos::View<const int*> node_types,
     Kokkos::View<const int*> num_neigh,
@@ -889,265 +930,169 @@ void MACEKokkos<Precision>::reverse_A1_scaled(
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
-    if (not A1_scaled) return;
+    // H1
+    // \bar{M}^{(0)}_{i,k'lm} += \sum_k w_{kl,k'} \bar{H}^{(1)}_{i,klm}
+    {
+        if (M0_adj.extent(0) < M0.extent(0))
+            Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
 
-    // update the derivatives
-    // Warning: Assumes node_forces have been initialized elsewhere
-    const auto first_neigh = this->first_neigh;
-    const auto A1 = this->A1;
-    const auto A1_adj = this->A1_adj;
-    const auto A1_spline_values = this->A1_spline_values;
-    const auto A1_spline_derivs = this->A1_spline_derivs;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto node_forces = this->node_forces;
-    Kokkos::parallel_for(
-        "MACEKokkos::reverse_A1_scaled",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            const int i0 = first_neigh(i);
-            // scale factor
-            double A1_scale_factor;// = 1.0;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j, double& lsum) {
-                    lsum += A1_spline_values(i0+j,0);
-                }, A1_scale_factor);
-            A1_scale_factor += 1.0;
-            team_member.team_barrier();
-            // update dE/dxyz
-            double dA1_dot_A1;
-            Kokkos::parallel_reduce(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (const int lmk, double& lsum) {
-                    const int lm = lmk / num_channels;
-                    const int k = lmk % num_channels;
-                    lsum += A1_adj(i,lm,k) * A1(i,lm,k);
-                }, dA1_dot_A1);
-            team_member.team_barrier();
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_neigh(i)),
-                [=] (const int j) {
+
+        const auto H1_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->H1_adj.data(), num_nodes, num_LM*num_channels);
+        const auto M0_adj = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>(
+            this->M0_adj.data(), num_nodes, num_LM*num_channels);
+        for (int l=0; l<=L_max and num_nodes>0; ++l)
+            for (int m=0; m<2*l+1; ++m)
+                KokkosBlas::gemm("N", "N", 1.0,
+                    Kokkos::subview(H1_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)),
+                    Kokkos::subview(H1_weights_trans, l, Kokkos::ALL, Kokkos::ALL), l == 0 ? 1.0 : 0.0,
+                    Kokkos::subview(M0_adj, Kokkos::ALL, Kokkos::make_pair((l*l+m)*num_channels, (l*l+m+1)*num_channels)));
+    }
+
+    // M0
+    // \bar{A}^{(0)}_{i,klm} = \sum_{l'm'} \bar{M}^{(0)}_{i,kl'm'} \partial M^{(0)}_{i,kl'm'} / \partial A^{(0)}_{i,klm}
+    {
+        if (A0_adj.extent(0) < num_nodes)
+            Kokkos::realloc(A0_adj, A0.extent(0), A0.extent(1), A0.extent(2));
+        if (B0_adj.extent(0) < num_nodes)
+            Kokkos::realloc(B0_adj, num_nodes, B0.extent(1), num_channels);
+
+        const auto M0_adj = this->M0_adj;
+        const auto B0_spec = this->B0_spec;
+        const auto B0_coefficients = this->B0_coefficients;
+        const auto M0_spec = this->M0_spec;
+        const auto M0_weights = this->M0_weights;
+        const auto B0 = this->B0;
+        const auto B0_adj = this->B0_adj;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto A0_adj = this->A0_adj;
+
+        Kokkos::parallel_for("Reverse M0",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int q=0; q<B0_adj.extent(1); ++q)
+                        B0_adj(i,q,k) = 0.0;
+                });
+                for (int e=0; e<M0_spec.extent(0); ++e)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        for (int m=0; m<M0_spec(e,2); ++m)
+                            B0_adj(i,M0_spec(e,1)+m,k) += M0_weights(node_types(i),e,k) * M0_adj(i,M0_spec(e,0)+m,k);
+                    });
+                for (int t=B0_spec.extent(0)-1; t>=0; --t)
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                        const Precision g = B0_coefficients(t) * B0_adj(i,B0_spec(t,0),k);
+                        B0_adj(i,B0_spec(t,1),k) += g * B0(i,B0_spec(t,2),k);
+                        B0_adj(i,B0_spec(t,2),k) += g * B0(i,B0_spec(t,1),k);
+                    });
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
+                    for (int lm=0; lm<num_lm; ++lm)
+                        A0_adj(i,lm,k) = B0_adj(i,lm,k);
+                });
+            });
+    }
+
+    // A0 scaling
+    // \mathbf{F}_{ij} += \partial_r \rho^{(0)}_{a_ia_j}(r_{ij}) \hat{\mathbf{r}}_{ij} \sum_{klm} \bar{A}^{(0)}_{i,klm} A^{(0)}_{i,klm} / s^{(0)}_i
+    // \bar{A}^{(0)}_{i,klm} \leftarrow \bar{A}^{(0)}_{i,klm} / s^{(0)}_i
+    if (A0_scaled) {
+        // update the derivatives
+        const auto first_neigh = this->first_neigh;
+        const auto A0 = this->A0;
+        const auto A0_adj = this->A0_adj;
+        const auto A0_spline_values = this->A0_spline_values;
+        const auto A0_spline_derivs = this->A0_spline_derivs;
+        const auto num_channels = this->num_channels;
+        const auto num_lm = this->num_lm;
+        auto node_forces = this->node_forces;
+        Kokkos::parallel_for(
+            "MACEKokkos::reverse_A0_scaled",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                // compute scale factor
+                double A0_scale_factor;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j, double& lsum) {
+                        lsum += A0_spline_values(first_neigh(i)+j,0);
+                    }, A0_scale_factor);
+                A0_scale_factor += 1.0;
+                team_member.team_barrier();
+                // update dE/dxyz
+                double dA0_dot_A0;
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (const int lmk, double& lsum) {
+                        const int lm = lmk / num_channels;
+                        const int k = lmk % num_channels;
+                        lsum += A0_adj(i,lm,k) * A0(i,lm,k);
+                    }, dA0_dot_A0);
+                team_member.team_barrier();
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_neigh(i)),
+                    [=] (const int j) {
+                        const int ij = first_neigh(i) + j;
+                        const double f = A0_spline_values(ij,0);
+                        const double d = A0_spline_derivs(ij,0);
+                        node_forces(3*ij+0) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+0)/r(ij);
+                        node_forces(3*ij+1) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+1)/r(ij);
+                        node_forces(3*ij+2) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+2)/r(ij);
+                    });
+                // update dE/dA0
+                Kokkos::parallel_for(
+                    Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
+                    [=] (int lmk) {
+                        A0_adj(i,lmk/num_channels,lmk%num_channels) /= A0_scale_factor;
+                    });
+            });
+    }
+
+    // A0
+    // \mathbf{F}_{ij} -= \sum_{klm} \nabla_{\mathbf{r}_{ij}}[\tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) Y_{lm}(\hat{\mathbf{r}}_{ij})] \bar{A}^{(0)}_{i,klm}
+    {
+        auto A0_adj = this->A0_adj;
+        auto num_lm = this->num_lm;
+        auto num_channels = this->num_channels;
+        auto l_max = this->l_max;
+        auto R0 = this->R0;
+        auto R0_deriv = this->R0_deriv;
+        auto Y = this->Y;
+        auto Y_grad = this->Y_grad;
+        auto node_forces = this->node_forces;
+        const auto first_neigh = this->first_neigh;
+
+        Kokkos::parallel_for("Reverse A0",
+            Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank();
+                Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_neigh(i)), [&] (const int j) {
                     const int ij = first_neigh(i) + j;
-                    const double f = A1_spline_values(ij,0);
-                    const double d = A1_spline_derivs(ij,0);
-                    node_forces(3*ij+0) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+0)/r(ij);
-                    node_forces(3*ij+1) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+1)/r(ij);
-                    node_forces(3*ij+2) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+2)/r(ij);
+                    double f_r, f_x, f_y, f_z;
+                    Kokkos::parallel_reduce(Kokkos::ThreadVectorRange(team_member, num_channels),
+                        [&] (const int k, double& f_r, double& f_x, double& f_y, double& f_z) {
+                            for (int l=0; l<=l_max; ++l) {
+                                const Precision R = R0(ij,l*num_channels+k);
+                                const Precision R_deriv = R0_deriv(ij,l*num_channels+k);
+                                for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                                    const double a = A0_adj(i,lm,k);
+                                    f_r += R_deriv * a * Y(ij*num_lm+lm);
+                                    f_x += R * a * Y_grad(3*ij*num_lm+lm);
+                                    f_y += R * a * Y_grad((3*ij+1)*num_lm+lm);
+                                    f_z += R * a * Y_grad((3*ij+2)*num_lm+lm);
+                                }
+                            }
+                        }, f_r, f_x, f_y, f_z);
+                    Kokkos::single(Kokkos::PerThread(team_member), [&]() {
+                        node_forces(3*ij) -= f_r*xyz(3*ij)/r(ij) + f_x;
+                        node_forces(3*ij+1) -= f_r*xyz(3*ij+1)/r(ij) + f_y;
+                        node_forces(3*ij+2) -= f_r*xyz(3*ij+2)/r(ij) + f_z;
+                    });
                 });
-            // update dE/dA1
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team_member, num_lm*num_channels),
-                [=] (int lmk) {
-                    A1_adj(i,lmk/num_channels,lmk%num_channels) /= A1_scale_factor;
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (M1.extent(0) < num_nodes)
-        Kokkos::realloc(M1, num_nodes, num_channels);
-    if (B1.extent(0) < num_nodes)
-        Kokkos::realloc(B1, num_nodes, B1.extent(1), num_channels);
-    Kokkos::deep_copy(M1, 0.0);
-
-    const auto A1 = this->A1;
-    const auto B1_spec = this->B1_spec;
-    const auto B1_coefficients = this->B1_coefficients;
-    const auto M1_spec = this->M1_spec;
-    const auto M1_weights = this->M1_weights;
-    const auto B1 = this->B1;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto M1 = this->M1;
-
-    Kokkos::parallel_for("Compute M1",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int q=0; q<B1.extent(1); ++q)
-                    B1(i,q,k) = (q < num_lm) ? A1(i,q,k) : 0.0;
             });
-            for (int t=0; t<B1_spec.extent(0); ++t)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    B1(i,B1_spec(t,0),k) +=
-                        B1_coefficients(t) * B1(i,B1_spec(t,1),k) * B1(i,B1_spec(t,2),k);
-                });
-            for (int e=0; e<M1_spec.extent(0); ++e)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    M1(i,k) += M1_weights(node_types(i),e,k) * B1(i,M1_spec(e,1),k);
-                });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_M1(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (A1_adj.extent(0) < num_nodes)
-        Kokkos::realloc(A1_adj, A1.extent(0), A1.extent(1), A1.extent(2));
-    if (B1_adj.extent(0) < num_nodes)
-        Kokkos::realloc(B1_adj, num_nodes, B1.extent(1), num_channels);
-
-    const auto M1_adj = this->M1_adj;
-    const auto B1_spec = this->B1_spec;
-    const auto B1_coefficients = this->B1_coefficients;
-    const auto M1_spec = this->M1_spec;
-    const auto M1_weights = this->M1_weights;
-    const auto B1 = this->B1;
-    const auto B1_adj = this->B1_adj;
-    const auto num_channels = this->num_channels;
-    const auto num_lm = this->num_lm;
-    auto A1_adj = this->A1_adj;
-
-    Kokkos::parallel_for("Reverse M1",
-        Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
-        KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-            const int i = team_member.league_rank();
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int q=0; q<B1_adj.extent(1); ++q)
-                    B1_adj(i,q,k) = 0.0;
-            });
-            for (int e=0; e<M1_spec.extent(0); ++e)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    B1_adj(i,M1_spec(e,1),k) += M1_weights(node_types(i),e,k) * M1_adj(i,k);
-                });
-            for (int t=B1_spec.extent(0)-1; t>=0; --t)
-                Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                    const Precision g = B1_coefficients(t) * B1_adj(i,B1_spec(t,0),k);
-                    B1_adj(i,B1_spec(t,1),k) += g * B1(i,B1_spec(t,2),k);
-                    B1_adj(i,B1_spec(t,2),k) += g * B1(i,B1_spec(t,1),k);
-                });
-            Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_channels), [&] (const int k) {
-                for (int lm=0; lm<num_lm; ++lm)
-                    A1_adj(i,lm,k) = B1_adj(i,lm,k);
-            });
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::compute_H2(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (H2.extent(0) < num_nodes or H2.extent(1) != num_channels)
-        Kokkos::realloc(H2, num_nodes, num_channels);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H2, 0.0);
-
-    auto num_channels = this->num_channels;
-    auto H2 = this->H2;
-    auto H2_weights_for_M0 = this->H2_weights_for_M0;
-    auto M0 = this->M0;
-    auto H2_weights_for_M1 = this->H2_weights_for_M1;
-    auto M1 = this->M1;
-
-    Kokkos::parallel_for(
-        "Compute H2 from M0",
-        num_nodes*num_channels,
-        KOKKOS_LAMBDA (const int ik) {
-            const int i = ik / num_channels;
-            const int k = ik % num_channels;
-                for (int kp=0; kp<num_channels; ++kp) {
-                    H2(i,k) += H2_weights_for_M0(node_types(i),kp*num_channels+k) * M0(i,0,kp);
-                }
-        });
-    Kokkos::parallel_for(
-        "Compute H2 from M1",
-        num_nodes*num_channels,
-        KOKKOS_LAMBDA (const int ik) {
-            const int i = ik / num_channels;
-            const int k = ik % num_channels;
-            for (int kp=0; kp<num_channels; ++kp) {
-                H2(i,k) += H2_weights_for_M1(kp*num_channels+k) * M1(i,kp);
-            }
-        });
-}
-
-template <typename Precision>
-void MACEKokkos<Precision>::reverse_H2(int num_nodes, Kokkos::View<const int*> node_types)
-{
-    if (M0_adj.extent(0) < M0.extent(0))
-        Kokkos::resize(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
-    if (M1_adj.extent(0) < M1.extent(0))
-        Kokkos::realloc(M1_adj, M1.extent(0), M1.extent(1));
-
-    auto num_channels = this->num_channels;
-    auto M0_adj = this->M0_adj;
-    auto M1_adj = this->M1_adj;
-    auto H2_adj = this->H2_adj;
-    auto H2_weights_for_M0_trans = this->H2_weights_for_M0_trans;
-    auto H2_weights_for_M1_trans = this->H2_weights_for_M1_trans;
-
-    Kokkos::parallel_for(
-        "Reverse H2",
-        num_nodes*num_channels,
-        KOKKOS_LAMBDA (const int ik) {
-            const int i = ik / num_channels;
-            const int k = ik % num_channels;
-            double M0_adj_ik = 0;
-            double M1_adj_ik = 0;
-            for (int kp=0; kp<num_channels; ++kp) {
-                M0_adj_ik += H2_weights_for_M0_trans(node_types(i),kp*num_channels+k) * H2_adj(i,kp);
-                M1_adj_ik += H2_weights_for_M1_trans(kp*num_channels+k) * H2_adj(i,kp);
-            }
-            M0_adj(i,0,k) += M0_adj_ik;
-            M1_adj(i,k) = M1_adj_ik;
-        });
-}
-
-template <typename Precision>
-double MACEKokkos<Precision>::compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types)
-{
-    if (H1_adj.extent(0) < H1.extent(0))
-        Kokkos::realloc(H1_adj, H1.extent(0), H1.extent(1), H1.extent(2));
-    if (M0_adj.extent(0) < M0.extent(0))
-        Kokkos::realloc(M0_adj, M0.extent(0), M0.extent(1), M0.extent(2));
-    if (H2_adj.extent(0) < num_nodes or H2_adj.extent(1) != num_channels)
-        Kokkos::realloc(H2_adj, num_nodes, num_channels);
-    if (readout_2_output.extent(0) < num_nodes)
-        Kokkos::realloc(readout_2_output, num_nodes);
-
-    // Warning: Although it doesn't appear necessary to set H1_adj to zero,
-    //          it matters when the number of nodes associated with H1 is greater than num_nodes.
-    //          There is probably a better way to manage this.
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), H1_adj, 0.0);
-    Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), M0_adj, 0.0);
-
-    auto num_channels = this->num_channels;
-    auto node_energies = this->node_energies;
-    auto atomic_energies = this->atomic_energies;
-    auto M0 = this->M0;
-    auto M0_adj = this->M0_adj;
-    auto readout_1_weights_for_M0 = this->readout_1_weights_for_M0;
-
-    // atomic energies
-    Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
-        node_energies(i) += atomic_energies(node_types(i));
-    });
-    // first readout
-    Kokkos::parallel_for("Compute Readouts 1", num_nodes, KOKKOS_LAMBDA (const int i) {
-        for (int k=0; k<num_channels; ++k) {
-            node_energies(i) += readout_1_weights_for_M0(k) * M0(i,0,k);
-            M0_adj(i,0,k) = readout_1_weights_for_M0(k);
-        }
-    });
-    Kokkos::fence();
-    // second readout
-    auto H2 = Kokkos::subview(this->H2, make_pair(0,num_nodes), Kokkos::ALL);
-    auto readout_2_output = Kokkos::subview(this->readout_2_output, make_pair(0,num_nodes));
-    auto H2_adj = Kokkos::subview(this->H2_adj, make_pair(0,num_nodes), Kokkos::ALL);
-    readout_2.evaluate_gradient(H2, readout_2_output, H2_adj);
-    Kokkos::parallel_for("Compute Readouts 2", num_nodes, KOKKOS_LAMBDA (const int i) {
-        node_energies(i) += readout_2_output(i);
-    });
-
-    double energy;
-    Kokkos::parallel_reduce(num_nodes, KOKKOS_LAMBDA (const int& i, double& local_sum) {
-        local_sum += node_energies(i);
-    }, energy);
-
-    return energy;
+    }
 }
 
 template <typename Precision>

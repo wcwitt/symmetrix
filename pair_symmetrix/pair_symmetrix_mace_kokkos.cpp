@@ -705,25 +705,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
       }
     });
 
-  if (mace->node_energies.size() < num_nodes) Kokkos::realloc(mace->node_energies, num_nodes);
-  if (mace->node_forces.size() < 3*num_edges) Kokkos::realloc(mace->node_forces, 3*num_edges);
-  Kokkos::deep_copy(mace->node_energies, 0.0);
-  Kokkos::deep_copy(mace->node_forces, 0.0);
-
-  mace->prepare_neigh_list(num_nodes, num_neigh);
-
-  if (mace->has_zbl)
-    mace->zbl.compute_ZBL(
-      num_nodes, node_types, num_neigh, mace->first_neigh, neigh_types,
-      mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
-
-  mace->compute_Y(xyz);
-
-  mace->compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_A0(num_nodes, node_types, num_neigh, neigh_types);
-  mace->compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M0(num_nodes, node_types);
-  mace->compute_H1(num_nodes);
+  mace->compute_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // sort H1 contributions by i (rather than ii)
   if (H1.extent(0) < k_list->inum+atom->nghost)
@@ -743,30 +725,17 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   Kokkos::fence();
   mace->H1 = H1;
 
-  mace->compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_nodes, num_neigh, neigh_indices);
-  mace->compute_A1(num_nodes);
-  mace->compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M1(num_nodes, node_types);
-  mace->compute_H2(num_nodes, node_types);
+  mace->compute_second_layer(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, r);
+  mace->compute_readouts(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
-  mace->compute_readouts(num_nodes, node_types);
-
-  mace->reverse_H2(num_nodes, node_types);
-  mace->reverse_M1(num_nodes, node_types);
-  mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A1(num_nodes);
-  mace->reverse_Phi1(num_nodes, num_neigh, neigh_indices, xyz, r, false, false);
+  mace->reverse_second_layer(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
 
   H1_adj = mace->H1_adj;
   Kokkos::fence();
   comm->reverse_comm(this);
   Kokkos::fence();
 
-  mace->reverse_H1(num_nodes);
-  mace->reverse_M0(num_nodes, node_types);
-  mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   if (eflag_global) {
     auto node_energies = mace->node_energies;
@@ -1060,47 +1029,11 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
 
   // ----- begin mace evaluation -----
 
-  if (mace->node_energies.size() < num_local_nodes)
-    Kokkos::realloc(mace->node_energies, num_local_nodes);
-  Kokkos::deep_copy(mace->node_energies, 0.0);
-  if (mace->node_forces.size() < 3*(num_local_edges+num_ghost_edges))
-    Kokkos::realloc(mace->node_forces, 3*(num_local_edges+num_ghost_edges));
-  Kokkos::deep_copy(mace->node_forces, 0.0);
-
-  mace->prepare_neigh_list(num_local_nodes+num_ghost_nodes, num_neigh);
-
-  if (mace->has_zbl)
-    mace->zbl.compute_ZBL(
-      num_local_nodes, node_types, num_neigh, mace->first_neigh, neigh_types,
-      mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
-
-  mace->compute_Y(xyz);
-
-  mace->compute_R0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types);
-  mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->compute_H1(num_local_nodes+num_ghost_nodes);
-
-  mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_ii_indices);
-  mace->compute_A1(num_local_nodes);
-  mace->compute_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M1(num_local_nodes, node_types);
-  mace->compute_H2(num_local_nodes, node_types);
-
-  mace->compute_readouts(num_local_nodes, node_types);
-
-  mace->reverse_H2(num_local_nodes, node_types);
-  mace->reverse_M1(num_local_nodes, node_types);
-  mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A1(num_local_nodes);
-  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_ii_indices, xyz, r, false, false);
-
-  mace->reverse_H1(num_local_nodes+num_ghost_nodes);
-  mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->compute_first_layer(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->compute_second_layer(num_local_nodes, node_types, num_neigh, neigh_ii_indices, neigh_types, r);
+  mace->compute_readouts(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_second_layer(num_local_nodes, node_types, num_neigh, neigh_ii_indices, neigh_types, xyz, r);
+  mace->reverse_first_layer(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // ----- end mace evaluation -----
 

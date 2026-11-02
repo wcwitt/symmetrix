@@ -62,21 +62,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int total_num_neigh = R0.size()/((self.l_max+1)*self.num_channels);
                 set_kokkos_view(self.R0, R0, total_num_neigh, (self.l_max+1)*self.num_channels);
             })
-        .def("compute_R0",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_R0(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("r", r));
-            })
         // R1
         .def_property("R1",
             [] (MACEKokkos<Precision>& self) {
@@ -86,28 +71,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int num_le = self.Phi1_l.size();
                 const int total_num_neigh = R1.size()/(num_le*self.num_channels);
                 set_kokkos_view(self.R1, R1, total_num_neigh, num_le*self.num_channels);
-            })
-        .def("compute_R1",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_R1(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("r", r));
-            })
-        // Y
-        .def("compute_Y",
-            [] (MACEKokkos<Precision>& self,
-                    py::array_t<double> xyz) {
-                self.compute_Y(
-                    create_kokkos_view("xyz", xyz));
             })
         // A0
         .def_property("A0",
@@ -126,68 +89,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int num_nodes = A0_adj.size()/(self.num_lm*self.num_channels);
                 set_kokkos_view(self.A0_adj, A0_adj, num_nodes, self.num_lm, self.num_channels);
             })
-        .def("compute_A0",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_A0(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types));
-            })
-        .def("reverse_A0",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> xyz,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.reverse_A0(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("xyz", xyz),
-                    create_kokkos_view("r", r));
-            })
-        .def("compute_A0_scaled",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_A0_scaled(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("r", r));
-            })
-        .def("reverse_A0_scaled",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> xyz,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.reverse_A0_scaled(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("xyz", xyz),
-                    create_kokkos_view("r", r));
-            })
         // M0
         .def_property("M0",
             [] (MACEKokkos<Precision>& self) {
@@ -204,22 +105,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self, py::array_t<Precision> M0_adj) {
                 const int num_nodes = M0_adj.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.M0_adj, M0_adj, num_nodes, self.num_LM, self.num_channels);
-            })
-        .def("compute_M0",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types) {
-                self.compute_M0(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
-            })
-        .def("reverse_M0",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types) {
-                self.reverse_M0(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
             })
         // H1
         .def_property("H1",
@@ -238,8 +123,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int num_nodes = H1_adj.size()/(self.num_LM*self.num_channels);
                 set_kokkos_view(self.H1_adj, H1_adj, num_nodes, self.num_LM, self.num_channels);
             })
-        .def("compute_H1", &MACEKokkos<Precision>::compute_H1)
-        .def("reverse_H1", &MACEKokkos<Precision>::reverse_H1)
         // Phi1
         .def_property("Phi1",
             [] (MACEKokkos<Precision>& self) {
@@ -256,36 +139,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self, py::array_t<Precision> dPhi1) {
                 const int num_nodes = dPhi1.size()/(self.num_lme*self.num_channels);
                 set_kokkos_view(self.dPhi1, dPhi1, num_nodes, self.num_lme, self.num_channels);
-            })
-        .def("compute_Phi1",
-            [] (MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_Phi1(
-                    num_nodes,
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types));
-            })
-        .def("reverse_Phi1",
-            [] (MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_indices,
-                    py::array_t<double> xyz,
-                    py::array_t<double> r,
-                    bool zero_dxyz,
-                    bool zero_H1_adj) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.reverse_Phi1(
-                    num_nodes,
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_indices", neigh_indices),
-                    create_kokkos_view("xyz", xyz),
-                    create_kokkos_view("r", r),
-                    zero_dxyz,
-                    zero_H1_adj);
             })
         // A1
         .def_property("A1",
@@ -304,46 +157,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int num_nodes = A1_adj.size()/(self.num_lm*self.num_channels);
                 set_kokkos_view(self.A1_adj, A1_adj, num_nodes, self.num_lm, self.num_channels);
             })
-        .def("compute_A1",
-            [] (MACEKokkos<Precision>& self, int num_nodes) {
-                self.compute_A1(num_nodes);
-            })
-        .def("reverse_A1",
-            [] (MACEKokkos<Precision>& self, int num_nodes) {
-                self.reverse_A1(num_nodes);
-            })
-        .def("compute_A1_scaled",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.compute_A1_scaled(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("r", r));
-            })
-        .def("reverse_A1_scaled",
-            [](MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types,
-                    py::array_t<int> num_neigh,
-                    py::array_t<int> neigh_types,
-                    py::array_t<double> xyz,
-                    py::array_t<double> r) {
-                self.prepare_neigh_list(num_nodes, create_kokkos_view("num_neigh", num_neigh));
-                self.reverse_A1_scaled(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types),
-                    create_kokkos_view("num_neigh", num_neigh),
-                    create_kokkos_view("neigh_types", neigh_types),
-                    create_kokkos_view("xyz", xyz),
-                    create_kokkos_view("r", r));
-            })
         // M1
         .def_property("M1",
             [] (MACEKokkos<Precision>& self) {
@@ -361,22 +174,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                 const int num_nodes = M1_adj.size()/(self.num_channels);
                 set_kokkos_view(self.M1_adj, M1_adj, num_nodes, self.num_channels);
             })
-        .def("compute_M1",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types) {
-                self.compute_M1(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
-            })
-        .def("reverse_M1",
-            [] (MACEKokkos<Precision>& self,
-                    int num_nodes,
-                    py::array_t<int> node_types) {
-                self.reverse_M1(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
-            })
         // H2
         .def_property("H2",
             [] (MACEKokkos<Precision>& self) {
@@ -393,31 +190,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
             [] (MACEKokkos<Precision>& self, py::array_t<double> H2_adj) {
                 const int num_nodes = H2_adj.size()/self.num_channels;
                 set_kokkos_view(self.H2_adj, H2_adj, num_nodes, self.num_channels);
-            })
-        .def("compute_H2",
-            [] (MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types) {
-                self.compute_H2(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
-            })
-        .def("reverse_H2",
-            [] (MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types) {
-                self.reverse_H2(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
-            })
-        // readouts
-        .def("compute_readouts",
-            [] (MACEKokkos<Precision>& self,
-                    const int num_nodes,
-                    py::array_t<int> node_types) {
-                return self.compute_readouts(
-                    num_nodes,
-                    create_kokkos_view("node_types", node_types));
             });
 }
 

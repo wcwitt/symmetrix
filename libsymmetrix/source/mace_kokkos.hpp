@@ -30,7 +30,6 @@ Kokkos::View<double*> atomic_energies;
 
 // Neighbor list
 Kokkos::View<int*> first_neigh, i_list;
-void prepare_neigh_list(const int num_nodes, Kokkos::View<const int*> num_neigh);
 
 // Node energies and forces
 Kokkos::View<double*> node_energies, node_forces;
@@ -41,6 +40,37 @@ void compute_node_energies_forces(const int num_nodes,
                                   Kokkos::View<const int*> neigh_types,
                                   Kokkos::View<const double*> xyz,
                                   Kokkos::View<const double*> r);
+void compute_first_layer(const int num_nodes,
+                         Kokkos::View<const int*> node_types,
+                         Kokkos::View<const int*> num_neigh,
+                         Kokkos::View<const int*> neigh_types,
+                         Kokkos::View<const double*> xyz,
+                         Kokkos::View<const double*> r);
+void compute_second_layer(const int num_nodes,
+                          Kokkos::View<const int*> node_types,
+                          Kokkos::View<const int*> num_neigh,
+                          Kokkos::View<const int*> neigh_indices,
+                          Kokkos::View<const int*> neigh_types,
+                          Kokkos::View<const double*> r);
+void compute_readouts(const int num_nodes,
+                      Kokkos::View<const int*> node_types,
+                      Kokkos::View<const int*> num_neigh,
+                      Kokkos::View<const int*> neigh_types,
+                      Kokkos::View<const double*> xyz,
+                      Kokkos::View<const double*> r);
+void reverse_second_layer(const int num_nodes,
+                          Kokkos::View<const int*> node_types,
+                          Kokkos::View<const int*> num_neigh,
+                          Kokkos::View<const int*> neigh_indices,
+                          Kokkos::View<const int*> neigh_types,
+                          Kokkos::View<const double*> xyz,
+                          Kokkos::View<const double*> r);
+void reverse_first_layer(const int num_nodes,
+                         Kokkos::View<const int*> node_types,
+                         Kokkos::View<const int*> num_neigh,
+                         Kokkos::View<const int*> neigh_types,
+                         Kokkos::View<const double*> xyz,
+                         Kokkos::View<const double*> r);
 
 // ZBL
 bool has_zbl;
@@ -51,72 +81,34 @@ double R0_spline_r_min;
 double R0_spline_h;
 Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
 Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;
-void compute_R0(const int num_nodes,
-                Kokkos::View<const int*> node_types,
-                Kokkos::View<const int*> num_neigh,
-                Kokkos::View<const int*> neigh_types,
-                Kokkos::View<const double*> r);
 
 // R1
 RadialFunctionSetKokkos<Precision> radial_1;
 Kokkos::View<Precision**,Kokkos::LayoutRight> R1, R1_deriv;
-void compute_R1(const int num_nodes,
-                Kokkos::View<const int*> node_types,
-                Kokkos::View<const int*> num_neigh,
-                Kokkos::View<const int*> neigh_types,
-                Kokkos::View<const double*> r);
 
 // Spherical harmonics
 std::shared_ptr<void> sphericart_calculator;
 Kokkos::View<Precision*> xyz_sphericart;
 Kokkos::View<Precision*> Y, Y_grad;// TODO: make multidimensional
-void compute_Y(Kokkos::View<const double*> xyz);
 
 // A0
 Kokkos::View<Precision***,Kokkos::LayoutRight> A0, A0_adj;
-void compute_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types,
-                Kokkos::View<const int*> num_neigh,
-                Kokkos::View<const int*> neigh_types);
-void reverse_A0(const int num_nodes,
-                Kokkos::View<const int*> node_types,
-                Kokkos::View<const int*> num_neigh,
-                Kokkos::View<const int*> neigh_types,
-                Kokkos::View<const double*> xyz,
-                Kokkos::View<const double*> r);
 
 // A0 rescaling
 bool A0_scaled;
 RadialFunctionSetKokkos<double> A0_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A0_spline_derivs;
-void compute_A0_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r);
-void reverse_A0_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> xyz,
-    Kokkos::View<const double*> r);
 
 // M0
 Kokkos::View<Precision***,Kokkos::LayoutRight> M0, M0_adj;
 Kokkos::View<int**,Kokkos::LayoutRight> B0_spec, M0_spec;
 Kokkos::View<Precision*> B0_coefficients;
 Kokkos::View<Precision***,Kokkos::LayoutRight> M0_weights, B0, B0_adj;
-void compute_M0(const int num_nodes, Kokkos::View<const int*> node_types);
-void reverse_M0(const int num_nodes, Kokkos::View<const int*> node_types);
 
 // H1
 Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
 Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights, H1_weights_trans;
-void compute_H1(const int num_nodes);
-void reverse_H1(const int num_nodes);
 
 // Phi1
 int num_lelm1lm2, num_lme;
@@ -125,55 +117,33 @@ Kokkos::View<int*> Phi1_lme, Phi1_lelm1lm2;
 Kokkos::View<Precision*> Phi1_clebsch_gordan;
 Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1r, dPhi1r;
 Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1, dPhi1;
-void compute_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices);
-void reverse_Phi1(const int num_nodes, Kokkos::View<const int*> num_neigh, Kokkos::View<const int*> neigh_indices, Kokkos::View<const double*> xyz, Kokkos::View<const double*> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
 // A1
 Kokkos::View<Precision***,Kokkos::LayoutRight> A1, A1_adj;
 Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights;
 Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights_trans;
-void compute_A1(int num_nodes);
-void reverse_A1(int num_nodes);
 
 // A1 rescaling
 bool A1_scaled;
 RadialFunctionSetKokkos<double> A1_splines;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_values;
 Kokkos::View<double**,Kokkos::LayoutRight> A1_spline_derivs;
-void compute_A1_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> r);
-void reverse_A1_scaled(
-    const int num_nodes,
-    Kokkos::View<const int*> node_types,
-    Kokkos::View<const int*> num_neigh,
-    Kokkos::View<const int*> neigh_types,
-    Kokkos::View<const double*> xyz,
-    Kokkos::View<const double*> r);
 
 // M1
 Kokkos::View<Precision**,Kokkos::LayoutRight> M1, M1_adj;
 Kokkos::View<int**,Kokkos::LayoutRight> B1_spec, M1_spec;
 Kokkos::View<Precision*> B1_coefficients;
 Kokkos::View<Precision***,Kokkos::LayoutRight> M1_weights, B1, B1_adj;
-void compute_M1(int num_nodes, Kokkos::View<const int*> node_types);
-void reverse_M1(int num_nodes, Kokkos::View<const int*> node_types);
 
 // H2
 Kokkos::View<double**,Kokkos::LayoutRight> H2, H2_adj;
 Kokkos::View<double**,Kokkos::LayoutRight> H2_weights_for_M0, H2_weights_for_M0_trans;
 Kokkos::View<double*> H2_weights_for_M1, H2_weights_for_M1_trans;
-void compute_H2(int num_nodes, Kokkos::View<const int*> node_types);
-void reverse_H2(int num_nodes, Kokkos::View<const int*> node_types);
 
 // Readouts
 Kokkos::View<double*> readout_1_weights_for_M0;
 MultilayerPerceptronKokkos readout_2;
 Kokkos::View<double*> readout_2_output;
-double compute_readouts(int num_nodes, const Kokkos::View<const int*> node_types);
 
 // Initializer
 void load_from_json(std::string filename);
