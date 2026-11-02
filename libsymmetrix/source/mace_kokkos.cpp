@@ -326,6 +326,7 @@ void MACEKokkos<Precision>::reverse_A0(
     auto A0_adj = this->A0_adj;
     auto num_lm = this->num_lm;
     auto num_channels = this->num_channels;
+    auto l_max = this->l_max;
     auto R0 = this->R0;
     auto R0_deriv = this->R0_deriv;
     auto Y = this->Y;
@@ -337,37 +338,29 @@ void MACEKokkos<Precision>::reverse_A0(
         Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, 32),
         KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
             const int i = team_member.league_rank();
-            const int i0 = first_neigh(i);
-            for (int j=0; j<num_neigh(i); ++j) {
-                const int ij = i0 + j;
-                const double r_ij = r(ij);
-                const double x_ij = xyz(3*ij) / r_ij;
-                const double y_ij = xyz(3*ij+1) / r_ij;
-                const double z_ij = xyz(3*ij+2) / r_ij;
-                const Precision* Y_ij = &Y(ij*num_lm);
-                const Precision* Y_grad_ij = &Y_grad(3*ij*num_lm);
-                double f_x, f_y, f_z;
-                Kokkos::parallel_reduce(
-                    Kokkos::TeamThreadRange(team_member, num_lm),
-                    [&] (const int lm, double& f_x, double& f_y, double& f_z) {
-                        const int l = Kokkos::sqrt(lm);
-                        Precision t1, t2;
-                        Kokkos::parallel_reduce(
-                            Kokkos::ThreadVectorRange(team_member, num_channels),
-                            [&] (const int k, Precision& t1, Precision& t2) {
-                                t1 += R0_deriv(ij,l*num_channels+k) * A0_adj(i,lm,k);
-                                t2 += R0(ij,l*num_channels+k) * A0_adj(i,lm,k);
-                            }, t1, t2);
-                        f_x += t1*x_ij*Y_ij[lm] + t2*Y_grad_ij[lm];
-                        f_y += t1*y_ij*Y_ij[lm] + t2*Y_grad_ij[num_lm+lm];
-                        f_z += t1*z_ij*Y_ij[lm] + t2*Y_grad_ij[2*num_lm+lm];
-                    }, f_x, f_y, f_z);
-                    Kokkos::single(Kokkos::PerTeam(team_member), [&]() {
-                        node_forces(3*ij)   -= f_x;
-                        node_forces(3*ij+1) -= f_y;
-                        node_forces(3*ij+2) -= f_z;
-                    });
-            }
+            Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_neigh(i)), [&] (const int j) {
+                const int ij = first_neigh(i) + j;
+                double f_r, f_x, f_y, f_z;
+                Kokkos::parallel_reduce(Kokkos::ThreadVectorRange(team_member, num_channels),
+                    [&] (const int k, double& f_r, double& f_x, double& f_y, double& f_z) {
+                        for (int l=0; l<=l_max; ++l) {
+                            const Precision R = R0(ij,l*num_channels+k);
+                            const Precision R_deriv = R0_deriv(ij,l*num_channels+k);
+                            for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
+                                const double a = A0_adj(i,lm,k);
+                                f_r += R_deriv * a * Y(ij*num_lm+lm);
+                                f_x += R * a * Y_grad(3*ij*num_lm+lm);
+                                f_y += R * a * Y_grad((3*ij+1)*num_lm+lm);
+                                f_z += R * a * Y_grad((3*ij+2)*num_lm+lm);
+                            }
+                        }
+                    }, f_r, f_x, f_y, f_z);
+                Kokkos::single(Kokkos::PerThread(team_member), [&]() {
+                    node_forces(3*ij) -= f_r*xyz(3*ij)/r(ij) + f_x;
+                    node_forces(3*ij+1) -= f_r*xyz(3*ij+1)/r(ij) + f_y;
+                    node_forces(3*ij+2) -= f_r*xyz(3*ij+2)/r(ij) + f_z;
+                });
+            });
         });
 }
 
