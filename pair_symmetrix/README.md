@@ -14,7 +14,15 @@ pair_style    symmetrix/mace
 pair_coeff    * * my-mace-1-8.json H O
 ```
 where the final `H O` assumes that `H` and `O` correspond to LAMMPS
-types `1` and `2`, respectively.
+types `1` and `2`, respectively. `pair_style symmetrix/mace/float32` evaluates the
+model in single precision.
+
+Without Kokkos, each MPI rank runs on `OMP_NUM_THREADS` OpenMP threads. A good rule of
+thumb is 8 threads per rank, with MPI ranks for the rest of the node. For example, on 64
+cores
+```
+OMP_NUM_THREADS=8 mpirun -np 8 lmp -in in.lammps
+```
 
 ### Building LAMMPS
 

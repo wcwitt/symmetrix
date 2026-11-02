@@ -6,7 +6,8 @@
 
 #include "cubic_spline_set.hpp"
 
-CubicSplineSet::CubicSplineSet(
+template <typename Precision>
+CubicSplineSet<Precision>::CubicSplineSet(
     double r_min,
     double r_max,
     std::vector<std::vector<double>> nodal_values,
@@ -26,7 +27,7 @@ CubicSplineSet::CubicSplineSet(
     h = (r_max - r_min) / (num_nodes - 1);
     if (h <= 0 or not std::isfinite(h))
         throw std::invalid_argument("CubicSplineSet requires positive finite spacing.");
-    c = std::vector<double>(4*num_splines*(num_nodes-1), 0.0);
+    c = std::vector<Precision>(4*num_splines*(num_nodes-1), 0.0);
     for (int i=0; i<num_nodes-1; ++i) {
         for (int j=0; j<num_splines; ++j) {
             c[(4*i)*num_splines+j] = nodal_values[j][i];
@@ -39,9 +40,10 @@ CubicSplineSet::CubicSplineSet(
     }
 }
 
-void CubicSplineSet::evaluate(
+template <typename Precision>
+void CubicSplineSet<Precision>::evaluate(
     double r,
-    std::span<double> values)
+    std::span<Precision> values)
 {
     if (std::isnan(r) or r < r_min or r > r_max)
         throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate. r=" + std::to_string(r));
@@ -51,23 +53,18 @@ void CubicSplineSet::evaluate(
     const double x = r - (r_min + h*i);
     const double xx = x*x;
     const double xxx = xx*x;
-    double* c_i = c.data() + 4*i*num_splines;
+    const Precision* c0 = c.data() + 4*i*num_splines;
+    const Precision* c1 = c0 + num_splines;
+    const Precision* c2 = c1 + num_splines;
+    const Precision* c3 = c2 + num_splines;
     for (int j=0; j<num_splines; ++j)
-        values[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*x;
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*xx;
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += c_i[j]*xxx;
+        values[j] = c0[j] + x*c1[j] + xx*c2[j] + xxx*c3[j];
 }
 
-void CubicSplineSet::evaluate_derivs(double r,
-                                     std::span<double> values,
-                                     std::span<double> derivs)
+template <typename Precision>
+void CubicSplineSet<Precision>::evaluate_derivs(double r,
+                                                std::span<Precision> values,
+                                                std::span<Precision> derivs)
 {
     if (std::isnan(r) or r < r_min or r > r_max)
         throw std::invalid_argument("Out of bounds in CubicSplineSet::evaluate_derivs. r=" + std::to_string(r));
@@ -79,27 +76,15 @@ void CubicSplineSet::evaluate_derivs(double r,
     const double xxx = xx*x;
     const double two_x = 2*x;
     const double three_xx = 3*xx;
-    // compute values
-    double* c_i = c.data() + 4*i*num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += x*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += xx*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        values[j] += xxx*c_i[j];
-    // compute derivs
-    c_i = c.data() + (4*i+1)*num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] = c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] += two_x*c_i[j];
-    c_i += num_splines;
-    for (int j=0; j<num_splines; ++j)
-        derivs[j] += three_xx*c_i[j];
+    const Precision* c0 = c.data() + 4*i*num_splines;
+    const Precision* c1 = c0 + num_splines;
+    const Precision* c2 = c1 + num_splines;
+    const Precision* c3 = c2 + num_splines;
+    for (int j=0; j<num_splines; ++j) {
+        values[j] = c0[j] + x*c1[j] + xx*c2[j] + xxx*c3[j];
+        derivs[j] = c1[j] + two_x*c2[j] + three_xx*c3[j];
+    }
 }
+
+template class CubicSplineSet<double>;
+template class CubicSplineSet<float>;

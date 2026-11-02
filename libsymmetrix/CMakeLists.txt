@@ -9,7 +9,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ----- dependencies -----
 
-find_package(BLAS REQUIRED)
 # sphericart fetches gpu-lite at configure time; use the vendored submodule so builds work offline.
 set(FETCHCONTENT_SOURCE_DIR_GPULITE ${CMAKE_CURRENT_SOURCE_DIR}/external/gpu-lite CACHE PATH "")
 add_subdirectory(external/sphericart)
@@ -61,8 +60,11 @@ target_include_directories(symmetrix
             external/sphericart/sphericart/include)
 
 target_link_libraries(symmetrix
-    PRIVATE ${BLAS_LIBRARIES}
-            sphericart)
+    PRIVATE sphericart)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(symmetrix PRIVATE OpenMP::OpenMP_CXX)
+endif()
 if(SYMMETRIX_KOKKOS)
     target_link_libraries(symmetrix
         PRIVATE Kokkos::kokkos

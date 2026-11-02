@@ -710,7 +710,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   Kokkos::deep_copy(mace->node_energies, 0.0);
   Kokkos::deep_copy(mace->node_forces, 0.0);
 
-  mace->compute_graph(num_nodes, num_neigh);
+  mace->prepare_neigh_list(num_nodes, num_neigh);
 
   if (mace->has_zbl)
     mace->zbl.compute_ZBL(
@@ -752,7 +752,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
 
   mace->compute_readouts(num_nodes, node_types);
 
-  mace->reverse_H2(num_nodes, node_types, false);
+  mace->reverse_H2(num_nodes, node_types);
   mace->reverse_M1(num_nodes, node_types);
   mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A1(num_nodes);
@@ -1067,7 +1067,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
     Kokkos::realloc(mace->node_forces, 3*(num_local_edges+num_ghost_edges));
   Kokkos::deep_copy(mace->node_forces, 0.0);
 
-  mace->compute_graph(num_local_nodes+num_ghost_nodes, num_neigh);
+  mace->prepare_neigh_list(num_local_nodes+num_ghost_nodes, num_neigh);
 
   if (mace->has_zbl)
     mace->zbl.compute_ZBL(
@@ -1091,7 +1091,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
 
   mace->compute_readouts(num_local_nodes, node_types);
 
-  mace->reverse_H2(num_local_nodes, node_types, false);
+  mace->reverse_H2(num_local_nodes, node_types);
   mace->reverse_M1(num_local_nodes, node_types);
   mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r);
   mace->reverse_A1(num_local_nodes);

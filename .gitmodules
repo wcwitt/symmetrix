@@ -1,6 +1,3 @@
-[submodule "libsymmetrix/external/cblas-prototypes"]
-	path = libsymmetrix/external/cblas-prototypes
-	url = https://github.com/wcwitt/cblas-prototypes
 [submodule "libsymmetrix/external/gpu-lite"]
 	path = libsymmetrix/external/gpu-lite
 	url = https://github.com/metatensor/gpu-lite
