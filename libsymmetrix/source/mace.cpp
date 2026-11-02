@@ -348,7 +348,7 @@ void MACE<Precision>::compute_readouts(
     // E_i += \frac{1}{2} \sum_j V^{\mathrm{ZBL}}_{Z_iZ_j}(r_{ij})
     if (has_zbl)
         zbl.compute_ZBL(
-            num_nodes, node_types, num_neigh, neigh_types,
+            num_nodes, node_types, num_neigh, first_neigh, neigh_types,
             atomic_numbers, r, xyz, node_energies, node_forces);
 
     // readouts

@@ -26,6 +26,7 @@ double compute_envelope_gradient(const double r, const double r_max, const int p
 void compute_ZBL(const int num_nodes,
                  std::span<const int> node_types,
                  std::span<const int> num_neigh,
+                 std::span<const int> first_neigh,
                  std::span<const int> neigh_types,
                  std::span<const int> atomic_numbers,
                  std::span<const double> r,

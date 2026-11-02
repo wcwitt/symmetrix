@@ -97,6 +97,7 @@ void ZBL::compute_ZBL(
     const int num_nodes,
     std::span<const int> node_types,
     std::span<const int> num_neigh,
+    std::span<const int> first_neigh,
     std::span<const int> neigh_types,
     std::span<const int> atomic_numbers,
     std::span<const double> r,
@@ -104,11 +105,11 @@ void ZBL::compute_ZBL(
     std::span<double> node_energies,
     std::span<double> node_forces)
 {
-    int ij = 0;
+    #pragma omp parallel for schedule(dynamic)
     for (int i=0; i<num_nodes; ++i) {
         const int type_i = node_types[i];
         const int Z_i = atomic_numbers[type_i];
-        for (int j=0; j<num_neigh[i]; ++j) {
+        for (int ij=first_neigh[i]; ij<first_neigh[i]+num_neigh[i]; ++ij) {
             const int type_j = neigh_types[ij];
             const int Z_j = atomic_numbers[type_j];
             // energy
@@ -119,7 +120,6 @@ void ZBL::compute_ZBL(
             node_forces[3*ij]   -= xyz[3*ij]   / r[ij] * g;
             node_forces[3*ij+1] -= xyz[3*ij+1] / r[ij] * g;
             node_forces[3*ij+2] -= xyz[3*ij+2] / r[ij] * g;
-            ij += 1;
         }
     }
 }
