@@ -461,25 +461,7 @@ void PairSymmetrixMACE<Precision>::compute_mpi_message_passing(int eflag, int vf
 
   // ----- begin mace evaluation -----
 
-  mace->node_energies.resize(num_nodes);
-  std::fill(mace->node_energies.begin(), mace->node_energies.end(), 0.0);
-  mace->node_forces.resize(xyz.size());
-  std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
-
-  mace->prepare_neigh_list(num_nodes, num_neigh);
-
-  if (mace->has_zbl)
-    mace->zbl.compute_ZBL(
-      num_nodes, node_types, num_neigh, neigh_types,
-      mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
-
-  mace->compute_Y(xyz);
-
-  mace->compute_R0(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_A0(num_nodes, node_types, num_neigh, neigh_types);
-  mace->compute_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M0(num_nodes, node_types);
-  mace->compute_H1(num_nodes);
+  mace->compute_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // sort local H1 contributions by i (rather than ii)
   H1.resize((atom->nlocal+atom->nghost)*mace->num_LM*mace->num_channels);
@@ -492,29 +474,16 @@ void PairSymmetrixMACE<Precision>::compute_mpi_message_passing(int eflag, int vf
   comm->forward_comm(this);
   mace->H1 = H1;
 
-  mace->compute_R1(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_nodes, num_neigh, neigh_j);
-  mace->compute_A1(num_nodes);
-  mace->compute_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M1(num_nodes, node_types);
-  mace->compute_H2(num_nodes, node_types);
+  mace->compute_second_layer(num_nodes, node_types, num_neigh, neigh_j, neigh_types, r);
+  mace->compute_readouts(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
-  mace->compute_readouts(num_nodes, node_types);
-
-  mace->reverse_H2(num_nodes, node_types);
-  mace->reverse_M1(num_nodes, node_types);
-  mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
-  mace->reverse_A1(num_nodes);
-  mace->reverse_Phi1(num_nodes, num_neigh, neigh_j, xyz, r, false, false);
+  mace->reverse_second_layer(num_nodes, node_types, num_neigh, neigh_j, neigh_types, xyz, r);
 
   H1_adj = mace->H1_adj;
   comm->reverse_comm(this);
   mace->H1_adj = H1_adj;
 
-  mace->reverse_H1(num_nodes);
-  mace->reverse_M0(num_nodes, node_types);
-  mace->reverse_A0_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // ----- end mace evaluation -----
 
@@ -682,45 +651,11 @@ void PairSymmetrixMACE<Precision>::compute_no_mpi_message_passing(int eflag, int
 
   // ----- begin mace evaluation -----
 
-  mace->node_energies.resize(num_local_nodes);
-  std::fill(mace->node_energies.begin(), mace->node_energies.end(), 0.0);
-  mace->node_forces.resize(xyz.size());
-  std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
-
-  mace->prepare_neigh_list(num_local_nodes+num_ghost_nodes, num_neigh);
-
-  if (mace->has_zbl)
-    mace->zbl.compute_ZBL(
-     num_local_nodes, node_types, num_neigh, neigh_types,
-     mace->atomic_numbers, r, xyz, mace->node_energies, mace->node_forces);
-
-  mace->compute_Y(xyz);
-
-  mace->compute_R0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types);
-  mace->compute_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->compute_H1(num_local_nodes+num_ghost_nodes);
-
-  mace->compute_R1(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_Phi1(num_local_nodes, num_neigh, neigh_indices);
-  mace->compute_A1(num_local_nodes);
-  mace->compute_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, r);
-  mace->compute_M1(num_local_nodes, node_types);
-  mace->compute_H2(num_local_nodes, node_types);
-
-  mace->compute_readouts(num_local_nodes, node_types);
-
-  mace->reverse_H2(num_local_nodes, node_types);
-  mace->reverse_M1(num_local_nodes, node_types);
-  mace->reverse_A1_scaled(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
-  mace->reverse_A1(num_local_nodes);
-  mace->reverse_Phi1(num_local_nodes, num_neigh, neigh_indices, xyz, r, false, false);
-
-  mace->reverse_H1(num_local_nodes+num_ghost_nodes);
-  mace->reverse_M0(num_local_nodes+num_ghost_nodes, node_types);
-  mace->reverse_A0_scaled(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
-  mace->reverse_A0(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->compute_first_layer(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->compute_second_layer(num_local_nodes, node_types, num_neigh, neigh_indices, neigh_types, r);
+  mace->compute_readouts(num_local_nodes, node_types, num_neigh, neigh_types, xyz, r);
+  mace->reverse_second_layer(num_local_nodes, node_types, num_neigh, neigh_indices, neigh_types, xyz, r);
+  mace->reverse_first_layer(num_local_nodes+num_ghost_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // ----- end mace evaluation -----
 

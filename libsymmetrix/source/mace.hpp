@@ -27,7 +27,6 @@ std::vector<double> atomic_energies;
 
 // Neighbor list
 std::vector<int> first_neigh;
-void prepare_neigh_list(const int num_nodes, std::span<const int> num_neigh);
 
 // Node energies and forces
 std::vector<double> node_energies, node_forces;
@@ -38,6 +37,37 @@ void compute_node_energies_forces(const int num_nodes,
                                   std::span<const int> neigh_types,
                                   std::span<const double> xyz,
                                   std::span<const double> r);
+void compute_first_layer(const int num_nodes,
+                         std::span<const int> node_types,
+                         std::span<const int> num_neigh,
+                         std::span<const int> neigh_types,
+                         std::span<const double> xyz,
+                         std::span<const double> r);
+void compute_second_layer(const int num_nodes,
+                          std::span<const int> node_types,
+                          std::span<const int> num_neigh,
+                          std::span<const int> neigh_indices,
+                          std::span<const int> neigh_types,
+                          std::span<const double> r);
+void compute_readouts(const int num_nodes,
+                      std::span<const int> node_types,
+                      std::span<const int> num_neigh,
+                      std::span<const int> neigh_types,
+                      std::span<const double> xyz,
+                      std::span<const double> r);
+void reverse_second_layer(const int num_nodes,
+                          std::span<const int> node_types,
+                          std::span<const int> num_neigh,
+                          std::span<const int> neigh_indices,
+                          std::span<const int> neigh_types,
+                          std::span<const double> xyz,
+                          std::span<const double> r);
+void reverse_first_layer(const int num_nodes,
+                         std::span<const int> node_types,
+                         std::span<const int> num_neigh,
+                         std::span<const int> neigh_types,
+                         std::span<const double> xyz,
+                         std::span<const double> r);
 
 // ZBL
 bool has_zbl;
@@ -47,24 +77,13 @@ ZBL zbl;
 std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_0;
 double R0_spline_r_min;
 std::vector<Precision> R0, R0_deriv;
-void compute_R0(const int num_nodes,
-                std::span<const int> node_types,
-                std::span<const int> num_neigh,
-                std::span<const int> neigh_types,
-                std::span<const double> r);
 
 // R1
 std::vector<std::unique_ptr<CubicSplineSet<Precision>>> spl_set_1;
 std::vector<Precision> R1, R1_deriv;
-void compute_R1(const int num_nodes,
-                std::span<const int> node_types,
-                std::span<const int> num_neigh,
-                std::span<const int> neigh_types,
-                std::span<const double> r);
 
 // Spherical harmonics
 std::vector<Precision> Y, Y_grad;
-void compute_Y(std::span<const double> xyz);
 
 // H0
 std::vector<Precision> H0_weights;
@@ -72,35 +91,10 @@ std::vector<Precision> H0_weights;
 // A0
 std::vector<Precision> A0, A0_adj;
 std::vector<std::vector<std::vector<Precision>>> A0_weights;
-void compute_A0(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types);
-void reverse_A0(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> xyz,
-    std::span<const double> r);
 
 // A0 rescaling
 bool A0_scaled;
 std::vector<CubicSpline> A0_splines;
-void compute_A0_scaled(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> r);
-void reverse_A0_scaled(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> xyz,
-    std::span<const double> r);
 
 // M0
 std::vector<Precision> M0, M0_adj;
@@ -108,14 +102,10 @@ std::vector<Precision> B0;
 std::vector<std::array<int,3>> B0_spec, M0_spec;
 std::vector<Precision> B0_coefficients, M0_weights;
 int num_B0;
-void compute_M0(const int num_nodes, std::span<const int> node_types);
-void reverse_M0(const int num_nodes, std::span<const int> node_types);
 
 // H1
 std::vector<Precision> H1, H1_adj;
 std::vector<Precision> H1_weights;
-void compute_H1(const int num_nodes);
-void reverse_H1(const int num_nodes);
 
 // Phi1
 int num_lme;
@@ -124,32 +114,14 @@ std::vector<int> Phi1_l;
 std::vector<std::array<int,3>> Phi1_spec;
 std::vector<std::array<int,2>> Phi1_cg_spec;
 std::vector<Precision> Phi1_clebsch_gordan;
-void compute_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices);
-void reverse_Phi1(const int num_nodes, std::span<const int> num_neigh, std::span<const int> neigh_indices, std::span<const double> xyz, std::span<const double> r, bool zero_dxyz = true, bool zero_H1_adj = true);
 
 // A1
 std::vector<Precision> A1, A1_adj;
 std::vector<std::vector<Precision>> A1_weights, A1_weights_trans;
-void compute_A1(const int num_nodes);
-void reverse_A1(const int num_nodes);
 
 // A1 rescaling
 bool A1_scaled;
 std::vector<CubicSpline> A1_splines;
-void compute_A1_scaled(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> r);
-void reverse_A1_scaled(
-    const int num_nodes,
-    std::span<const int> node_types,
-    std::span<const int> num_neigh,
-    std::span<const int> neigh_types,
-    std::span<const double> xyz,
-    std::span<const double> r,
-    bool zero_dxyz = true);
 
 // M1
 std::vector<Precision> M1, M1_adj;
@@ -157,20 +129,15 @@ std::vector<Precision> B1;
 std::vector<std::array<int,3>> B1_spec, M1_spec;
 std::vector<Precision> B1_coefficients, M1_weights;
 int num_B1;
-void compute_M1(const int num_nodes, std::span<const int> node_types);
-void reverse_M1(const int num_nodes, std::span<const int> node_types);
 
 // H2
 std::vector<Precision> H2, H2_adj;
 std::vector<std::vector<Precision>> H2_weights_for_M0;
 std::vector<Precision> H2_weights_for_M1;
-void compute_H2(const int num_nodes, std::span<const int> node_types);
-void reverse_H2(const int num_nodes, std::span<const int> node_types);
 
 // Readouts
 std::vector<Precision> readout_1_weights_for_M0;
 std::unique_ptr<MultilayerPerceptron> readout_2;
-void compute_readouts(const int num_nodes, std::span<const int> node_types);
 
 // Initializer
 void load_from_json(std::string filename);
