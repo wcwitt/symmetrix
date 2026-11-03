@@ -163,16 +163,16 @@ void MACEKokkos<Precision>::compute_first_layer(
 #endif
     }
 
-    // R0
-    // \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) and \partial_r \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}),  \tilde{R}^{(0)}_{a_ia_j,kl} = \sum_{k'} w_{a_ikl,k'} R^{(0)}_{a_ia_j,k'l} H^{(0)}_{a_j,k'}
+    // A0
+    // A^{(0)}_{i,klm} = \sum_j \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) Y_{lm}(\hat{\mathbf{r}}_{ij})
+    // \tilde{R}^{(0)}_{a_ia_j,kl} = \sum_{k'} w_{a_ikl,k'} R^{(0)}_{a_ia_j,k'l} H^{(0)}_{a_j,k'}
     {
-        if (r.size() > R0.extent(0)) {
-            Kokkos::realloc(R0, r.size(), (l_max+1)*num_channels);
-            Kokkos::realloc(R0_deriv, r.size(), (l_max+1)*num_channels);
-        }
+        if (A0.extent(0) != num_nodes)
+            Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
 
-        const auto i_list = this->i_list;
+        const auto first_neigh = this->first_neigh;
         const int l_max = this->l_max;
+        const int num_lm = this->num_lm;
         const int num_channels = this->num_channels;
         const auto num_types = atomic_numbers.size();
         const auto h = R0_spline_h;
@@ -180,67 +180,30 @@ void MACEKokkos<Precision>::compute_first_layer(
         const auto c = R0_spline_coefficients;
         const int num_intervals = c.extent(1);
         check_spline_bounds(r, r_min, r_cut, "MACEKokkos");
-        auto R0 = this->R0;
-        auto R0_deriv = this->R0_deriv;
-
-        Kokkos::parallel_for(
-            "Compute R0",
-            Kokkos::TeamPolicy<>(r.size(), Kokkos::AUTO, 32),
-            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
-                const int ij = team_member.league_rank();
-                const int type_i = node_types(i_list(ij));
-                const int type_j = neigh_types(ij);
-                const int type_ij = type_i*num_types+type_j;
-                // compute x, x^2, x^3
-                const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
-                const double x = r(ij) - (r_min + h*n);
-                const double xx = x*x;
-                const double xxx = xx*x;
-                const double two_x = 2*x;
-                const double three_xx = 3*xx;
-                // compute function values
-                Kokkos::parallel_for(
-                    Kokkos::TeamVectorRange(team_member, (l_max+1)*num_channels),
-                    [&] (const int lk) {
-                        const double c0 = c(type_ij,n,0,lk);
-                        const double c1 = c(type_ij,n,1,lk);
-                        const double c2 = c(type_ij,n,2,lk);
-                        const double c3 = c(type_ij,n,3,lk);
-                        R0(ij,lk) = c0 + c1*x + c2*xx + c3*xxx;
-                        R0_deriv(ij,lk) = c1 + c2*two_x + c3*three_xx;
-                    });
-            });
-    }
-
-    // A0
-    // A^{(0)}_{i,klm} = \sum_j \tilde{R}^{(0)}_{a_ia_j,kl}(r_{ij}) Y_{lm}(\hat{\mathbf{r}}_{ij})
-    {
-        if (A0.extent(0) != num_nodes)
-            Kokkos::realloc(A0, num_nodes, num_lm, num_channels);
-        Kokkos::deep_copy(Kokkos::DefaultExecutionSpace(), A0, 0.0);
-
-        const auto first_neigh = this->first_neigh;
-        const int num_lm = this->num_lm;
-        const int num_channels = this->num_channels;
-        const auto R0 = this->R0;
         const auto Y = this->Y;
         auto A0 = this->A0;
 
-        parallel_for("Compute A0",
-            TeamPolicy<>(num_nodes*num_lm, Kokkos::AUTO, 32),
-            KOKKOS_LAMBDA (TeamPolicy<>::member_type team_member) {
-                const int i = team_member.league_rank() / num_lm;
-                const int lm = team_member.league_rank() % num_lm;
-                const int l = Kokkos::sqrt(lm);
-                for (int j=0; j<num_neigh(i); ++j) {
-                    const int ij = first_neigh(i) + j;
-                    const double Y_ij_lm = Y(ij*num_lm+lm);
-                    parallel_for(
-                        TeamVectorRange(team_member, num_channels),
-                        [=] (const int k) {
-                            A0(i,lm,k) += R0(ij,l*num_channels+k) * Y_ij_lm;
-                        });
-                }
+        Kokkos::parallel_for("Compute A0",
+            Kokkos::TeamPolicy<>(num_nodes*(l_max+1), Kokkos::AUTO),
+            KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
+                const int i = team_member.league_rank() / (l_max+1);
+                const int l = team_member.league_rank() % (l_max+1);
+                Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_channels), [&] (const int k) {
+                    const int lk = l*num_channels+k;
+                    Precision a[2*mace_l_max+1] = {};
+                    for (int ij=first_neigh(i); ij<first_neigh(i)+num_neigh(i); ++ij) {
+                        const int type_ij = node_types(i)*num_types+neigh_types(ij);
+                        const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
+                        const Precision x = r(ij) - (r_min + h*n);
+                        const Precision R = c(type_ij,n,0,lk) + x*(c(type_ij,n,1,lk) + x*(c(type_ij,n,2,lk) + x*c(type_ij,n,3,lk)));
+                        for (int m=0; m<2*mace_l_max+1; ++m)
+                            if (m < 2*l+1)
+                                a[m] += R * Y(ij*num_lm+l*l+m);
+                    }
+                    for (int m=0; m<2*mace_l_max+1; ++m)
+                        if (m < 2*l+1)
+                            A0(i,l*l+m,k) = a[m];
+                });
             });
     }
 
@@ -353,16 +316,6 @@ void MACEKokkos<Precision>::compute_second_layer(
     Kokkos::View<const int*> neigh_types,
     Kokkos::View<const double*> r)
 {
-    // R1
-    // R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) and \partial_r R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij})
-    {
-        if (r.size() > R1.extent(0)) {
-            Kokkos::realloc(R1, r.size(), Phi1_lel1l2_spec.extent(0)*num_channels);
-            Kokkos::realloc(R1_deriv, r.size(), Phi1_lel1l2_spec.extent(0)*num_channels);
-        }
-        radial_1.evaluate(node_types, i_list, neigh_types, r, R1, R1_deriv);
-    }
-
     // Phi1
     // \Phi^{(1)}_{i,klm\eta} = \sum_j \sum_{l_1m_1l_2m_2} C^{lm\eta}_{l_1m_1l_2m_2} R^{(1)}_{a_ia_j,kl\eta l_1l_2}(r_{ij}) Y_{l_1m_1}(\hat{\mathbf{r}}_{ij}) H^{(1)}_{j,kl_2m_2}
     {
@@ -375,19 +328,21 @@ void MACEKokkos<Precision>::compute_second_layer(
         const int num_lel1l2 = Phi1_lel1l2_spec.extent(0);
         const auto Phi1_lel1l2_spec = this->Phi1_lel1l2_spec;
         const auto Phi1_cg = this->Phi1_cg;
-        const auto R1 = this->R1;
+        const auto radial_1 = this->radial_1;
         const auto Y = this->Y;
         const auto H1 = this->H1;
         auto Phi1 = this->Phi1;
         const int l_max = this->l_max;
         const int L_max = this->L_max;
         const int batch_size = 32;
+        using ScratchInt = Kokkos::View<int**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>;
         using Scratch1 = Kokkos::View<Precision*,Kokkos::MemoryUnmanaged>;
         using Scratch2 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>;
 
         Kokkos::parallel_for("Compute Phi1",
             Kokkos::TeamPolicy<>(num_nodes*num_lel1l2, Kokkos::AUTO)
-                .set_scratch_size(0, Kokkos::PerTeam(Scratch1::shmem_size(batch_size*(2*L_max+1)*(2*mace_l_max+1)) + Scratch2::shmem_size(2*l_max+1,num_channels))),
+                .set_scratch_size(0, Kokkos::PerTeam(Scratch1::shmem_size(batch_size*(2*L_max+1)*(2*mace_l_max+1)) + Scratch2::shmem_size(2*l_max+1,num_channels)
+                    + ScratchInt::shmem_size(batch_size,3) + Scratch1::shmem_size(batch_size))),
             KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
                 const int i = team_member.league_rank() / num_lel1l2;
                 const int lel1l2 = team_member.league_rank() % num_lel1l2;
@@ -402,6 +357,8 @@ void MACEKokkos<Precision>::compute_second_layer(
                 const int num_m2 = 2*l2+1;
                 const Scratch1 CG_Y(team_member.team_scratch(0), batch_size*(2*L_max+1)*(2*mace_l_max+1));
                 const Scratch2 Phi1_i_lel1l2(team_member.team_scratch(0), 2*l_max+1, num_channels);
+                const ScratchInt neigh_ij(team_member.team_scratch(0), batch_size, 3);
+                const Scratch1 x_ij(team_member.team_scratch(0), batch_size);
                 Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_m*num_channels), [&] (const int mk) {
                     Phi1_i_lel1l2(mk/num_channels, mk%num_channels) = 0.0;
                 });
@@ -418,14 +375,20 @@ void MACEKokkos<Precision>::compute_second_layer(
                             t += Phi1_cg(lel1l2,m,m1,m2) * Y((ij0+j)*num_lm+l1*l1+m1);
                         CG_Y((j*num_m2+m2)*(2*mace_l_max+1)+m) = t;
                     });
+                    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_j), [&] (const int j) {
+                        const int ij = ij0 + j;
+                        neigh_ij(j,0) = neigh_indices(ij);
+                        neigh_ij(j,1) = radial_1.type_ij(node_types(i), neigh_types(ij));
+                        neigh_ij(j,2) = radial_1.interval(r(ij));
+                        x_ij(j) = radial_1.offset(r(ij), neigh_ij(j,2));
+                    });
                     team_member.team_barrier();
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_channels), [&] (const int k) {
                         Precision a[2*mace_l_max+1] = {};
                         for (int j=0; j<num_j; ++j) {
-                            const int ij = ij0 + j;
-                            const Precision R = R1(ij,lel1l2*num_channels+k);
+                            const Precision R = radial_1.value(neigh_ij(j,1), neigh_ij(j,2), x_ij(j), lel1l2*num_channels+k);
                             for (int m2=0; m2<num_m2; ++m2) {
-                                const Precision h = R * H1(neigh_indices(ij),l2*l2+m2,k);
+                                const Precision h = R * H1(neigh_ij(j,0),l2*l2+m2,k);
                                 const int jm2 = (j*num_m2+m2)*(2*mace_l_max+1);
                                 for (int m=0; m<2*mace_l_max+1; ++m)
                                     if (m < num_m)
@@ -836,8 +799,7 @@ void MACEKokkos<Precision>::reverse_second_layer(
         const int num_lel1l2 = Phi1_lel1l2_spec.extent(0);
         const auto Phi1_lel1l2_spec = this->Phi1_lel1l2_spec;
         const auto Phi1_cg = this->Phi1_cg;
-        const auto R1 = this->R1;
-        const auto R1_deriv = this->R1_deriv;
+        const auto radial_1 = this->radial_1;
         const auto Y = this->Y;
         const auto Y_grad = this->Y_grad;
         const auto H1 = this->H1;
@@ -846,13 +808,14 @@ void MACEKokkos<Precision>::reverse_second_layer(
         const auto node_forces = this->node_forces;
         const int L_max = this->L_max;
         const int batch_size = 16;
+        using ScratchInt = Kokkos::View<int**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>;
         using Scratch1 = Kokkos::View<Precision*,Kokkos::MemoryUnmanaged>;
         using Scratch2 = Kokkos::View<Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>;
 
         Kokkos::parallel_for("Reverse Phi1",
             Kokkos::TeamPolicy<>(num_nodes*num_lel1l2, Kokkos::AUTO, 32)
                 .set_scratch_size(0, Kokkos::PerTeam(Scratch1::shmem_size(batch_size*(2*L_max+1)*(2*mace_l_max+1))
-                    + Scratch2::shmem_size(3,batch_size*(2*L_max+1)*(2*mace_l_max+1)))),
+                    + Scratch2::shmem_size(3,batch_size*(2*L_max+1)*(2*mace_l_max+1)) + ScratchInt::shmem_size(batch_size,3) + Scratch1::shmem_size(batch_size))),
             KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
                 const int i = team_member.league_rank() / num_lel1l2;
                 const int lel1l2 = team_member.league_rank() % num_lel1l2;
@@ -867,6 +830,8 @@ void MACEKokkos<Precision>::reverse_second_layer(
                 const int num_m2 = 2*l2+1;
                 const Scratch1 CG_Y(team_member.team_scratch(0), batch_size*(2*L_max+1)*(2*mace_l_max+1));
                 const Scratch2 CG_Y_grad(team_member.team_scratch(0), 3, batch_size*(2*L_max+1)*(2*mace_l_max+1));
+                const ScratchInt neigh_ij(team_member.team_scratch(0), batch_size, 3);
+                const Scratch1 x_ij(team_member.team_scratch(0), batch_size);
                 for (int j0=0; j0<num_neigh(i); j0+=batch_size) {
                     const int ij0 = first_neigh(i) + j0;
                     const int num_j = Kokkos::min(batch_size, num_neigh(i)-j0);
@@ -892,18 +857,25 @@ void MACEKokkos<Precision>::reverse_second_layer(
                         CG_Y_grad(1,(j*num_m2+m2)*(2*mace_l_max+1)+m) = t_y;
                         CG_Y_grad(2,(j*num_m2+m2)*(2*mace_l_max+1)+m) = t_z;
                     });
+                    Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_j), [&] (const int j) {
+                        const int ij = ij0 + j;
+                        neigh_ij(j,0) = neigh_indices(ij);
+                        neigh_ij(j,1) = radial_1.type_ij(node_types(i), neigh_types(ij));
+                        neigh_ij(j,2) = radial_1.interval(r(ij));
+                        x_ij(j) = radial_1.offset(r(ij), neigh_ij(j,2));
+                    });
                     team_member.team_barrier();
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_j), [&] (const int j) {
                         const int ij = ij0 + j;
-                        const int neigh_index = neigh_indices(ij);
+                        const int neigh_index = neigh_ij(j,0);
                         Precision f_r;
                         Precision f_x;
                         Precision f_y;
                         Precision f_z;
                         Kokkos::parallel_reduce(Kokkos::ThreadVectorRange(team_member, num_channels),
                             [&] (const int k, Precision& f_r, Precision& f_x, Precision& f_y, Precision& f_z) {
-                                const Precision R = R1(ij,lel1l2*num_channels+k);
-                                const Precision R_deriv = R1_deriv(ij,lel1l2*num_channels+k);
+                                Precision R, R_deriv;
+                                radial_1.value_deriv(neigh_ij(j,1), neigh_ij(j,2), x_ij(j), lel1l2*num_channels+k, R, R_deriv);
                                 Precision adj[2*mace_l_max+1];
                                 for (int m=0; m<2*mace_l_max+1; ++m)
                                     if (m < num_m)
@@ -1084,8 +1056,11 @@ void MACEKokkos<Precision>::reverse_first_layer(
         auto num_lm = this->num_lm;
         auto num_channels = this->num_channels;
         auto l_max = this->l_max;
-        auto R0 = this->R0;
-        auto R0_deriv = this->R0_deriv;
+        const auto num_types = atomic_numbers.size();
+        const auto h = R0_spline_h;
+        const auto r_min = R0_spline_r_min;
+        const auto c = R0_spline_coefficients;
+        const int num_intervals = c.extent(1);
         auto Y = this->Y;
         auto Y_grad = this->Y_grad;
         auto node_forces = this->node_forces;
@@ -1097,12 +1072,19 @@ void MACEKokkos<Precision>::reverse_first_layer(
                 const int i = team_member.league_rank();
                 Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_neigh(i)), [&] (const int j) {
                     const int ij = first_neigh(i) + j;
+                    const int type_ij = node_types(i)*num_types+neigh_types(ij);
+                    const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
+                    const Precision x = r(ij) - (r_min + h*n);
                     double f_r, f_x, f_y, f_z;
                     Kokkos::parallel_reduce(Kokkos::ThreadVectorRange(team_member, num_channels),
                         [&] (const int k, double& f_r, double& f_x, double& f_y, double& f_z) {
                             for (int l=0; l<=l_max; ++l) {
-                                const Precision R = R0(ij,l*num_channels+k);
-                                const Precision R_deriv = R0_deriv(ij,l*num_channels+k);
+                                const int lk = l*num_channels+k;
+                                const Precision c1 = c(type_ij,n,1,lk);
+                                const Precision c2 = c(type_ij,n,2,lk);
+                                const Precision c3 = c(type_ij,n,3,lk);
+                                const Precision R = c(type_ij,n,0,lk) + x*(c1 + x*(c2 + x*c3));
+                                const Precision R_deriv = c1 + x*(2*c2 + x*3*c3);
                                 for (int lm=l*l; lm<(l+1)*(l+1); ++lm) {
                                     const double a = A0_adj(i,lm,k);
                                     f_r += R_deriv * a * Y(ij*num_lm+lm);

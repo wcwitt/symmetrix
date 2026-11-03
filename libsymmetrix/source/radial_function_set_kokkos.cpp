@@ -32,6 +32,7 @@ RadialFunctionSetKokkos<Precision>::RadialFunctionSetKokkos(
                 throw std::invalid_argument("RadialFunctionSetKokkos requires consistent nodal arrays with at least two values.");
     }
     num_edge_types = node_values.size();
+    num_types = (std::sqrt(8*num_edge_types+1)-1)/2;
     num_functions = node_values[0].size();
     num_nodes = node_values[0][0].size();
     h = (r_max - r_min) / (num_nodes - 1);

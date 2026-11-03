@@ -53,25 +53,6 @@ void bind_mace_kokkos(py::module_ &m, const char* class_name)
                     create_kokkos_view("xyz", xyz),
                     create_kokkos_view("r", r));
             })
-        // R0
-        .def_property("R0",
-            [] (MACEKokkos<Precision>& self) {
-                return view2vector(self.R0);
-            },
-            [] (MACEKokkos<Precision>& self, py::array_t<Precision> R0) {
-                const int total_num_neigh = R0.size()/((self.l_max+1)*self.num_channels);
-                set_kokkos_view(self.R0, R0, total_num_neigh, (self.l_max+1)*self.num_channels);
-            })
-        // R1
-        .def_property("R1",
-            [] (MACEKokkos<Precision>& self) {
-                return view2vector(self.R1);
-            },
-            [] (MACEKokkos<Precision>& self, py::array_t<Precision> R1) {
-                const int num_le = self.Phi1_lel1l2_spec.extent(0);
-                const int total_num_neigh = R1.size()/(num_le*self.num_channels);
-                set_kokkos_view(self.R1, R1, total_num_neigh, num_le*self.num_channels);
-            })
         // A0
         .def_property("A0",
             [] (MACEKokkos<Precision>& self) {

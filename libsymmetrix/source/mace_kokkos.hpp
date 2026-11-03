@@ -81,11 +81,9 @@ ZBLKokkos zbl;
 double R0_spline_r_min;
 double R0_spline_h;
 Kokkos::View<const Precision****,Kokkos::LayoutRight> R0_spline_coefficients;
-Kokkos::View<Precision**,Kokkos::LayoutRight> R0, R0_deriv;
 
 // R1
 RadialFunctionSetKokkos<Precision> radial_1;
-Kokkos::View<Precision**,Kokkos::LayoutRight> R1, R1_deriv;
 
 // Spherical harmonics
 std::shared_ptr<void> sphericart_calculator;
