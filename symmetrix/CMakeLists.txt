@@ -45,6 +45,7 @@ set(SYMMETRIX_BINDINGS
     source/cpp/mace.cpp
     source/cpp/multilayer_perceptron.cpp
     source/cpp/multivariate_polynomial.cpp
+    source/cpp/nequip.cpp
     source/cpp/spherical_harmonic.cpp
     source/cpp/tools.cpp
     source/cpp/zbl.cpp)
@@ -55,6 +56,7 @@ set(SYMMETRIX_BINDINGS_KOKKOS
     source/cpp/mace_kokkos.cpp
     source/cpp/multilayer_perceptron_kokkos.cpp
     source/cpp/multivariate_polynomial_kokkos.cpp
+    source/cpp/nequip_kokkos.cpp
     # source/spherical_harmonic_kokkos.cpp
     source/cpp/tools_kokkos.cpp
     source/cpp/zbl_kokkos.cpp)

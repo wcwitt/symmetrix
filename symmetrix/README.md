@@ -51,6 +51,14 @@ from the command line to extract a `.json` file from a Torch-based model.
 The result will be `my-mace-1-8.json`, and this model is only suitable
 for simulations involving H and O.
 
+For NequIP models, install the optional NequIP dependencies (`pip install ".[nequip]"`) in a separate
+environment, since `mace-torch` and `nequip` need different versions of `e3nn`, and use
+```
+symmetrix_extract_nequip --model nequip.net:mir-group/NequIP-OAM-S:0.1 --chemical-symbols H O
+```
+The model can also be a NequIP package (`.nequip.zip`) or checkpoint (`.ckpt`).
+The result is `NequIP-OAM-S-0.1-H-O.json`.
+
 ### ASE Calculator
 
 One can import the ASE calculator with

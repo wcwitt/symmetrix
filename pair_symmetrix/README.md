@@ -24,6 +24,14 @@ cores
 OMP_NUM_THREADS=8 mpirun -np 8 lmp -in in.lammps
 ```
 
+NequIP models, extracted with `symmetrix_extract_nequip`, run with
+```
+pair_style    symmetrix/nequip
+pair_coeff    * * NequIP-OAM-S-0.1-H-O.json H O
+```
+and the same variants (`symmetrix/nequip/float32`, Kokkos) and settings (`no_domain_decomposition`,
+`mpi_message_passing`) as `symmetrix/mace`.
+
 On GPUs, run the Kokkos styles with `newton on` and half neighbor lists:
 ```
 mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos newton on neigh half -in in.lammps

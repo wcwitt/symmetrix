@@ -35,6 +35,7 @@ set(SYMMETRIX_SOURCE_FILES
     source/mace.cpp
     source/multilayer_perceptron.cpp
     source/multivariate_polynomial.cpp
+    source/nequip.cpp
     source/spherical_harmonic.cpp
     source/tools.cpp
     source/zbl.cpp)
@@ -46,6 +47,7 @@ if(SYMMETRIX_KOKKOS)
         source/mace_kokkos.cpp
         source/multilayer_perceptron_kokkos.cpp
         source/multivariate_polynomial_kokkos.cpp
+        source/nequip_kokkos.cpp
         source/radial_function_set_kokkos.cpp
         source/tools_kokkos.cpp
         source/zbl_kokkos.cpp)

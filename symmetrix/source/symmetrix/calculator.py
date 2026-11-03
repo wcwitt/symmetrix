@@ -7,6 +7,7 @@ work for the U. S. Government, and is not subject to copyright.
 
 import json
 import logging
+import re
 from tempfile import NamedTemporaryFile
 import numpy as np
 
@@ -20,6 +21,18 @@ from ase.calculators.calculator import BaseCalculator, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
 from . import symmetrix
+
+
+def _is_nequip(model_file):
+    name = str(model_file)
+    if name.startswith("nequip.net:") or name.endswith((".nequip.zip", ".ckpt")):
+        return True
+    try:
+        with open(name, "rb") as f:
+            head = f.read(4096).decode(errors="ignore")
+    except OSError:
+        return False
+    return re.search(r'"model_type"\s*:\s*"NequIP"', head) is not None
 
 
 class Symmetrix(BaseCalculator):
@@ -47,38 +60,54 @@ class Symmetrix(BaseCalculator):
         if use_kokkos and not hasattr(symmetrix, "MACEKokkos"):
             raise RuntimeError("Symmetrix was built without Kokkos support.")
         self.use_kokkos = use_kokkos
+        nequip = _is_nequip(model_file)
         if self.use_kokkos:
             if not symmetrix._kokkos_is_initialized():
                 symmetrix._init_kokkos()
-            MACE = (
-                symmetrix.MACEKokkos
-                if dtype == "float64"
-                else symmetrix.MACEKokkosFloat
+            if nequip:
+                Evaluator = (
+                    symmetrix.NequIPKokkos
+                    if dtype == "float64"
+                    else symmetrix.NequIPKokkosFloat
+                )
+            else:
+                Evaluator = (
+                    symmetrix.MACEKokkos
+                    if dtype == "float64"
+                    else symmetrix.MACEKokkosFloat
+                )
+        elif nequip:
+            Evaluator = (
+                symmetrix.NequIP if dtype == "float64" else symmetrix.NequIPFloat
             )
         else:
-            MACE = symmetrix.MACE if dtype == "float64" else symmetrix.MACEFloat
+            Evaluator = symmetrix.MACE if dtype == "float64" else symmetrix.MACEFloat
         try:
-            self.evaluator = MACE(str(model_file))
+            self.evaluator = Evaluator(str(model_file))
         except RuntimeError:  # expecting json.exception.parse_error.101
             if str(model_file).endswith(".json"):
                 raise
             # import this here so that torch/mace support isn't needed if file is already symmetrix json
-            from .extract_mace_data import extract_mace_data
+            if nequip:
+                from .extract_nequip_data import extract_nequip_data as extract_data
 
-            kwargs_extract = {
-                k: v
-                for k, v in kwargs.items()
-                if k in ["species", "head", "num_spline_points", "r_min"]
-            }
+                keys = ["species", "num_spline_points"]
+            else:
+                from .extract_mace_data import extract_mace_data as extract_data
+
+                keys = ["species", "head", "num_spline_points", "r_min"]
+            kwargs_extract = {k: v for k, v in kwargs.items() if k in keys}
+            if nequip:
+                kwargs_extract.setdefault("species", None)
             logging.warning(
                 f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}"
             )
-            data = extract_mace_data(model_file, **kwargs_extract)
+            data = extract_data(model_file, **kwargs_extract)
             with NamedTemporaryFile("w") as fout:
                 logging.warning(f"Converting via NamedTemporaryFile {fout.name}")
                 fout.write(json.dumps(data))
                 fout.flush()
-                self.evaluator = MACE(fout.name)
+                self.evaluator = Evaluator(fout.name)
 
         self.cutoff = self.evaluator.r_cut
 

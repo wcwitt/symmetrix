@@ -23,12 +23,17 @@ mace = [
     "torch>=2.5",
     "mace-torch",
 ]
+nequip = [
+    "torch>=2.5",
+    "nequip>=0.19",
+]
 test = [
     "pytest",
 ]
 
 [project.scripts]
 symmetrix_extract_mace = "symmetrix.cli.extract_mace:main"
+symmetrix_extract_nequip = "symmetrix.cli.extract_nequip:main"
 
 [[tool.dynamic-metadata]]
 provider = "scikit_build_core.metadata.regex"
