@@ -39,14 +39,25 @@ def main():
     parser.add_argument(
         "--r-min",
         type=float,
-        default=1e-12,
+        default=0.5,
         help="Minimum distance covered by the splines.",
+    )
+    parser.add_argument(
+        "--compress-basis",
+        nargs="?",
+        type=float,
+        const=0.5,
+        metavar="MARGIN",
+        help="Compress the first-layer radial basis if its error stays below MARGIN "
+        "(0.5 if omitted) times the spline error. Off by default: a few percent "
+        "faster, but its error is systematic and shifts the pressure.",
     )
     parser.add_argument("--output", "-o", help="Output filename.")
     args = parser.parse_args()
 
     import json
     from pathlib import Path
+    from importlib.metadata import version
 
     if len(Path(args.model).suffix) == 0:
         model_name = Path(args.model).name
@@ -62,7 +73,9 @@ def main():
         args.head,
         num_spline_points=args.num_spline_points,
         r_min=args.r_min,
+        compression_margin=args.compress_basis,
     )
+    output["extracted_with"] = {p: version(p) for p in ("mace-torch", "torch")}
 
     ### ----- WRITE JSON -----
 

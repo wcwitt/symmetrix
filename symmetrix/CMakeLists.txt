@@ -31,6 +31,13 @@ if(_cuda_found)
     set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Set Kokkos_ENABLE_CUDA.")
     set(SYMMETRIX_SPHERICART_CUDA ON CACHE BOOL "Enable SpheriCart-CUDA.")
   endif()
+  if(DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(SYMMETRIX_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES})
+  elseif(_gpu_found EQUAL 0)
+    set(SYMMETRIX_CUDA_ARCHITECTURES native)
+  else()
+    set(SYMMETRIX_CUDA_ARCHITECTURES all-major)
+  endif()
 endif()
 
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
@@ -38,6 +45,9 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 add_subdirectory(../libsymmetrix ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix)
 
 add_subdirectory(external/pybind11)
+
+add_subdirectory(source/cpp/mace_foundation)
+add_subdirectory(source/cpp/nequip_foundation)
 
 set(SYMMETRIX_BINDINGS
     source/cpp/cubic_spline.cpp

@@ -1113,6 +1113,8 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (file.contains("model_type"))
         throw std::runtime_error(filename + " is a " + file["model_type"].get<std::string>() + " model, not a MACE model");
+    if (file.contains("H1_bias"))
+        throw std::runtime_error("This model needs pair_style symmetrix/mace/foundation or symmetrix.experimental.MACEFoundation");
 
     // Basic model information
     num_elements = file["num_elements"];

@@ -137,12 +137,11 @@ template<class DeviceType, typename Precision>
 void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
+  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * needs a model file and one element per atom type");
 
   utils::logmesg(lmp, "Loading MACEKokkos model from \'{}\' ... ", arg[2]);
   mace = std::make_unique<MACEKokkos<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
-
-  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * {} needs one element per atom type", arg[2]);
 
   // extract atomic numbers from pair_coeff
   mace_types = Kokkos::View<int*>("mace_types", narg-3);

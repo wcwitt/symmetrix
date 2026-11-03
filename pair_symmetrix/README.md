@@ -37,6 +37,48 @@ On GPUs, run the Kokkos styles with `newton on` and half neighbor lists:
 mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos newton on neigh half -in in.lammps
 ```
 
+### Foundation-model pair styles (experimental)
+
+Fixed-architecture models have specialized pair styles, each with CPU (OpenMP threads in each MPI process) and GPU
+(a CUDA build of Kokkos and `-sf kk`) versions:
+```
+pair_style    symmetrix/mace/foundation              # or .../float32, or .../float32-mixed (GPU only)
+pair_coeff    * * mace-mp-0b3-medium-1-8.json H O
+pair_style    symmetrix/nequip/foundation            # or .../float32, or .../float32-mixed (GPU only)
+pair_coeff    * * NequIP-OAM-L-0.1-H-O.json H O
+```
+The plain names run in fp64, `float32` in fp32. Both families take `no_domain_decomposition` (one process, the default)
+and `mpi_message_passing` (the default with several processes); on GPUs, run them as
+```
+mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos newton on neigh half -in in.lammps
+```
+The foundation styles do not compute per-atom virials (`compute stress/atom`).
+The default 256 spline points have proven sufficient for most observables. For very closely matched forces, 1024 or
+2048 may be required (`--num-spline-points`).
+
+`symmetrix/mace/foundation`:
+* accepts the shapes of MACE-OFF23 small, medium and large, MACE-MP-0 small, medium and large, the medium MACE-MP-0b3
+  and MPA-0 models, the small and medium OMAT-0 models, MACE-MH-0 and MACE-MH-1, and models fine-tuned from them; it
+  rejects other models with the list of these shapes.
+* Extract them with `symmetrix_extract_mace` as usual (`--head omat_pbe` for MACE-MH-0 and MACE-MH-1).
+* `--r-min` sets the smallest separation the splines cover (default 0.5 A).
+* `float32-mixed` stores part of the second-layer splines in fp16 and runs its GEMMs on fp16 tensor cores with one scale
+  per GEMM over the whole system, so a single extremely close contact degrades all forces (use `float32` there).
+
+`symmetrix/nequip/foundation`:
+* is built for NequIP-OAM-S, M, L and XL (the GPU styles reject other shapes).
+* Extract them with `symmetrix_extract_nequip`, e.g.
+  ```
+  symmetrix_extract_nequip --model nequip.net:mir-group/NequIP-OAM-L:0.1 --chemical-symbols H O
+  ```
+* `float32-mixed` runs 3xTF32 tensor-core GEMMs and keeps part of the splines in fp16.
+* Besides `no_domain_decomposition` and `mpi_message_passing` (`newton on`), the GPU styles take `direct_exchange`,
+  which passes the features between the layers directly between the processes' GPUs: CUDA IPC within a node,
+  GPU-aware MPI between nodes. It needs one process per GPU, each seeing all GPUs of its node, and works with
+  `newton on` or `off`.
+* `direct_exchange fp16_wire` (float32 styles) sends the feature updates between nodes in fp16 (about 1e-4 eV/A in the
+  forces).
+
 ### Building LAMMPS
 
 Some (probably incomplete) prerequisites are:

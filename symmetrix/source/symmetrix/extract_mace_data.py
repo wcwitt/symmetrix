@@ -12,7 +12,14 @@ from mace.tools.scripts_utils import remove_pt_head
 from ase.data import chemical_symbols
 
 
-def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1e-12):
+def extract_mace_data(
+    model,
+    species,
+    head=None,
+    num_spline_points=1024,
+    r_min=0.5,
+    compression_margin=None,
+):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
@@ -26,8 +33,12 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
         head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
     num_spline_points: int, default 1024
         number of spline points to approximate various functions
-    r_min: float, default 1e-12
+    r_min: float, default 0.5
         minimum distance covered by the splines
+    compression_margin: float, default None
+        compress the first-layer radial basis to 32 functions per ordered pair if
+        its error stays below this fraction of the spline error; off by default
+        because the compression error is systematic and shifts the pressure
 
     Returns
     -------
@@ -68,26 +79,38 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
 
     ### ----- CHECK FOR COMPATIBILITY -----
 
+    if (
+        type(model.interactions[0]).__name__
+        == "RealAgnosticResidualNonLinearInteractionBlock"
+    ):
+        from .extract_mace_nonlinear import extract_mace_data_nonlinear
+
+        return extract_mace_data_nonlinear(
+            model, atomic_numbers, num_spline_points, r_min
+        )
+
     if len(model.interactions) != 2:
         raise RuntimeError("Currently, symmetrix only supports two-layer MACE models.")
 
     from mace.modules.blocks import (
         RealAgnosticInteractionBlock,
         RealAgnosticDensityInteractionBlock,
-    )
-
-    if not isinstance(
-        model.interactions[0], RealAgnosticInteractionBlock
-    ) and not isinstance(model.interactions[0], RealAgnosticDensityInteractionBlock):
-        raise RuntimeError(
-            "Currently, symmetrix only supports MACE models whose first interaction is "
-            "RealAgnosticInteractionBlock or RealAgnosticDensityInteractionBlock."
-        )
-
-    from mace.modules.blocks import (
         RealAgnosticResidualInteractionBlock,
         RealAgnosticDensityResidualInteractionBlock,
     )
+
+    first_residual = isinstance(
+        model.interactions[0], RealAgnosticResidualInteractionBlock
+    )
+    if (
+        not isinstance(model.interactions[0], RealAgnosticInteractionBlock)
+        and not isinstance(model.interactions[0], RealAgnosticDensityInteractionBlock)
+        and not first_residual
+    ):
+        raise RuntimeError(
+            "Currently, symmetrix only supports MACE models whose first interaction is "
+            "RealAgnosticInteractionBlock, RealAgnosticDensityInteractionBlock or RealAgnosticResidualInteractionBlock."
+        )
 
     if not isinstance(
         model.interactions[1], RealAgnosticResidualInteractionBlock
@@ -266,8 +289,10 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
     for i, a in enumerate(atomic_numbers):
         model_i = model.atomic_numbers.tolist().index(a)
         A0_weights.append([])
-        for l, _, w in model.interactions[0].skip_tp.weight_views(
-            yield_instruction=True
+        for l, _, w in (
+            model.interactions[0].skip_tp.weight_views(yield_instruction=True)
+            if not first_residual
+            else [(l, None, None) for l in range(l_max + 1)]
         ):
             w_linear = model.interactions[0].linear.weight_view_for_instruction(
                 l
@@ -276,11 +301,30 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
                 w_linear /= model.interactions[0].avg_num_neighbors
             fused = (
                 w_linear
-                @ w[:, model_i, :].numpy(force=True)
-                / np.sqrt(len(model.atomic_numbers) * num_channels)
+                if w is None
+                else (
+                    w_linear
+                    @ w[:, model_i, :].numpy(force=True)
+                    / np.sqrt(len(model.atomic_numbers) * num_channels)
+                )
             )
             A0_weights[i].append(fused.flatten().tolist())
     output["A0_weights"] = A0_weights
+
+    ### ----- FIRST-LAYER BASIS -----
+
+    logging.info("first-layer basis")
+    output.update(
+        first_layer_basis(
+            model,
+            atomic_numbers,
+            output,
+            num_spline_points,
+            r_min,
+            compression_margin,
+            spline_bc_type,
+        )
+    )
 
     #### ----- M0 -----
 
@@ -305,6 +349,31 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
     for l in range(L_max + 1):
         H1_weights[l, :, :] = weights_0[l, :, :] @ weights_1[l, :, :]
     output["H1_weights"] = H1_weights.flatten().tolist()
+    if first_residual:
+        with torch.no_grad():
+            eye = torch.eye(len(model.atomic_numbers), dtype=torch.float64)
+            sc0 = (
+                model.interactions[0]
+                .skip_tp(model.node_embedding(eye), eye)[:, :num_channels]
+                .numpy(force=True)
+            )
+        output["H1_bias"] = [(sc0[i] @ weights_1[0]).tolist() for i in indices]
+        W_skip = model.interactions[1].skip_tp.weight_view_for_instruction(0)
+        output["H2_bias"] = [
+            (
+                sc0[i]
+                @ W_skip[:, i, :].numpy(force=True)
+                / np.sqrt(len(model.atomic_numbers) * num_channels)
+            ).tolist()
+            for i in indices
+        ]
+        readout_1 = model.readouts[0].linear.weight.numpy(force=True) / np.sqrt(
+            num_channels
+        )
+        output["atomic_energies"] = [
+            e + model.scale_shift.scale.item() * float(sc0[i] @ readout_1)
+            for e, i in zip(output["atomic_energies"], indices)
+        ]
 
     ### ----- Phi1 -----
 
@@ -489,7 +558,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1
     return output
 
 
-def symmetric_contraction(layer, module, elements):
+def symmetric_contraction(layer, module, elements, tolerance=1e-6):
     """Reformat MACE symmetric contraction into recursive form with equivariant
     intermediates, roughly in the style of NICE (Nigam, Pozdnyakov and Ceriotti,
     arXiv:2007.03407):
@@ -592,7 +661,7 @@ def symmetric_contraction(layer, module, elements):
                 V[i[-1], i[0] * len(index) + index[tuple(sorted(i[1:-1]))]] += U[i]
             B = np.array([row(N["poly"]) for N in chosen])
             R = np.linalg.lstsq(B.T, V.T, rcond=None)[0]
-            if np.abs(B.T @ R - V.T).max() > 1e-6 * np.abs(V).max():
+            if np.abs(B.T @ R - V.T).max() > tolerance * np.abs(V).max():
                 raise RuntimeError(
                     f"M{layer}: the coupling trees do not span MACE's basis"
                 )
@@ -638,3 +707,118 @@ def symmetric_contraction(layer, module, elements):
         ],
         f"M{layer}_weights": np.stack([w for _, _, w in basis], axis=1).tolist(),
     }
+
+
+def first_layer_basis(
+    model, atomic_numbers, output, num_spline_points, r_min, margin, bc_type
+):
+    mlp = model.interactions[0].conv_tp_weights
+    zs = model.atomic_numbers.tolist()
+    r, h = np.linspace(r_min, output["r_cut"], num_spline_points, retstep=True)
+    x = (r[:-1, None] + h * np.array([0.25, 0.5, 0.75])).flatten()
+    dx = 1e-5
+    w = x[:, None] ** 2
+
+    def rel(d, y):
+        return np.sqrt(np.sum(w * d**2) / np.sum(w * y**2))
+
+    def hidden(a, b, r):
+        bessels = model.radial_embedding(
+            torch.tensor(r, dtype=torch.float64).unsqueeze(-1),
+            torch.eye(len(zs)),
+            torch.tensor([[zs.index(a)], [zs.index(b)]]),
+            model.atomic_numbers,
+        )
+        bessels, cutoff = bessels if isinstance(bessels, tuple) else (bessels, None)
+        c = 1 if cutoff is None else cutoff
+        out = []
+        hook = list(mlp.children())[-1].register_forward_pre_hook(
+            lambda m, i: out.append(i[0])
+        )
+        R = mlp(bessels)
+        hook.remove()
+        return (out[0] * c).numpy(force=True), 2 * np.sqrt(np.pi) * (R * c).numpy(
+            force=True
+        )
+
+    T, S, n = len(atomic_numbers), len(r), len(x)
+    pairs = [(i, j) for i in range(T) for j in range(i, T)]
+    H, R = zip(
+        *(
+            hidden(
+                atomic_numbers[i],
+                atomic_numbers[j],
+                np.concatenate([r, x, x + dx, x - dx]),
+            )
+            for i, j in pairs
+        )
+    )
+    Hk, Rk = np.concatenate([y[:S] for y in H]), np.concatenate([y[:S] for y in R])
+    U = np.linalg.lstsq(Hk, Rk, rcond=None)[0].T
+    if np.linalg.norm(Hk @ U.T - Rk) > 1e-10 * np.linalg.norm(Rk):
+        logging.warning(
+            "No first-layer basis: the radial MLP's last layer is not linear"
+        )
+        return {}
+    splines = [CubicSpline(r, y[:S], bc_type=bc_type) for y in H]
+    C, N = output["num_channels"], U.shape[1]
+    H0 = np.reshape(output["H0_weights"], (T, C))
+    widths = [k for k in (32, 64) if k < N]
+    basis, maps = {k: [] for k in widths}, {k: [] for k in widths}
+    basis_error = {k: np.zeros(2) for k in widths}
+    ratio = {k: np.zeros(2) for k in widths}
+    spline_error = np.zeros(2)
+    for a in range(T):
+        for b in range(T):
+            p = pairs.index((min(a, b), max(a, b)))
+            Q = np.concatenate(
+                [
+                    (np.reshape(A0, (C, C)) * H0[b][:, None]).T @ U[l * C : (l + 1) * C]
+                    for l, A0 in enumerate(output["A0_weights"][a])
+                ]
+            )
+            Hv = H[p][S : S + n]
+            Hd = (H[p][S + n : S + 2 * n] - H[p][S + 2 * n :]) / (2 * dx)
+            Ov, Od = Hv @ Q.T, Hd @ Q.T
+            se = [
+                rel(splines[p](x) @ Q.T - Ov, Ov),
+                rel(splines[p](x, 1) @ Q.T - Od, Od),
+            ]
+            G = (w * Hv).T @ Hv / (se[0] ** 2 * np.sum(w * Ov**2))
+            G += (w * Hd).T @ Hd / (se[1] ** 2 * np.sum(w * Od**2))
+            e, V = np.linalg.eigh(G)
+            L = np.linalg.svd(
+                Q @ (V * np.sqrt(np.maximum(e, 0))) @ V.T, full_matrices=False
+            )[0]
+            for k in widths:
+                A = L[:, :k]
+                B = A.T @ Q
+                be = np.array(
+                    [rel(Hv @ (A @ B - Q).T, Ov), rel(Hd @ (A @ B - Q).T, Od)]
+                )
+                basis_error[k] += be**2 / T**2
+                ratio[k] = np.maximum(ratio[k], be / se)
+                basis[k].append(B.flatten().tolist())
+                maps[k].append(A.flatten().tolist())
+            spline_error += np.square(se) / T**2
+    spline_error = np.sqrt(spline_error)
+    fits = [k for k in widths if margin is not None and np.all(ratio[k] <= margin)]
+    width = fits[0] if fits else N
+    logging.info(
+        f"first-layer basis: {width} of {N} functions per pair; largest ratios of basis "
+        f"to spline errors (values, derivatives): {ratio}"
+    )
+    data = {
+        "first_layer_weights": U.flatten().tolist(),
+        "first_layer_values": [y[:S].T.tolist() for y in H],
+        "first_layer_derivs": [s(r, 1).T.tolist() for s in splines],
+        "first_layer_basis_size": width,
+        "first_layer_basis_error": {
+            k: np.sqrt(v).tolist() for k, v in basis_error.items()
+        },
+        "first_layer_spline_error": spline_error.tolist(),
+        "first_layer_basis_ratio": {k: v.tolist() for k, v in ratio.items()},
+    }
+    if width < N:
+        data["first_layer_basis"], data["first_layer_map"] = basis[width], maps[width]
+    return data

@@ -130,13 +130,12 @@ template<class DeviceType, typename Precision>
 void PairSymmetrixNequIPKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
 {
   if (!allocated) allocate();
+  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * needs a model file and one element per atom type");
 
   utils::logmesg(lmp, "Loading NequIPKokkos model from \'{}\' ... ", arg[2]);
   nequip = std::make_unique<NequIPKokkos<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
   X.resize(nequip->num_layers);
-
-  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * {} needs one element per atom type", arg[2]);
 
   // extract atomic numbers from pair_coeff
   nequip_types = Kokkos::View<int*>("nequip_types", narg-3);

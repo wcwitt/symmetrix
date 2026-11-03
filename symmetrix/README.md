@@ -67,3 +67,21 @@ from symmetrix import Symmetrix
 ```
 See [the source code](source/symmetrix/calculator.py) and [this test](test/test_symmetrix_calc.py)
 for additional details.
+
+### Foundation-model calculators (experimental)
+
+For the models of `pair_style symmetrix/mace/foundation` (see [pair_symmetrix](../pair_symmetrix/README.md)),
+```
+from symmetrix.experimental import MACEFoundation
+# dtype "float64", "float32" or "float32-mixed"; device "cuda" or "cpu"
+atoms.calc = MACEFoundation("model.json", device="cuda", dtype="float64")
+```
+evaluates them with the arithmetic of that pair style and a neighbor list of its own (built again when an atom has moved
+by half of `skin`, 1 A by default), on CPUs with OpenMP threads, or on the GPU when CUDA was found at install time.
+The GPU code is built for the GPUs of the installing machine (for all major architectures, slowly, if it has none);
+elsewhere pass the architecture, e.g. `pip install ... -C cmake.define.CMAKE_CUDA_ARCHITECTURES=80`.
+`NequIPFoundation` does the same for the models of `pair_style symmetrix/nequip/foundation`:
+```
+from symmetrix.experimental import NequIPFoundation
+atoms.calc = NequIPFoundation("NequIP-OAM-L-0.1-H-O.json", device="cuda", dtype="float64")
+```
