@@ -77,6 +77,13 @@ def extract_mace_data(
         model = remove_pt_head(model, head).to(device=device, dtype=torch.float64)
         model.eval()
 
+    if type(model).__name__ == "PolarMACE":
+        from .extract_mace_polar import extract_mace_data_polar
+
+        if compression_margin is not None:
+            raise ValueError("PolarMACE models have no compressed first-layer basis")
+        return extract_mace_data_polar(model, atomic_numbers, num_spline_points, r_min)
+
     ### ----- CHECK FOR COMPATIBILITY -----
 
     if (
@@ -378,73 +385,10 @@ def extract_mace_data(
     ### ----- Phi1 -----
 
     logging.info("Phi1")
-    Phi1_l = [ir[1].l for ir in model.interactions[1].conv_tp.irreps_out]
-    Phi1_clebsch_gordan = []
-    Phi1_lme = []
-    Phi1_lelm1lm2 = []
-    num_lm1 = (l_max + 1) ** 2
-    num_lm2 = (L_max + 1) ** 2
-
-    def compute_lem(le, l, m):
-        lem = 0
-        for j in range(le):
-            lem += 2 * Phi1_l[j] + 1
-        return lem + l + m
-
-    def compute_lme(le, l, m):
-        e = le - int(sum(np.array(Phi1_l) < l))
-        num_e = [int(sum(np.array(Phi1_l) == ll)) for ll in range(l + 1)]
-        lme = 0
-        for ll in range(l):
-            lme += (2 * ll + 1) * num_e[ll]
-        return lme + (l + m) * num_e[l] + e
-
-    tp = model.interactions[1].conv_tp.to(device)
-    for l1 in range(l_max + 1):
-        for m1 in range(-l1, l1 + 1):
-            lm1 = l1 * l1 + l1 + m1
-            for l2 in range(L_max + 1):
-                for m2 in range(-l2, l2 + 1):
-                    lm2 = l2 * l2 + l2 + m2
-                    R = torch.ones(
-                        [1, len(tp.instructions) * num_channels],
-                        dtype=torch.double,
-                        device=device,
-                    )
-                    Y = torch.zeros([1, num_lm1], dtype=torch.double, device=device)
-                    Y[0, lm1] = 1.0
-                    H = torch.zeros(
-                        [1, num_lm2 * num_channels], dtype=torch.double, device=device
-                    )
-                    H[
-                        0, sum([2 * p + 1 for p in range(l2)]) * num_channels + l2 + m2
-                    ] = 1.0
-                    Phi = tp(H, Y, R)
-                    # extract Phi values for k=0
-                    Phi_0 = []
-                    for le in range(len(tp.instructions)):
-                        Phi_0_start = (
-                            sum([2 * Phi1_l[p] + 1 for p in range(le)]) * num_channels
-                        )
-                        for p in range(2 * Phi1_l[le] + 1):
-                            Phi_0.append(Phi[0, Phi_0_start + p].item())
-                    for le in range(len(tp.instructions)):
-                        l = Phi1_l[le]
-                        for m in range(-l, l + 1):
-                            lem = compute_lem(le, l, m)
-                            if np.abs(Phi_0[lem]) > 1e-12:
-                                Phi1_lme.append(compute_lme(le, l, m))
-                                Phi1_clebsch_gordan.append(Phi_0[lem])
-                                Phi1_lelm1lm2.append((le, lm1, lm2))
-    output["Phi1_l"] = Phi1_l
-    output["Phi1_clebsch_gordan"] = Phi1_clebsch_gordan
-    # Phi1[lme] += CG_Y[q] R1[lel1l2] H1[lm2], with CG_Y[q] += CG Y[lm1]
-    terms = list(zip(Phi1_lme, Phi1_lelm1lm2))
-    Phi1_spec = sorted(set((lme, le, lm2) for lme, (le, _, lm2) in terms))
-    output["Phi1_spec"] = Phi1_spec
-    output["Phi1_cg_spec"] = [
-        [Phi1_spec.index((lme, le, lm2)), lm1] for lme, (le, lm1, lm2) in terms
-    ]
+    output.update(
+        phi1_spec(model.interactions[1].conv_tp, num_channels, l_max, L_max, device)
+    )
+    Phi1_l = output["Phi1_l"]
 
     ### ----- A1 -----
 
@@ -555,6 +499,78 @@ def extract_mace_data(
         )
     output["readout_2_scale_factor"] = act.cst
 
+    return output
+
+
+def phi1_spec(tp, num_channels, l_max, L_max, device=torch.device("cpu")):
+    output = {}
+    Phi1_l = [ir[1].l for ir in tp.irreps_out]
+    Phi1_clebsch_gordan = []
+    Phi1_lme = []
+    Phi1_lelm1lm2 = []
+    num_lm1 = (l_max + 1) ** 2
+    num_lm2 = (L_max + 1) ** 2
+
+    def compute_lem(le, l, m):
+        lem = 0
+        for j in range(le):
+            lem += 2 * Phi1_l[j] + 1
+        return lem + l + m
+
+    def compute_lme(le, l, m):
+        e = le - int(sum(np.array(Phi1_l) < l))
+        num_e = [int(sum(np.array(Phi1_l) == ll)) for ll in range(l + 1)]
+        lme = 0
+        for ll in range(l):
+            lme += (2 * ll + 1) * num_e[ll]
+        return lme + (l + m) * num_e[l] + e
+
+    tp = tp.to(device)
+    for l1 in range(l_max + 1):
+        for m1 in range(-l1, l1 + 1):
+            lm1 = l1 * l1 + l1 + m1
+            for l2 in range(L_max + 1):
+                for m2 in range(-l2, l2 + 1):
+                    lm2 = l2 * l2 + l2 + m2
+                    R = torch.ones(
+                        [1, len(tp.instructions) * num_channels],
+                        dtype=torch.double,
+                        device=device,
+                    )
+                    Y = torch.zeros([1, num_lm1], dtype=torch.double, device=device)
+                    Y[0, lm1] = 1.0
+                    H = torch.zeros(
+                        [1, num_lm2 * num_channels], dtype=torch.double, device=device
+                    )
+                    H[
+                        0, sum([2 * p + 1 for p in range(l2)]) * num_channels + l2 + m2
+                    ] = 1.0
+                    Phi = tp(H, Y, R)
+                    # extract Phi values for k=0
+                    Phi_0 = []
+                    for le in range(len(tp.instructions)):
+                        Phi_0_start = (
+                            sum([2 * Phi1_l[p] + 1 for p in range(le)]) * num_channels
+                        )
+                        for p in range(2 * Phi1_l[le] + 1):
+                            Phi_0.append(Phi[0, Phi_0_start + p].item())
+                    for le in range(len(tp.instructions)):
+                        l = Phi1_l[le]
+                        for m in range(-l, l + 1):
+                            lem = compute_lem(le, l, m)
+                            if np.abs(Phi_0[lem]) > 1e-12:
+                                Phi1_lme.append(compute_lme(le, l, m))
+                                Phi1_clebsch_gordan.append(Phi_0[lem])
+                                Phi1_lelm1lm2.append((le, lm1, lm2))
+    output["Phi1_l"] = Phi1_l
+    output["Phi1_clebsch_gordan"] = Phi1_clebsch_gordan
+    # Phi1[lme] += CG_Y[q] R1[lel1l2] H1[lm2], with CG_Y[q] += CG Y[lm1]
+    terms = list(zip(Phi1_lme, Phi1_lelm1lm2))
+    Phi1_spec = sorted(set((lme, le, lm2) for lme, (le, _, lm2) in terms))
+    output["Phi1_spec"] = Phi1_spec
+    output["Phi1_cg_spec"] = [
+        [Phi1_spec.index((lme, le, lm2)), lm1] for lme, (le, lm1, lm2) in terms
+    ]
     return output
 
 

@@ -198,3 +198,34 @@ cmake \
 cmake --build build-gpu -j 64
 cd ../..
 ```
+
+-----
+
+### MACE-POLAR models (experimental)
+
+PolarMACE models (e.g. MACE-POLAR-1) are extracted with `symmetrix_extract_mace` like other models (loading them needs
+mace-torch 0.3.16 and [graph_electrostatics](https://github.com/WillBaldwin0/graph_electrostatics) at commit
+`66ef875`), e.g.
+```
+symmetrix_extract_mace -m MACE-POLAR-1-M.model -s H O -o polar-m-H-O.json
+```
+and run with
+```
+pair_style    symmetrix/mace/polar [charge Q] [spin S] [mesh h] [order P] [direct]
+pair_style    symmetrix/mace/polar/cuda [charge Q] [spin S] [mesh h] [order P] [direct] [grid lammps|local] [float32-mixed]   # -sf kk
+pair_coeff    * * polar-m-H-O.json H O
+```
+for periodic cells with total charge `Q` (0) and spin multiplicity `S` (1). The electrostatics run on a smooth
+particle-mesh Ewald grid of spacing at most `h` A (0.7) with B-splines of order `P` (8), distributed over the MPI
+processes like PPPM's, so LAMMPS needs the KSPACE package (`-D PKG_KSPACE=on`, with `-D FFT_KOKKOS=CUFFT` for the GPU
+style). The defaults were validated for MACE-POLAR-1's k-space cutoff of 1.85/A; a warning is printed when `h` times the
+model's cutoff is more than 5% above 0.7 x 1.8467. `direct` sums over the model's k-vectors instead (one process).
+On one process the CPU style uses direct sums, with a warning, for cells too small for the grid's B-spline
+stencil (a few A); with several processes that is an error.
+
+On one GPU the grid stays whole and is transformed with cuFFT (`grid local`, the default on one process); `grid lammps`
+uses LAMMPS's distributed grid and FFTs, as on several GPUs. The GPU style runs in float32; `float32-mixed` runs the
+GEMMs on fp16 tensor cores to float32 accuracy and stores part of the second-layer splines in fp16. Its tensor products
+are compiled for those of MACE-POLAR-1 (`l_max` 3, `L_max` 1, correlation order 3, 128 edge channels), checked when the
+model is loaded; other PolarMACE models run with `symmetrix/mace/polar`. On CPUs, MPI processes are faster than OpenMP
+threads.

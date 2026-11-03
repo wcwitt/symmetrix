@@ -33,6 +33,7 @@ set(SYMMETRIX_SOURCE_FILES
     source/cubic_spline.cpp
     source/cubic_spline_set.cpp
     source/mace.cpp
+    source/mace_polar.cpp
     source/multilayer_perceptron.cpp
     source/multivariate_polynomial.cpp
     source/nequip.cpp
@@ -79,6 +80,10 @@ if(SYMMETRIX_KOKKOS)
                 Kokkos::kokkoskernels)
     if(Kokkos_ENABLE_CUDA)
         target_compile_options(symmetrix PRIVATE $<$<CONFIG:Release>:--use_fast_math>)
+        find_package(CUDAToolkit REQUIRED)
+        target_sources(symmetrix PRIVATE source/mace_polar_cuda.cpp)
+        set_source_files_properties(source/mace_polar_cuda.cpp PROPERTIES COMPILE_OPTIONS --expt-relaxed-constexpr)
+        target_link_libraries(symmetrix PRIVATE CUDA::cublas)
     endif()
 endif()
 

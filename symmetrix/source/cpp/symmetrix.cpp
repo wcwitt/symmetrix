@@ -8,6 +8,7 @@ namespace py = pybind11;
 void bind_cubic_spline(py::module_ &m);
 void bind_cubic_spline_set(py::module_ &m);
 void bind_mace(py::module_ &m);
+void bind_mace_polar(py::module_ &m);
 void bind_multilayer_perceptron(py::module_ &m);
 void bind_multivariate_polynomial(py::module_ &m);
 void bind_nequip(py::module_ &m);
@@ -35,6 +36,7 @@ PYBIND11_MODULE(symmetrix, m)
     bind_cubic_spline(m);
     bind_cubic_spline_set(m);
     bind_mace(m);
+    bind_mace_polar(m);
     bind_multilayer_perceptron(m);
     bind_multivariate_polynomial(m);
     bind_nequip(m);
