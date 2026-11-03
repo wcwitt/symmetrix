@@ -20,7 +20,10 @@ def finalize_kokkos_after_tests():
     yield
 
     gc.collect()
-    if has_kokkos and symmetrix._kokkos_is_initialized():
+    if (
+        hasattr(symmetrix, "_kokkos_is_initialized")
+        and symmetrix._kokkos_is_initialized()
+    ):
         symmetrix._finalize_kokkos()
 
 
