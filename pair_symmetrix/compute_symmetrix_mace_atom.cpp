@@ -1,3 +1,18 @@
+/* ----------------------------------------------------------------------
+   LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
+   https://www.lammps.org/, Sandia National Laboratories
+   LAMMPS development team: developers@lammps.org
+
+   Copyright (2003) Sandia Corporation.  Under the terms of Contract
+   DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
+   certain rights in this software.  This software is distributed under
+   the GNU General Public License.
+
+   See the README file in the top-level LAMMPS directory.
+------------------------------------------------------------------------- */
+
+// Contributing author: Fraser Birks
+
 #include "compute_symmetrix_mace_atom.h"
 
 #include "atom.h"
@@ -32,7 +47,9 @@ ComputeSymmetrixMACEatom::ComputeSymmetrixMACEatom(LAMMPS *lmp, int narg, char *
   num_LM = mace->num_LM;
   r_cut = mace->r_cut;
 
-  // compute outputs a per-atom ARRAY with num_channels columns (output is invariant features of final layer)
+  // compute outputs a per-atom ARRAY with 2*num_channels columns:
+  // [0, C) = l=0 block of H1 with the fused linear_up undone (h1_restored),
+  // [C, 2C) = H2 (invariant features of the final layer), C = num_channels
   peratom_flag = 1;
   size_peratom_cols = 2*num_channels;
 

@@ -73,8 +73,8 @@ ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEatomK
     Kokkos::deep_copy(linear_up_l0_inv, h_linear_up_l0_inv);
   }
 
-  // compute outputs a per-atom ARRAY with num_channels columns (output is
-  // invariant features of final layer)
+  // compute outputs a per-atom ARRAY with 2*num_channels columns:
+  // [h1_restored | H2], identical layout to the CPU compute
   peratom_flag = 1;
   size_peratom_cols = 2 * num_channels;
 

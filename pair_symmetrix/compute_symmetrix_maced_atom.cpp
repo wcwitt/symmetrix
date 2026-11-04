@@ -1,3 +1,18 @@
+/* ----------------------------------------------------------------------
+   LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
+   https://www.lammps.org/, Sandia National Laboratories
+   LAMMPS development team: developers@lammps.org
+
+   Copyright (2003) Sandia Corporation.  Under the terms of Contract
+   DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
+   certain rights in this software.  This software is distributed under
+   the GNU General Public License.
+
+   See the README file in the top-level LAMMPS directory.
+------------------------------------------------------------------------- */
+
+// Contributing author: Fraser Birks
+
 #include "compute_symmetrix_maced_atom.h"
 
 #include "atom.h"
@@ -30,7 +45,7 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
   // compute ID group symmetrix/maced/atom model.json H C N O [vjp c_seed]
 
   // arg[3] = model.json, arg[4..] = element symbol per LAMMPS type
-  // optional: "vjp" <compute-id-or-c_id>  (global vector length num_channels)
+  // optional: "vjp" <compute-id>  (global vector of length 2*num_channels)
 
   const std::string model_file = arg[3];
   utils::logmesg(lmp, "Loading MACE model from '{}' ... ", model_file);
@@ -60,7 +75,7 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
     use_vjp = true;
   }
 
-  // Output: per-atom ARRAY with either 3 columns (VJP) or 3C columns per atom.
+  // Output: per-atom ARRAY with either 3 columns (VJP) or 3*(2C) columns per atom.
   peratom_flag = 1;
   if (use_vjp) size_peratom_cols = 3;
   else         size_peratom_cols = 3 * (2 * num_channels);
@@ -114,7 +129,7 @@ void ComputeSymmetrixMACEdatom::init()
       error->all(FLERR, "VJP compute '{}' must provide a global vector", vjp_id);
 
     if (vjp_compute->size_vector != 2*num_channels)
-      error->all(FLERR, "VJP compute '{}' vector length {} != num_channels {}",
+      error->all(FLERR, "VJP compute '{}' vector length {} != 2*num_channels {}",
                  vjp_id, vjp_compute->size_vector, 2*num_channels);
   }
 }
@@ -394,8 +409,9 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
 
   } else {
 
-    // ----- SLOW FULL JACOBIAN MODE: C backward passes -----
-    // Output layout: array_atom[i][{0,1,2}*num_channels + kc] = d q_k / d{x,y,z}_i
+    // ----- SLOW FULL JACOBIAN MODE: 2C backward passes (C per block) -----
+    // Output layout: array_atom[i][d*(2*num_channels) + col] = d q_col / d{x,y,z}_i  (d = 0,1,2)
+    // where q = sum over atoms of the [h1_restored | H2] descriptor (2*num_channels values).
     // Layout matches snad/atom: [ x-subblock | y-subblock | z-subblock ], each subblock has K=2*num_channels cols
 
     
