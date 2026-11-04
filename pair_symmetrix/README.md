@@ -25,9 +25,10 @@ from `pair_style symmetrix/mace`, and are installed by `install.sh` along
 with the pair style.
 
 **Model files.** Both computes need the key `linear_up_l0_inv` in the model
-JSON, which only this fork's `symmetrix_extract_mace` writes. Re-extract your
-model with this fork. In this version `MACE::load_from_json` requires that
-key, so the pair style also rejects JSON files made by upstream symmetrix.
+JSON (so the descriptor matches MACE's `get_descriptors()`), which only this
+fork's `symmetrix_extract_mace` writes; they stop with an error if it is
+missing. The pair style itself also loads JSON files made by upstream
+symmetrix.
 
 **Syntax**
 
@@ -92,18 +93,23 @@ compute       jac  all symmetrix/maced/atom model.json Si
 * `symmetrix/maced/atom` ignores its group. It always differentiates the sum
   over *all* atoms, while `symmetrix/mace/atom` zeroes atoms outside its
   group. Use group `all` for both.
-* The Jacobian/VJP is complete only for the KOKKOS variant on a **single MPI
-  rank**. That variant maps periodic images back to their owning atoms. The
-  CPU variant, and the KOKKOS variant on more than one rank, drop the
-  contribution of edges whose neighbour is a ghost atom. This affects any
-  periodic system and any domain decomposition. Non-periodic systems on one
-  rank are unaffected.
-* CPU `vjp` mode is only correct on the first call after the compute is
-  created (the adjoint buffer is not zeroed between calls).
-* `pair_symmetrix/test/test_compute_symmetrix_mace.py` checks both computes
-  (CPU and, if available, KOKKOS/GPU) against finite differences. It uses an
-  isolated 3-atom system in a large box, so it does not exercise the
-  ghost-atom paths above.
+* `symmetrix/maced/atom/kk` supports a **single MPI rank** only (it stops with
+  an error otherwise). The CPU `symmetrix/maced/atom` works on any number of
+  ranks and with periodic images.
+
+**Tests** (in `pair_symmetrix/test/`)
+
+* `test_compute_symmetrix_mace.py`: descriptor vs reference, Jacobian/VJP vs
+  finite differences on an isolated 3-atom system.
+* `fd_jacobian_periodic.py`: Jacobian vs central finite differences on a
+  rattled 8-atom periodic Si cell (neighbours are mostly periodic images);
+  decomposition-independent, so run it under `mpirun -np N` too.
+* `skmd_compute_regressions.py`: upstream-style model files load in the pair
+  style and give a clear error in the computes; `vjp` equals Jᵀv on repeated
+  calls.
+
+The last two need a model JSON extracted with this fork, e.g.
+`python fd_jacobian_periodic.py --model model.json --element Si [--kokkos]`.
 
 ### Building LAMMPS
 

@@ -84,6 +84,7 @@ class ComputeSymmetrixMACEdatom : public Compute {
   int num_LM = 0;
   double r_cut = 0.0;
   int nmax = 0;
+  bool reverse_output = false;  // reverse comm of array_atom rows (vs H1_adj)
 
   void build_graph_from_neighlist(int &num_nodes, int &num_edges);
 

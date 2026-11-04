@@ -62,6 +62,8 @@ ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEatomK
   // parsing path here.
   {
     MACE mace_cpu(model_file);
+    if (mace_cpu.linear_up_l0_inv.empty())
+      error->all(FLERR, "Model file '{}' has no linear_up_l0_inv (needed to match MACE descriptors); re-extract it with this fork's extract_mace_data.py", model_file);
     if (mace_cpu.num_channels != num_channels)
       error->all(FLERR, "MACE/MACEKokkos num_channels mismatch loading '{}'", model_file);
     linear_up_l0_inv = Kokkos::View<double **>(

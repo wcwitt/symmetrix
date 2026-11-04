@@ -42,6 +42,8 @@ ComputeSymmetrixMACEatom::ComputeSymmetrixMACEatom(LAMMPS *lmp, int narg, char *
   const std::string model_file = arg[3];
   utils::logmesg(lmp, "Loading MACE model from \'{}\' ... ", arg[3]);
   mace = std::make_unique<MACE>(model_file);
+  if (mace->linear_up_l0_inv.empty())
+    error->all(FLERR, "Model file '{}' has no linear_up_l0_inv (needed to match MACE descriptors); re-extract it with this fork's extract_mace_data.py", model_file);
 
   num_channels = mace->num_channels;
   num_LM = mace->num_LM;

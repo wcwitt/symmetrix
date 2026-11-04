@@ -50,6 +50,8 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
   const std::string model_file = arg[3];
   utils::logmesg(lmp, "Loading MACE model from '{}' ... ", model_file);
   mace = std::make_unique<MACE>(model_file);
+  if (mace->linear_up_l0_inv.empty())
+    error->all(FLERR, "Model file '{}' has no linear_up_l0_inv (needed to match MACE descriptors); re-extract it with this fork's extract_mace_data.py", model_file);
   utils::logmesg(lmp, "success\n");
 
   num_channels = mace->num_channels;
@@ -81,7 +83,9 @@ ComputeSymmetrixMACEdatom::ComputeSymmetrixMACEdatom(LAMMPS *lmp, int narg, char
   else         size_peratom_cols = 3 * (2 * num_channels);
 
   comm_forward = num_LM * num_channels;
-  comm_reverse = num_LM * num_channels;
+  // reverse comm carries either H1_adj (num_LM*C per atom) or ghost rows of
+  // the output array (size_peratom_cols per atom); size for the larger
+  comm_reverse = std::max(num_LM * num_channels, size_peratom_cols);
 
   // Build mapping from LAMMPS types -> MACE types
   mace_types.clear();
@@ -168,6 +172,11 @@ void ComputeSymmetrixMACEdatom::unpack_forward_comm(int n, int first, double *bu
 
 int ComputeSymmetrixMACEdatom::pack_reverse_comm(int n, int first, double *buf)
 {
+  if (reverse_output) {  // ghost rows of array_atom -> owners
+    for (int i = 0; i < n; ++i)
+      for (int c = 0; c < size_peratom_cols; ++c) buf[i * size_peratom_cols + c] = array_atom[first + i][c];
+    return n * size_peratom_cols;
+  }
   const int stride = num_LM * num_channels;
   for (int i = 0; i < n; ++i) {
     const double *src = H1_adj_comm.data() + (first + i) * stride;
@@ -179,6 +188,11 @@ int ComputeSymmetrixMACEdatom::pack_reverse_comm(int n, int first, double *buf)
 
 void ComputeSymmetrixMACEdatom::unpack_reverse_comm(int n, int *list_in, double *buf)
 {
+  if (reverse_output) {
+    for (int ii = 0; ii < n; ++ii)
+      for (int c = 0; c < size_peratom_cols; ++c) array_atom[list_in[ii]][c] += buf[ii * size_peratom_cols + c];
+    return;
+  }
   const int stride = num_LM * num_channels;
   for (int ii = 0; ii < n; ++ii) {
     const int i = list_in[ii];
@@ -274,8 +288,10 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
     memory->create(array_atom, nmax, size_peratom_cols, "symmetrix/maced/atom:array_atom");
   }
 
-  // init output to 0 (LAMMPS convention)
-  for (int i = 0; i < atom->nlocal; ++i) {
+  // init output to 0 for owned AND ghost atoms: edge terms are first
+  // accumulated on ghosts (periodic images / other ranks' atoms) and then
+  // reverse-communicated to their owners at the end of this function
+  for (int i = 0; i < atom->nlocal + atom->nghost; ++i) {
     for (int c = 0; c < size_peratom_cols; ++c) array_atom[i][c] = 0.0;
   }
 
@@ -337,7 +353,7 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
     mace->node_forces.resize(xyz.size());
     std::fill(mace->node_forces.begin(), mace->node_forces.end(), 0.0);
 
-    mace->reverse_H2(num_nodes, node_types, false);
+    mace->reverse_H2(num_nodes, node_types, true);  // zero H1_adj: it holds the previous call's adjoint
     mace->reverse_M1(num_nodes, node_types);
     mace->reverse_A1_scaled(num_nodes, node_types, num_neigh, neigh_types, xyz, r, false);
     mace->reverse_A1(num_nodes);
@@ -397,7 +413,7 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
           array_atom[i][1] += fy;
           array_atom[i][2] += fz;
         }
-        if (j < atom->nlocal) {
+        {  // j may be a ghost: summed onto its owner below
           array_atom[j][0] -= fx;
           array_atom[j][1] -= fy;
           array_atom[j][2] -= fz;
@@ -466,7 +482,7 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
             array_atom[i][1*(2*num_channels) + col] += fy;
             array_atom[i][2*(2*num_channels) + col] += fz;
           }
-          if (j < atom->nlocal) {
+          {  // j may be a ghost: summed onto its owner below
             array_atom[j][0*(2*num_channels) + col] -= fx;
             array_atom[j][1*(2*num_channels) + col] -= fy;
             array_atom[j][2*(2*num_channels) + col] -= fz;
@@ -529,7 +545,7 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
             array_atom[i][1*(2*num_channels) + col] += fy;  // d q_kc / d y_i
             array_atom[i][2*(2*num_channels) + col] += fz;  // d q_kc / d z_i
           }
-          if (j < atom->nlocal) {
+          {  // j may be a ghost: summed onto its owner below
             array_atom[j][0*(2*num_channels) + col] -= fx;  // d q_kc / d x_j
             array_atom[j][1*(2*num_channels) + col] -= fy;  // d q_kc / d y_j
             array_atom[j][2*(2*num_channels) + col] -= fz;  // d q_kc / d z_j
@@ -540,4 +556,10 @@ void ComputeSymmetrixMACEdatom::compute_peratom()
       }
     } // end channel loop
   }
+
+  // add ghost-atom contributions (periodic images, atoms owned by other ranks)
+  // onto the owning atoms
+  reverse_output = true;
+  comm->reverse_comm(this);
+  reverse_output = false;
 }
