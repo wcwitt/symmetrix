@@ -15,6 +15,14 @@ See the `symmetrix` [README](symmetrix/README.md) to build and use the Python pa
 
 See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 
+> [!NOTE]
+> This is a fork of [wcwitt/symmetrix](https://github.com/wcwitt/symmetrix)
+> that adds the per-atom MACE descriptor computes `symmetrix/mace/atom` and
+> `symmetrix/maced/atom` (and their `/kk` variants), which
+> [skmd-lammps](https://github.com/Fraser-Birks/skmd-lammps) uses for Stein
+> Kernelized Molecular Dynamics. See
+> [Descriptor computes for SKMD](pair_symmetrix/README.md#descriptor-computes-for-skmd).
+
 ### Citing Symmetrix
 
 The earliest `symmetrix` results are reported in:

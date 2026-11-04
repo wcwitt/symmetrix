@@ -16,6 +16,95 @@ pair_coeff    * * my-mace-1-8.json H O
 where the final `H O` assumes that `H` and `O` correspond to LAMMPS
 types `1` and `2`, respectively.
 
+### Descriptor computes for SKMD
+
+This fork adds two per-atom computes, used by `fix skmd`
+([skmd-lammps](https://github.com/Fraser-Birks/skmd-lammps)) for Stein
+Kernelized Molecular Dynamics. They run their own MACE evaluation, separate
+from `pair_style symmetrix/mace`, and are installed by `install.sh` along
+with the pair style.
+
+**Model files.** Both computes need the key `linear_up_l0_inv` in the model
+JSON, which only this fork's `symmetrix_extract_mace` writes. Re-extract your
+model with this fork. In this version `MACE::load_from_json` requires that
+key, so the pair style also rejects JSON files made by upstream symmetrix.
+
+**Syntax**
+
+```
+compute ID group-ID symmetrix/mace/atom  model.json E1 E2 ... En
+compute ID group-ID symmetrix/maced/atom model.json E1 E2 ... En [vjp c-ID]
+```
+
+* `model.json`: the extracted model (the same file as in `pair_coeff`)
+* `E1 ... En`: one element symbol for each LAMMPS atom type, in type order (exactly `ntypes` symbols)
+* `vjp c-ID` (optional, `maced` only): ID of a compute that gives a global
+  vector of length `2*num_channels` (written `c-ID` without the `c_` prefix)
+
+Both computes need `atom_modify map yes` (or `array`/`hash`). With KOKKOS
+(`-k on ... -sf kk`), they resolve to `symmetrix/mace/atom/kk` and
+`symmetrix/maced/atom/kk` (`/kk/device` and `/kk/host` variants also exist).
+Use `-pk kokkos newton on neigh half`, as for the pair style.
+
+**Output of `symmetrix/mace/atom`.** A per-atom array with `2*C` columns,
+where `C = num_channels` of the model:
+
+| columns | content |
+|---|---|
+| `0 .. C-1` | `h1_restored`: the l=0 block of the first-layer features `H1`, with the linear map that symmetrix fuses into `H1` undone: `h1_restored[r] = sum_c linear_up_l0_inv[c][r] * H1[l=0][c]` |
+| `C .. 2C-1` | `H2`: the invariant features of the second (final) layer |
+
+The aim is to match the invariant descriptors from the MACE Python model's
+`get_descriptors()` for a two-layer model. Atoms outside the compute group get zero rows. SKMD uses the global
+descriptor `q = sum_i desc[i]` (`ncoeff = 2C`).
+
+**Output of `symmetrix/maced/atom` (default mode).** A per-atom array with
+`3*(2C)` columns that holds the derivative of the global descriptor
+`q = sum over all atoms` with respect to the position of atom `i`:
+
+```
+array[i][d*(2C) + c] = d q_c / d r_{i,d}      d = 0,1,2 (x,y,z),  c = 0 .. 2C-1
+```
+
+So the row is `[ x-block | y-block | z-block ]`, each block having `2C` columns
+in the same order as `symmetrix/mace/atom`. This is the `snad/atom`-like
+layout (with one type block) that `fix skmd` expects. Units are descriptor
+units per length unit. Each call costs one forward pass plus `2C` reverse
+passes, so it is far more expensive than the pair style.
+
+**Output of `symmetrix/maced/atom ... vjp c-ID`.** A per-atom array with 3
+columns: `d (v . q) / d r_i`, where `v` is the vector given by `c-ID`
+(`v[0..C-1]` weights the `h1_restored` block, `v[C..2C-1]` the `H2` block).
+This is one reverse pass.
+
+**Example**
+
+```
+atom_modify   map yes
+pair_style    symmetrix/mace
+pair_coeff    * * model.json Si
+compute       desc all symmetrix/mace/atom  model.json Si
+compute       jac  all symmetrix/maced/atom model.json Si
+```
+
+**Known limitations (this version)**
+
+* `symmetrix/maced/atom` ignores its group. It always differentiates the sum
+  over *all* atoms, while `symmetrix/mace/atom` zeroes atoms outside its
+  group. Use group `all` for both.
+* The Jacobian/VJP is complete only for the KOKKOS variant on a **single MPI
+  rank**. That variant maps periodic images back to their owning atoms. The
+  CPU variant, and the KOKKOS variant on more than one rank, drop the
+  contribution of edges whose neighbour is a ghost atom. This affects any
+  periodic system and any domain decomposition. Non-periodic systems on one
+  rank are unaffected.
+* CPU `vjp` mode is only correct on the first call after the compute is
+  created (the adjoint buffer is not zeroed between calls).
+* `pair_symmetrix/test/test_compute_symmetrix_mace.py` checks both computes
+  (CPU and, if available, KOKKOS/GPU) against finite differences. It uses an
+  isolated 3-atom system in a large box, so it does not exercise the
+  ghost-atom paths above.
+
 ### Building LAMMPS
 
 Some (probably incomplete) prerequisites are:
