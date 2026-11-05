@@ -24,6 +24,7 @@ int num_elements;
 int num_channels;
 double r_cut;
 int l_max, num_lm;
+static constexpr int mace_l_max = 3;
 int L_max, num_LM;
 Kokkos::View<int*> atomic_numbers;
 Kokkos::View<double*> atomic_energies;
@@ -111,11 +112,9 @@ Kokkos::View<Precision***,Kokkos::LayoutRight> H1, H1_adj;
 Kokkos::View<Precision***,Kokkos::LayoutRight> H1_weights, H1_weights_trans;
 
 // Phi1
-int num_lelm1lm2, num_lme;
-Kokkos::View<int*> Phi1_l, Phi1_lel1l2, Phi1_lm1, Phi1_lm2;
-Kokkos::View<int*> Phi1_lme, Phi1_lelm1lm2;
-Kokkos::View<Precision*> Phi1_clebsch_gordan;
-Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1r, dPhi1r;
+int num_lme;
+Kokkos::View<int**,Kokkos::LayoutRight> Phi1_lel1l2_spec;
+Kokkos::View<Precision****,Kokkos::LayoutRight> Phi1_cg;
 Kokkos::View<Precision***,Kokkos::LayoutRight> Phi1, dPhi1;
 
 // A1
