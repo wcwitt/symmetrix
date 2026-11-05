@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(LibSymmetrix)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION SYMMETRIX_VERSION)
+project(LibSymmetrix VERSION ${SYMMETRIX_VERSION})
 
 message(STATUS "Symmetrix: Beginning to process CMakeLists.txt.")
 
@@ -61,6 +62,8 @@ target_include_directories(symmetrix
     PUBLIC  source
     PRIVATE external/json/single_include
             external/sphericart/sphericart/include)
+
+target_compile_definitions(symmetrix PUBLIC SYMMETRIX_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(symmetrix
     PRIVATE sphericart)

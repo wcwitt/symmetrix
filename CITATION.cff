@@ -1,0 +1,6 @@
+cff-version: 1.2.0
+message: "Please cite as below."
+title: Symmetrix
+authors:
+  - name: Symmetrix developers
+repository-code: "https://github.com/wcwitt/symmetrix"

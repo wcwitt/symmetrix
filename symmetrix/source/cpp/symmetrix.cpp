@@ -28,6 +28,7 @@ void bind_zbl_kokkos(py::module_ &m);
 PYBIND11_MODULE(symmetrix, m)
 {
     m.doc() = "symmetrix";
+    m.attr("__version__") = SYMMETRIX_VERSION;
 
     bind_cubic_spline(m);
     bind_cubic_spline_set(m);
