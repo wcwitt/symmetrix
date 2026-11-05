@@ -44,8 +44,8 @@ private:
 // values set in constructor
 double a_exp;
 double a_prefactor;
-Kokkos::View<double*> c;
-Kokkos::View<double*> covalent_radii;
+Kokkos::View<double*,Kokkos::SharedSpace> c;
+Kokkos::View<double*,Kokkos::SharedSpace> covalent_radii;
 int p;
 
 // values taken from mace/modules/radial.py

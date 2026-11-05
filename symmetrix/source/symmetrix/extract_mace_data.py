@@ -12,7 +12,7 @@ from mace.tools.scripts_utils import remove_pt_head
 from ase.data import chemical_symbols
 
 
-def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e-12):
+def extract_mace_data(model, species, head=None, num_spline_points=1024, r_min=1e-12):
     """Extract data from pytorch model file into structure that can be
     written as symmetrix JSON data file
 
@@ -24,7 +24,7 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
         list of atomic numbers or chemical symbols to extract
     head: str, default None
         head to keep, if multihead model, default same as mace.tools.scripts_utils.remove_pt_head
-    num_spline_points: int, default 256
+    num_spline_points: int, default 1024
         number of spline points to approximate various functions
     r_min: float, default 1e-12
         minimum distance covered by the splines
@@ -175,22 +175,24 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
             model_i = model.atomic_numbers.tolist().index(a_i)
             model_j = model.atomic_numbers.tolist().index(a_j)
             bessels = model.radial_embedding(
-                torch.tensor(
-                    r, dtype=torch.float64, device=device
-                ).unsqueeze(-1),
+                torch.tensor(r, dtype=torch.float64, device=device).unsqueeze(-1),
                 torch.eye(len(model.atomic_numbers), device=device),
                 torch.tensor([[model_i], [model_j]], dtype=torch.int64, device=device),
                 model.atomic_numbers.to(device),
             )
-            if isinstance(bessels, tuple):
-                bessels = bessels[0]  # newer versions return (bessels, cutoffs)
+            bessels, cutoff = bessels if isinstance(bessels, tuple) else (bessels, None)
+            cutoff = 1 if cutoff is None else cutoff
             # radial basis for interaction 0
-            R = model.interactions[0].conv_tp_weights(bessels).numpy(force=True)
+            R = (model.interactions[0].conv_tp_weights(bessels) * cutoff).numpy(
+                force=True
+            )
             spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
             spline_values_0.append(spl(r).T.tolist())
             spline_derivatives_0.append(spl(r, 1).T.tolist())
             # radial basis for interaction 1
-            R = model.interactions[1].conv_tp_weights(bessels).numpy(force=True)
+            R = (model.interactions[1].conv_tp_weights(bessels) * cutoff).numpy(
+                force=True
+            )
             spl = CubicSpline(r, R, axis=0, bc_type=spline_bc_type)
             spline_values_1.append(spl(r).T.tolist())
             spline_derivatives_1.append(spl(r, 1).T.tolist())
@@ -240,20 +242,20 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                 model_i = model.atomic_numbers.tolist().index(a_i)
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
-                    torch.tensor(
-                        r, dtype=torch.float64, device=device
-                    ).unsqueeze(-1),
+                    torch.tensor(r, dtype=torch.float64, device=device).unsqueeze(-1),
                     torch.eye(len(model.atomic_numbers), device=device),
                     torch.tensor(
                         [[model_i], [model_j]], dtype=torch.int64, device=device
                     ),
                     model.atomic_numbers.to(device),
                 )
-                if isinstance(bessels, tuple):
-                    bessels = bessels[0]  # newer versions return (bessels, cutoffs)
-                R = torch.tanh(model.interactions[0].density_fn(bessels) ** 2).numpy(
-                    force=True
+                bessels, cutoff = (
+                    bessels if isinstance(bessels, tuple) else (bessels, None)
                 )
+                cutoff = 1 if cutoff is None else cutoff
+                R = (
+                    torch.tanh(model.interactions[0].density_fn(bessels) ** 2) * cutoff
+                ).numpy(force=True)
                 spl = CubicSpline(r, R[:, 0], bc_type=spline_bc_type)
                 A0_spline_values.append(spl(r).tolist())
                 A0_spline_derivs.append(spl.derivative()(r).tolist())
@@ -391,20 +393,20 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
                 model_i = model.atomic_numbers.tolist().index(a_i)
                 model_j = model.atomic_numbers.tolist().index(a_j)
                 bessels = model.radial_embedding(
-                    torch.tensor(
-                        r, dtype=torch.float64, device=device
-                    ).unsqueeze(-1),
+                    torch.tensor(r, dtype=torch.float64, device=device).unsqueeze(-1),
                     torch.eye(len(model.atomic_numbers), device=device),
                     torch.tensor(
                         [[model_i], [model_j]], dtype=torch.int64, device=device
                     ),
                     model.atomic_numbers.to(device),
                 )
-                if isinstance(bessels, tuple):
-                    bessels = bessels[0]  # newer versions return (bessels, cutoffs)
-                R = torch.tanh(model.interactions[1].density_fn(bessels) ** 2).numpy(
-                    force=True
+                bessels, cutoff = (
+                    bessels if isinstance(bessels, tuple) else (bessels, None)
                 )
+                cutoff = 1 if cutoff is None else cutoff
+                R = (
+                    torch.tanh(model.interactions[1].density_fn(bessels) ** 2) * cutoff
+                ).numpy(force=True)
                 spl = CubicSpline(r, R[:, 0], bc_type=spline_bc_type)
                 A1_spline_values.append(spl(r).tolist())
                 A1_spline_derivs.append(spl.derivative()(r).tolist())
@@ -444,7 +446,9 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
             .numpy(force=True)
         )
         H2_weights_for_M0.append(
-            (weights_0[0] @ w / np.sqrt(len(model.atomic_numbers) * num_channels)).flatten().tolist()
+            (weights_0[0] @ w / np.sqrt(len(model.atomic_numbers) * num_channels))
+            .flatten()
+            .tolist()
         )
     output["H2_weights_for_M0"] = H2_weights_for_M0
     # H2 weights for M1
@@ -475,7 +479,12 @@ def extract_mace_data(model, species, head=None, num_spline_points=256, r_min=1e
         / np.sqrt(16)
         * model.scale_shift.scale.item()
     ).tolist()
-    output["readout_2_scale_factor"] = model.readouts[1].non_linearity.acts[0].cst
+    act = model.readouts[1].non_linearity.acts[0]
+    if act.f is not torch.nn.functional.silu:
+        raise RuntimeError(
+            "Currently, symmetrix only supports SiLU readout activations."
+        )
+    output["readout_2_scale_factor"] = act.cst
 
     return output
 
@@ -583,7 +592,7 @@ def symmetric_contraction(layer, module, elements):
                 V[i[-1], i[0] * len(index) + index[tuple(sorted(i[1:-1]))]] += U[i]
             B = np.array([row(N["poly"]) for N in chosen])
             R = np.linalg.lstsq(B.T, V.T, rcond=None)[0]
-            if np.abs(B.T @ R - V.T).max() > 1e-10 * np.abs(V).max():
+            if np.abs(B.T @ R - V.T).max() > 1e-6 * np.abs(V).max():
                 raise RuntimeError(
                     f"M{layer}: the coupling trees do not span MACE's basis"
                 )

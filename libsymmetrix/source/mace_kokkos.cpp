@@ -1144,6 +1144,8 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
+    if (file.contains("model_type"))
+        throw std::runtime_error(filename + " is a " + file["model_type"].get<std::string>() + " model, not a MACE model");
 
     // Basic model information
     num_elements = file["num_elements"];

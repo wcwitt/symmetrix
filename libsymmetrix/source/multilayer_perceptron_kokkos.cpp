@@ -62,23 +62,22 @@ void MultilayerPerceptronKokkos::evaluate(
 
     Kokkos::deep_copy(node_values(0), x);
 
-    for (int i=0; i<batch_size; ++i) {
-        for (int l=0; l<shape.size()-1; ++l) {
-            auto in = Kokkos::subview(node_values(l), i, Kokkos::ALL);
-            auto out = Kokkos::subview(node_values(l+1), i, Kokkos::ALL);
-            KokkosBlas::SerialGemv<KokkosBatched::Trans::NoTranspose,
-                                   KokkosBatched::Algo::Gemv::Unblocked>
-                ::invoke(1.0, weights(l), in, 0.0, out);
-            if (l==shape.size()-2)
-                break;  // no activation in final layer
-            Kokkos::parallel_for(
-                "MultilayerPerceptronKokkos::evaluate::activation",
-                shape(l+1),
-                KOKKOS_CLASS_LAMBDA (const int j) {
+    Kokkos::parallel_for(
+        "MultilayerPerceptronKokkos::evaluate",
+        batch_size,
+        KOKKOS_CLASS_LAMBDA (const int i) {
+            for (int l=0; l<shape.size()-1; ++l) {
+                auto in = Kokkos::subview(node_values(l), i, Kokkos::ALL);
+                auto out = Kokkos::subview(node_values(l+1), i, Kokkos::ALL);
+                KokkosBlas::SerialGemv<KokkosBatched::Trans::NoTranspose,
+                                       KokkosBatched::Algo::Gemv::Unblocked>
+                    ::invoke(1.0, weights(l), in, 0.0, out);
+                if (l==shape.size()-2)
+                    break;  // no activation in final layer
+                for (int j=0; j<shape(l+1); ++j)
                     out(j) = activation_scale*out(j)/(1.0+Kokkos::exp(-out(j)));
-                });
-        }
-    }
+            }
+        });
 
     Kokkos::fence();
     Kokkos::deep_copy(f, Kokkos::subview(node_values(shape.size()-1), Kokkos::ALL, 0));

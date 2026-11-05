@@ -131,6 +131,8 @@ void PairSymmetrixMACE<Precision>::coeff(int narg, char **arg)
   mace = std::make_unique<MACE<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
 
+  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * {} needs one element per atom type", arg[2]);
+
   // extract atomic numbers from pair_coeff
   mace_types = std::vector<int>();
   for (int i=3; i<narg; ++i) {

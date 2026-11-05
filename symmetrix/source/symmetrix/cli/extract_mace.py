@@ -33,7 +33,7 @@ def main():
     parser.add_argument(
         "--num-spline-points",
         type=int,
-        default=256,
+        default=1024,
         help="Number of spline points.",
     )
     parser.add_argument(
@@ -73,3 +73,7 @@ def main():
     print("WRITING JSON TO", args.output)
     with open(args.output, "w") as f:
         json.dump(output, f, indent=4)
+
+
+if __name__ == "__main__":
+    main()

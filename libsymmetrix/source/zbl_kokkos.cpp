@@ -18,8 +18,12 @@ ZBLKokkos::ZBLKokkos(
       a_prefactor(a_prefactor),
       p(p)
 {
-    this->c = toKokkosView("c", c);
-    this->covalent_radii = toKokkosView("covalent_radii", covalent_radii);
+    this->c = Kokkos::View<double*,Kokkos::SharedSpace>("c", c.size());
+    for (int i=0; i<c.size(); ++i)
+        this->c(i) = c[i];
+    this->covalent_radii = Kokkos::View<double*,Kokkos::SharedSpace>("covalent_radii", covalent_radii.size());
+    for (int i=0; i<covalent_radii.size(); ++i)
+        this->covalent_radii(i) = covalent_radii[i];
 }
 
 KOKKOS_FUNCTION

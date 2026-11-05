@@ -61,7 +61,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev ninja-build
+        sudo apt-get install -y build-essential cmake git ninja-build
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.3.2
       with:
@@ -100,7 +100,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev libblas-dev liblapack-dev
+        sudo apt-get install -y build-essential cmake git libfftw3-dev libopenmpi-dev mpi-default-bin mpi-default-dev
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.3.2
       with:
@@ -167,7 +167,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake git libblas-dev liblapack-dev ninja-build
+        sudo apt-get install -y build-essential cmake git ninja-build
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.3.2
       with:

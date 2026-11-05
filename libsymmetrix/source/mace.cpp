@@ -770,6 +770,8 @@ void MACE<Precision>::load_from_json(
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
+    if (file.contains("model_type"))
+        throw std::runtime_error(filename + " is a " + file["model_type"].get<std::string>() + " model, not a MACE model");
 
     // Basic model information
     num_elements = file["num_elements"];
@@ -838,6 +840,8 @@ void MACE<Precision>::load_from_json(
 
     // H1
     H1_weights = file["H1_weights"].get<std::vector<Precision>>();
+    if (H0_weights.size() != num_elements*num_channels or H1_weights.size() != (L_max+1)*num_channels*num_channels)
+        throw std::runtime_error(filename + ": weights do not match num_elements, num_channels and L_max");
 
     // Phi1
     Phi1_l = file["Phi1_l"].get<std::vector<int>>();

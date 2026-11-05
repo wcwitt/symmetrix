@@ -2,9 +2,9 @@ from lammps import lammps
 import numpy as np
 import pytest
 
-lammps_has_kokkos = "KOKKOS" in lammps(
-    cmdargs=["-screen", "none", "-log", "none"]
-).installed_packages
+lammps_has_kokkos = (
+    "KOKKOS" in lammps(cmdargs=["-screen", "none", "-log", "none"]).installed_packages
+)
 
 
 @pytest.mark.parametrize(
@@ -202,7 +202,6 @@ def test_water(cmdargs, pair_style):
         boundary        p p p
         atom_style      atomic
         atom_modify     map yes
-        newton          on
 
         region          box block 0.0 6.2085633514918648 0.0 6.2085633514918648 0.0 6.2085633514918648
         create_box      2 box
@@ -305,7 +304,6 @@ def test_hea(cmdargs, pair_style):
         boundary        p p p
         atom_style      atomic
         atom_modify     map yes
-        newton          on
 
         region          box block 0.0 21.121368258654233 0.0 4.2242736517308463 0.0 4.2242736517308463
         create_box      20 box

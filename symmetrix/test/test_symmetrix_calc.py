@@ -4,7 +4,7 @@
 import pytest
 
 import os
-import time
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -58,27 +58,21 @@ def test_calc_caching(model_cache, use_kokkos):
     atoms.rattle(rng=rng)
 
     calc = Symmetrix(model_cache["mace-mp-0b3-medium-1-8.json"], use_kokkos=use_kokkos)
+    calc.calculate = Mock(wraps=calc.calculate)
     atoms.calc = calc
 
-    t0 = time.time()
     atoms.get_potential_energy()
-    dt_E = time.time() - t0
-
-    t0 = time.time()
     atoms.get_forces()
-    dt_F = time.time() - t0
 
     # without perturbation, forces are from cache
-    assert dt_F < dt_E / 100
+    assert calc.calculate.call_count == 1
 
     atoms.positions[0, 0] += 0.1
 
-    t0 = time.time()
     atoms.get_forces()
-    dt_F_pert = time.time() - t0
 
     # with perturbation, forces have to be recomputed
-    assert np.abs(dt_F_pert - dt_E) / dt_E < 0.5
+    assert calc.calculate.call_count == 2
 
 
 @pytest.mark.parametrize("use_kokkos", [True, False])

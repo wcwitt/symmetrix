@@ -142,8 +142,10 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
   mace = std::make_unique<MACEKokkos<Precision>>(arg[2]);
   utils::logmesg(lmp, "success\n");
 
+  if (narg-3 != atom->ntypes) error->all(FLERR, "pair_coeff * * {} needs one element per atom type", arg[2]);
+
   // extract atomic numbers from pair_coeff
-  mace_types = Kokkos::View<int*>("mace_types", mace->atomic_numbers.size());
+  mace_types = Kokkos::View<int*>("mace_types", narg-3);
   auto h_mace_types = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), mace_types);
   auto h_mace_atomic_numbers = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), mace->atomic_numbers);
   for (int i=3; i<narg; ++i) {
@@ -159,6 +161,8 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::coeff(int narg, char **arg)
             mace_index = j;
     utils::logmesg(lmp, "  mapping LAMMPS type {} ({}) to MACEKokkos type {}\n",
                    i-2, arg[i], mace_index);
+    if (mace_index == -1)
+      error->all(FLERR, "Problem matching LAMMPS types to MACE types.");
     h_mace_types(i-3) = mace_index;
   }
   Kokkos::deep_copy(mace_types, h_mace_types);
@@ -708,8 +712,8 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   mace->compute_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
 
   // sort H1 contributions by i (rather than ii)
-  if (H1.extent(0) < k_list->inum+atom->nghost)
-    Kokkos::realloc(H1, (k_list->inum+atom->nghost), mace->num_LM, mace->num_channels);
+  if (H1.extent(0) < atom->nlocal+atom->nghost)
+    Kokkos::realloc(H1, atom->nlocal+atom->nghost, mace->num_LM, mace->num_channels);
   auto num_LM = mace->num_LM;
   auto num_channels = mace->num_channels;
   auto mace_H1 = mace->H1;
