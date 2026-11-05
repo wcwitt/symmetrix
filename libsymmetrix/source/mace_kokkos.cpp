@@ -1109,7 +1109,7 @@ void MACEKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
-    if (file.value("format_version", 0) != 1)
+    if (file.value("format_version", 0) != 2)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (file.contains("model_type"))
         throw std::runtime_error(filename + " is a " + file["model_type"].get<std::string>() + " model, not a MACE model");

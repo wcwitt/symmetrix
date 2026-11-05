@@ -37,6 +37,9 @@ Subsequent performance improvements are reported in:
 
 Please cite these papers when using `symmetrix`.
 
+Beginning with version 0.2.0, the radial splines are evaluated directly inside the tensor product kernels, taking inspiration from the Symmetrix-XL fork:
+* L. Fu, Z. Feng, Y. Li, H. Du, X. He, J. Wu, K. Bao, Y. Zhang, Z. Deng, Z. Lu, B. Zhu, "Train for Accuracy, Execute at Scale: Architecture-Preserving Inference for Equivariant Atomistic Foundation Models," arXiv:2610.01036 (2026). [[arxiv]](https://arxiv.org/abs/2610.01036)
+
 ### Licensing
 
 The default license for this project is the [MIT License](./LICENSE).
