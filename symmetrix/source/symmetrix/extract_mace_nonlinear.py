@@ -46,6 +46,7 @@ def extract_mace_data_nonlinear(
     N = model.node_embedding.linear.irreps_out.count("0e")
     L_max = prod_0.linear.irreps_out.lmax
     output = {
+        "format_version": 3,
         "num_channels": E,
         "num_channels_node": N,
         "ordered_pairs": True,

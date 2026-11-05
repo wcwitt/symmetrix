@@ -243,7 +243,7 @@ def extract_mace_data_polar(model, atomic_numbers, num_spline_points, r_min):
     assert model.coulomb_energy.include_self_interaction
     _float64_U(model)
     output = {
-        "format_version": 2,
+        "format_version": 3,
         "model_type": "PolarMACE",
         "num_channels": C,
         "r_cut": model.r_max.item(),

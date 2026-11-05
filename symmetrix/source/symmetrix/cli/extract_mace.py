@@ -75,7 +75,9 @@ def main():
         r_min=args.r_min,
         compression_margin=args.compress_basis,
     )
-    output["extracted_with"] = {p: version(p) for p in ("mace-torch", "torch")}
+    output["extracted_with"] = {
+        p: version(p) for p in ("symmetrix", "mace-torch", "torch")
+    }
 
     ### ----- WRITE JSON -----
 

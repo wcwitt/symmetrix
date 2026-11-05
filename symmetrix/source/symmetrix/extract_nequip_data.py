@@ -118,7 +118,7 @@ def _extract_nequip_data(model, species, num_spline_points):
     names = list(f.per_type_energy_scale_shift.type_names)
     has_zbl = pair_potential is not None
     r_cut = float(f.edge_norm.r_max)
-    output = {}
+    output = {"format_version": 3}
     output["model_type"] = "NequIP"
     output["num_layers"] = len(convnets)
     output["r_cut"] = r_cut

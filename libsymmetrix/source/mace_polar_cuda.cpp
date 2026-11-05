@@ -2309,7 +2309,7 @@ void MACEPolarCuda::load_from_json(std::string filename)
     if (not f)
         throw std::runtime_error("MACEPolarCuda: cannot open " + filename);
     const json js = json::parse(f);
-    if (js.value("format_version", 0) != 2)
+    if (js.value("format_version", 0) != 3)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (js.value("model_type", "") != "PolarMACE")
         throw std::invalid_argument("MACEPolarCuda: " + filename + " is not a PolarMACE model file");

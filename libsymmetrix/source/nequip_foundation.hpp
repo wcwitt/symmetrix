@@ -707,6 +707,9 @@ void NequIPFoundation<Precision>::load(const std::string& filename, const std::s
     std::ifstream file(filename);
     if (not file) throw std::runtime_error(prefix + "cannot open " + filename);
     const json js = json::parse(file);
+    if (js.value("format_version", 0) != 3)
+        throw std::runtime_error(prefix + filename + " was extracted by an incompatible symmetrix version; "
+                                                     "extract it again");
     if (js.value("model_type", "") != "NequIP") throw std::runtime_error(prefix + filename + " is not a NequIP model");
     num_elements = js.at("num_elements");
     num_layers = js.at("num_layers");

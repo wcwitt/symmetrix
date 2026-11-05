@@ -1218,6 +1218,9 @@ void MACEFoundation<Precision>::load(const std::string& filename, const std::str
     std::ifstream file(filename);
     if (not file) throw std::runtime_error(prefix + "cannot open " + filename);
     const json js = json::parse(file);
+    if (js.value("format_version", 0) != 3)
+        throw std::runtime_error(prefix + filename + " was extracted by an incompatible symmetrix version; "
+                                                     "extract it again");
     if (js.contains("model_type")) throw std::runtime_error(prefix + filename + " is not a MACE model");
     if (not js.contains("first_layer_weights"))
         throw std::runtime_error(prefix + "the model file has no first-layer basis; "

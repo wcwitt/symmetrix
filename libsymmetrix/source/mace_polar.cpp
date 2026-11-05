@@ -1567,7 +1567,7 @@ void MACEPolar::load_from_json(std::string filename)
     if (not f)
         throw std::runtime_error("MACEPolar: cannot open " + filename);
     nlohmann::json file = nlohmann::json::parse(f);
-    if (file.value("format_version", 0) != 2)
+    if (file.value("format_version", 0) != 3)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (file.value("model_type", "") != "PolarMACE")
         throw std::invalid_argument("MACEPolar: " + filename + " is not a PolarMACE model file");

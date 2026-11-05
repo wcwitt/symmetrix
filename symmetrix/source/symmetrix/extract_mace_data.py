@@ -150,7 +150,7 @@ def extract_mace_data(
     r_cut = model.r_max.item()
     l_max = model.spherical_harmonics._lmax
     L_max = model.products[0].linear.irreps_out.lmax
-    output = {"format_version": 2}
+    output = {"format_version": 3}
     output["num_channels"] = num_channels
     output["r_cut"] = r_cut
     output["l_max"] = l_max

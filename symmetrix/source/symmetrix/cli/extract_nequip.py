@@ -58,7 +58,7 @@ def main():
     output = extract_nequip_data(
         args.model, species, num_spline_points=args.num_spline_points
     )
-    output["extracted_with"] = {p: version(p) for p in ("nequip", "torch")}
+    output["extracted_with"] = {p: version(p) for p in ("symmetrix", "nequip", "torch")}
 
     ### ----- WRITE JSON -----
 

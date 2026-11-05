@@ -609,6 +609,8 @@ void NequIPKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
     nlohmann::json file = nlohmann::json::parse(f);
+    if (file.value("format_version", 0) != 3)
+        throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");
     if (file.value("model_type", "") != "NequIP")
         throw std::runtime_error(filename + " is not a NequIP model");
 
