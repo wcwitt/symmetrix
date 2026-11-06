@@ -57,6 +57,8 @@ ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEdato
 
   {
     MACE mace_cpu(model_file);
+    if (mace_cpu.linear_up_l0_inv.empty())
+      error->all(FLERR, "Model file '{}' has no linear_up_l0_inv (needed to match MACE descriptors); re-extract it with this fork's extract_mace_data.py", model_file);
     if (mace_cpu.num_channels != num_channels)
       error->all(FLERR, "MACE/MACEKokkos num_channels mismatch loading '{}'", model_file);
     linear_up_l0_inv = Kokkos::View<double **>(
@@ -97,6 +99,12 @@ ComputeSymmetrixMACEdatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEdato
   if (use_vjp) size_peratom_cols = 3;
   else         size_peratom_cols = 3 * (2 * num_channels);
 
+  // The multi-rank (mpi_message_passing) path does not yet sum edge terms of
+  // atoms owned by other ranks back to their owners, so its Jacobian would be
+  // wrong. Refuse rather than return silently wrong values.
+  if (comm->nprocs > 1)
+    error->all(FLERR, "compute symmetrix/maced/atom/kk supports a single MPI rank only; "
+               "use one rank or the non-Kokkos compute symmetrix/maced/atom");
   mode = (comm->nprocs == 1) ? "no_domain_decomposition" : "mpi_message_passing";
   comm_forward = (mode == "mpi_message_passing") ? num_LM * num_channels : 0;
   comm_reverse = (mode == "mpi_message_passing") ? num_LM * num_channels : 0;

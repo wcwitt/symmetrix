@@ -1,3 +1,18 @@
+/* -*- c++ -*- ----------------------------------------------------------
+   LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
+   https://www.lammps.org/, Sandia National Laboratories
+   LAMMPS development team: developers@lammps.org
+
+   Copyright (2003) Sandia Corporation.  Under the terms of Contract
+   DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
+   certain rights in this software.  This software is distributed under
+   the GNU General Public License.
+
+   See the README file in the top-level LAMMPS directory.
+------------------------------------------------------------------------- */
+
+// Contributing author: Fraser Birks
+
 #ifdef COMPUTE_CLASS
 // clang-format off
 ComputeStyle(symmetrix/maced/atom,ComputeSymmetrixMACEdatom)
@@ -60,7 +75,7 @@ class ComputeSymmetrixMACEdatom : public Compute {
   // Reverse-comm buffer for H1_adj (atom-indexed, size (nlocal+nghost)*stride)
   std::vector<double> H1_adj_comm;
 
-  // Optional VJP seed compute (global vector length num_channels)
+  // Optional VJP seed compute (global vector length 2*num_channels)
   bool use_vjp = false;
   std::string vjp_id;
   class Compute *vjp_compute = nullptr;
@@ -69,6 +84,7 @@ class ComputeSymmetrixMACEdatom : public Compute {
   int num_LM = 0;
   double r_cut = 0.0;
   int nmax = 0;
+  bool reverse_output = false;  // reverse comm of array_atom rows (vs H1_adj)
 
   void build_graph_from_neighlist(int &num_nodes, int &num_edges);
 

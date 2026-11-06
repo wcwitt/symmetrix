@@ -16,6 +16,101 @@ pair_coeff    * * my-mace-1-8.json H O
 where the final `H O` assumes that `H` and `O` correspond to LAMMPS
 types `1` and `2`, respectively.
 
+### Descriptor computes for SKMD
+
+This fork adds two per-atom computes, used by `fix skmd`
+([skmd-lammps](https://github.com/Fraser-Birks/skmd-lammps)) for Stein
+Kernelized Molecular Dynamics. They run their own MACE evaluation, separate
+from `pair_style symmetrix/mace`, and are installed by `install.sh` along
+with the pair style.
+
+**Model files.** Both computes need the key `linear_up_l0_inv` in the model
+JSON (so the descriptor matches MACE's `get_descriptors()`), which only this
+fork's `symmetrix_extract_mace` writes; they stop with an error if it is
+missing. The pair style itself also loads JSON files made by upstream
+symmetrix.
+
+**Syntax**
+
+```
+compute ID group-ID symmetrix/mace/atom  model.json E1 E2 ... En
+compute ID group-ID symmetrix/maced/atom model.json E1 E2 ... En [vjp c-ID]
+```
+
+* `model.json`: the extracted model (the same file as in `pair_coeff`)
+* `E1 ... En`: one element symbol for each LAMMPS atom type, in type order (exactly `ntypes` symbols)
+* `vjp c-ID` (optional, `maced` only): ID of a compute that gives a global
+  vector of length `2*num_channels` (written `c-ID` without the `c_` prefix)
+
+Both computes need `atom_modify map yes` (or `array`/`hash`). With KOKKOS
+(`-k on ... -sf kk`), they resolve to `symmetrix/mace/atom/kk` and
+`symmetrix/maced/atom/kk` (`/kk/device` and `/kk/host` variants also exist).
+Use `-pk kokkos newton on neigh half`, as for the pair style.
+
+**Output of `symmetrix/mace/atom`.** A per-atom array with `2*C` columns,
+where `C = num_channels` of the model:
+
+| columns | content |
+|---|---|
+| `0 .. C-1` | `h1_restored`: the l=0 block of the first-layer features `H1`, with the linear map that symmetrix fuses into `H1` undone: `h1_restored[r] = sum_c linear_up_l0_inv[c][r] * H1[l=0][c]` |
+| `C .. 2C-1` | `H2`: the invariant features of the second (final) layer |
+
+The aim is to match the invariant descriptors from the MACE Python model's
+`get_descriptors()` for a two-layer model. Atoms outside the compute group get zero rows. SKMD uses the global
+descriptor `q = sum_i desc[i]` (`ncoeff = 2C`).
+
+**Output of `symmetrix/maced/atom` (default mode).** A per-atom array with
+`3*(2C)` columns that holds the derivative of the global descriptor
+`q = sum over all atoms` with respect to the position of atom `i`:
+
+```
+array[i][d*(2C) + c] = d q_c / d r_{i,d}      d = 0,1,2 (x,y,z),  c = 0 .. 2C-1
+```
+
+So the row is `[ x-block | y-block | z-block ]`, each block having `2C` columns
+in the same order as `symmetrix/mace/atom`. This is the `snad/atom`-like
+layout (with one type block) that `fix skmd` expects. Units are descriptor
+units per length unit. Each call costs one forward pass plus `2C` reverse
+passes, so it is far more expensive than the pair style.
+
+**Output of `symmetrix/maced/atom ... vjp c-ID`.** A per-atom array with 3
+columns: `d (v . q) / d r_i`, where `v` is the vector given by `c-ID`
+(`v[0..C-1]` weights the `h1_restored` block, `v[C..2C-1]` the `H2` block).
+This is one reverse pass.
+
+**Example**
+
+```
+atom_modify   map yes
+pair_style    symmetrix/mace
+pair_coeff    * * model.json Si
+compute       desc all symmetrix/mace/atom  model.json Si
+compute       jac  all symmetrix/maced/atom model.json Si
+```
+
+**Known limitations (this version)**
+
+* `symmetrix/maced/atom` ignores its group. It always differentiates the sum
+  over *all* atoms, while `symmetrix/mace/atom` zeroes atoms outside its
+  group. Use group `all` for both.
+* `symmetrix/maced/atom/kk` supports a **single MPI rank** only (it stops with
+  an error otherwise). The CPU `symmetrix/maced/atom` works on any number of
+  ranks and with periodic images.
+
+**Tests** (in `pair_symmetrix/test/`)
+
+* `test_compute_symmetrix_mace.py`: descriptor vs reference, Jacobian/VJP vs
+  finite differences on an isolated 3-atom system.
+* `fd_jacobian_periodic.py`: Jacobian vs central finite differences on a
+  rattled 8-atom periodic Si cell (neighbours are mostly periodic images);
+  decomposition-independent, so run it under `mpirun -np N` too.
+* `skmd_compute_regressions.py`: upstream-style model files load in the pair
+  style and give a clear error in the computes; `vjp` equals Jᵀv on repeated
+  calls.
+
+The last two need a model JSON extracted with this fork, e.g.
+`python fd_jacobian_periodic.py --model model.json --element Si [--kokkos]`.
+
 ### Building LAMMPS
 
 Some (probably incomplete) prerequisites are:

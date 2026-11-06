@@ -62,6 +62,8 @@ ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEatomK
   // parsing path here.
   {
     MACE mace_cpu(model_file);
+    if (mace_cpu.linear_up_l0_inv.empty())
+      error->all(FLERR, "Model file '{}' has no linear_up_l0_inv (needed to match MACE descriptors); re-extract it with this fork's extract_mace_data.py", model_file);
     if (mace_cpu.num_channels != num_channels)
       error->all(FLERR, "MACE/MACEKokkos num_channels mismatch loading '{}'", model_file);
     linear_up_l0_inv = Kokkos::View<double **>(
@@ -73,8 +75,8 @@ ComputeSymmetrixMACEatomKokkos<DeviceType, Precision>::ComputeSymmetrixMACEatomK
     Kokkos::deep_copy(linear_up_l0_inv, h_linear_up_l0_inv);
   }
 
-  // compute outputs a per-atom ARRAY with num_channels columns (output is
-  // invariant features of final layer)
+  // compute outputs a per-atom ARRAY with 2*num_channels columns:
+  // [h1_restored | H2], identical layout to the CPU compute
   peratom_flag = 1;
   size_peratom_cols = 2 * num_channels;
 

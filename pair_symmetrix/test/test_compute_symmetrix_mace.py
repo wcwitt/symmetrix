@@ -22,7 +22,10 @@ Actions runner's CPU-only build -- via a check at collection time (see
 _kokkos_gpu_available()), rather than letting LAMMPS hard-error on `-k on
 g 1` when the build can't honor it.
 
-Not wired into CI -- run manually, e.g.:
+Requires a model JSON that contains "linear_up_l0_inv", i.e. one extracted
+with this fork's symmetrix_extract_mace (the upstream test JSON downloaded
+below predates that key). CI's `python -m pytest` in this directory will
+collect this file; run it manually with e.g.:
     pytest test_compute_symmetrix_mace.py -v
 """
 
