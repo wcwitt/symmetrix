@@ -2,7 +2,7 @@
 
 #include "mace_foundation_tables.hpp"
 
-#include "../external/json/single_include/nlohmann/json.hpp"
+#include "nlohmann_json.hpp"
 
 #include <algorithm>
 #include <array>
