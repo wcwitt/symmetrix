@@ -9,27 +9,36 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
-lammps=$( echo "$1" | sed 's#/$##' )
+# absolute path to lammps, then work from the directory containing this script
+lammps=$(cd "$1" && pwd)
+cd "$(dirname "$0")"
 
-# clean up source files
+# check for problems before modifying anything
+cmake=${lammps}/cmake/CMakeLists.txt
+if fgrep -q SYMMETRIX $cmake; then
+    if [ $( fgrep -c '### SYMMETRIX' $cmake ) != 2 ] || \
+       [ $( fgrep -c '### SYMMETRIX START' $cmake ) != 1 ] || \
+       [ $( fgrep -c '### SYMMETRIX END' $cmake ) != 1 ]; then
+        echo "Unrecognized symmetrix changes in ${cmake} (perhaps from an older install.sh)." 1>&2
+        echo "Restore it, e.g. 'git -C ${lammps} checkout cmake/CMakeLists.txt', and re-run." 1>&2
+        exit 2
+    fi
+fi
 for f in ${lammps}/src{,/KOKKOS}/pair_symmetrix*.{h,cpp}; do
     if [ -f $f ] && [ ! -L $f ]; then
         ls -l $f
         echo "Not a symlink, refusing to delete or overwrite" 1>&2
         exit 1
     fi
+done
+
+# clean up source files
+for f in ${lammps}/src{,/KOKKOS}/pair_symmetrix*.{h,cpp}; do
     echo rm -f $f 1>&2
          rm -f $f
 done
 # clean up CMakeLists.txt
-cmake=${lammps}/cmake/CMakeLists.txt
 if fgrep -q SYMMETRIX $cmake; then
-    if [ $( fgrep -c '### SYMMETRIX' $cmake ) != 2 ] || \
-       [ $( fgrep -c '### SYMMETRIX START' $cmake ) != 1 ] || \
-       [ $( fgrep -c '### SYMMETRIX END' $cmake ) != 1 ]; then
-        echo "Found unknown '### SYMMETRIX line in '${cmake}'" 1>&2
-        exit 2
-    fi
     first=$( fgrep -n '### SYMMETRIX START' $cmake | sed 's/:.*//' )
     last=$( fgrep -n '### SYMMETRIX END' $cmake | sed 's/:.*//' )
     sed -i -e "${first},${last}d" ${cmake}
