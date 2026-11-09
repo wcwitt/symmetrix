@@ -9,33 +9,50 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
-lammps=$1
+lammps=$( echo "$1" | sed 's#/$##' )
+
+# clean up source files
+for f in ${lammps}/src{,/KOKKOS}/pair_symmetrix*.{h,cpp}; do
+    if [ -f $f ] && [ ! -L $f ]; then
+        ls -l $f
+        echo "Not a symlink, refusing to delete or overwrite" 1>&2
+        exit 1
+    fi
+    echo rm -f $f 1>&2
+         rm -f $f
+done
+# clean up CMakeLists.txt
+cmake=${lammps}/cmake/CMakeLists.txt
+if fgrep -q SYMMETRIX $cmake; then
+    if [ $( fgrep -c '### SYMMETRIX' $cmake ) != 2 ] || \
+       [ $( fgrep -c '### SYMMETRIX START' $cmake ) != 1 ] || \
+       [ $( fgrep -c '### SYMMETRIX END' $cmake ) != 1 ]; then
+        echo "Found unknown '### SYMMETRIX line in '${cmake}'" 1>&2
+        exit 2
+    fi
+    first=$( fgrep -n '### SYMMETRIX START' $cmake | sed 's/:.*//' )
+    last=$( fgrep -n '### SYMMETRIX END' $cmake | sed 's/:.*//' )
+    sed -i -e "${first},${last}d" ${cmake}
+    if fgrep -q '### SYMMETRIX' $cmake; then
+        echo "Failed to remove all '### SYMMETRIX' stuff from ${cmake}" 1>&2
+        exit 2
+    fi
+fi
 
 # add new lammps source files
-ln -sf $(pwd)/pair_symmetrix_mace.h ${lammps}/src/pair_symmetrix_mace.h
-ln -sf $(pwd)/pair_symmetrix_mace.cpp ${lammps}/src/pair_symmetrix_mace.cpp
-ln -sf $(pwd)/pair_symmetrix_mace_polar.h ${lammps}/src/pair_symmetrix_mace_polar.h
-ln -sf $(pwd)/pair_symmetrix_mace_polar.cpp ${lammps}/src/pair_symmetrix_mace_polar.cpp
-ln -sf $(pwd)/pair_symmetrix_mace_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_mace_kokkos.h
-ln -sf $(pwd)/pair_symmetrix_mace_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_mace_kokkos.cpp
-ln -sf $(pwd)/pair_symmetrix_mace_polar_cuda.h ${lammps}/src/pair_symmetrix_mace_polar_cuda.h
-ln -sf $(pwd)/pair_symmetrix_mace_polar_cuda_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_mace_polar_cuda_kokkos.h
-ln -sf $(pwd)/pair_symmetrix_mace_polar_cuda_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_mace_polar_cuda_kokkos.cpp
-ln -sf $(pwd)/pair_symmetrix_nequip.h ${lammps}/src/pair_symmetrix_nequip.h
-ln -sf $(pwd)/pair_symmetrix_nequip.cpp ${lammps}/src/pair_symmetrix_nequip.cpp
-ln -sf $(pwd)/pair_symmetrix_nequip_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_nequip_kokkos.h
-ln -sf $(pwd)/pair_symmetrix_nequip_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_nequip_kokkos.cpp
-ln -sf $(pwd)/pair_symmetrix_mace_foundation.h ${lammps}/src/pair_symmetrix_mace_foundation.h
-ln -sf $(pwd)/pair_symmetrix_mace_foundation.cpp ${lammps}/src/pair_symmetrix_mace_foundation.cpp
-ln -sf $(pwd)/pair_symmetrix_mace_foundation_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_mace_foundation_kokkos.h
-ln -sf $(pwd)/pair_symmetrix_mace_foundation_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_mace_foundation_kokkos.cpp
-ln -sf $(pwd)/pair_symmetrix_nequip_foundation.h ${lammps}/src/pair_symmetrix_nequip_foundation.h
-ln -sf $(pwd)/pair_symmetrix_nequip_foundation.cpp ${lammps}/src/pair_symmetrix_nequip_foundation.cpp
-ln -sf $(pwd)/pair_symmetrix_nequip_foundation_kokkos.h ${lammps}/src/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.h
-ln -sf $(pwd)/pair_symmetrix_nequip_foundation_kokkos.cpp ${lammps}/src/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.cpp
+for f in *.{h,cpp}; do
+    target_dir=${lammps}/src
+    if [[ $f =~ kokkos ]]; then
+        target_dir=${target_dir}/KOKKOS
+    fi
+
+    echo ln -s $(pwd)/${f} ${target_dir} 1>&2
+         ln -s $(pwd)/${f} ${target_dir}
+done
 
 # update lammps build instructions
 echo "
+### SYMMETRIX START
 add_subdirectory($(pwd)/../libsymmetrix libsymmetrix)
 target_include_directories(lammps PRIVATE $(pwd)/../libsymmetrix/source)
 target_link_libraries(lammps PRIVATE symmetrix)
@@ -54,4 +71,5 @@ if(Kokkos_ENABLE_CUDA)
     \${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.cpp
     PROPERTIES COMPILE_OPTIONS \"--expt-relaxed-constexpr;\$<\$<CONFIG:Release>:--use_fast_math>\")
 endif()
+### SYMMETRIX END
 " >> $lammps/cmake/CMakeLists.txt
