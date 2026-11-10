@@ -132,7 +132,7 @@ void MACEKokkos<Precision>::compute_first_layer(
         if (not sphericart_calculator)
             sphericart_calculator = std::make_shared<Sphericart>(l_max);
         static_cast<Sphericart*>(sphericart_calculator.get())->compute_array_with_gradients(
-            h_xyz.data(), 3*num, h_Y.data(), 3*num*num_lm, h_Y_grad.data(), 3*num*num_lm);
+            h_xyz.data(), 3*num, h_Y.data(), h_Y.extent(0), h_Y_grad.data(), h_Y_grad.extent(0));
         Kokkos::deep_copy(Y, h_Y);
         Kokkos::deep_copy(Y_grad, h_Y_grad);
 
