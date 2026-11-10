@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 [tool.scikit-build]
 cmake.version = ">=3.27"
 build-dir = "build"
-wheel.exclude = ["lib/", "include/"]
+wheel.exclude = ["bin/", "lib/", "include/"]
 wheel.packages = ["source/symmetrix"]
 
 [project]
