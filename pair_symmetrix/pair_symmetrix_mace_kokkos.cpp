@@ -1,3 +1,5 @@
+#include <cstddef>
+#include <limits>
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
@@ -443,12 +445,15 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
     });
 
   // count edges
-  int num_edges;
+  std::size_t num_edges_wide;
   Kokkos::parallel_reduce("PairSymmetrixMACEKokkos::count_edges",
     num_nodes,
-    KOKKOS_LAMBDA (const int ii, int& num_edges) {
+    KOKKOS_LAMBDA (const int ii, std::size_t& num_edges) {
       num_edges += num_neigh(ii);
-    }, num_edges);
+    }, num_edges_wide);
+  if (num_edges_wide > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    error->one(FLERR, "Symmetrix: more than INT_MAX edges per rank; use more MPI ranks");
+  const int num_edges = static_cast<int>(num_edges_wide);
 
   // first neighbor
   if (first_neigh.size() < num_nodes) Kokkos::realloc(first_neigh, num_nodes);
@@ -463,11 +468,11 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
   // neigh_indices, neigh_types, xyz, and r
   if (neigh_indices.size() < num_edges) Kokkos::realloc(neigh_indices, num_edges);
   if (neigh_types.size() < num_edges) Kokkos::realloc(neigh_types, num_edges);
-  if (xyz.size() < 3*num_edges) Kokkos::realloc(xyz, 3*num_edges);
+  if (xyz.size() < std::size_t{3}*num_edges) Kokkos::realloc(xyz, std::size_t{3}*num_edges);
   if (r.size() < num_edges) Kokkos::realloc(r, num_edges);
   auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,num_edges));
   auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,num_edges));
-  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*num_edges));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(std::size_t{0},std::size_t{3}*num_edges));
   auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,num_edges));
   // TODO: better parallelization?
   Kokkos::parallel_for("PairSymmetrixMACEKokkos::set_edge_based_views",
@@ -477,7 +482,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
       const double x_i = x(i,0);
       const double y_i = x(i,1);
       const double z_i = x(i,2);
-      int ij = first_neigh(ii);
+      std::size_t ij = first_neigh(ii);
       for (int jj=0; jj<d_numneigh(i); ++jj) {
         const int j = (d_neighbors(i,jj) & NEIGHMASK);
         const int j_local = AtomKokkos::map_kokkos<DeviceType>(tag(j),map_style,k_map_array,k_map_hash);
@@ -530,7 +535,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
       Kokkos::parallel_reduce(
         Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
         [&] (const int jj, double& f_x, double& f_y, double& f_z) {
-          const int ij = first_neigh(ii) + jj;
+          const std::size_t ij = first_neigh(ii) + jj;
           const int j = neigh_indices(ij);
           f_x += mace_node_forces(3*ij);
           f_y += mace_node_forces(3*ij+1);
@@ -559,7 +564,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_domain_decomposi
           Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
           [&] (const int jj, double& v_0, double& v_1, double& v_2,
                              double& v_3, double& v_4, double& v_5) {
-            const int ij = first_neigh(ii) + jj;
+            const std::size_t ij = first_neigh(ii) + jj;
             const double x = xyz(3*ij);
             const double y = xyz(3*ij+1);
             const double z = xyz(3*ij+2);
@@ -656,12 +661,15 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
     });
 
   // count edges
-  int num_edges;
+  std::size_t num_edges_wide;
   Kokkos::parallel_reduce("Count Neighbors",
     num_nodes,
-    KOKKOS_LAMBDA (const int ii, int& num_edges) {
+    KOKKOS_LAMBDA (const int ii, std::size_t& num_edges) {
       num_edges += num_neigh(ii);
-    }, num_edges);
+    }, num_edges_wide);
+  if (num_edges_wide > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    error->one(FLERR, "Symmetrix: more than INT_MAX edges per rank; use more MPI ranks");
+  const int num_edges = static_cast<int>(num_edges_wide);
 
   // first neighbor
   if (first_neigh.size() < num_nodes) Kokkos::realloc(first_neigh, num_nodes);
@@ -676,11 +684,11 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
   // neigh_indices, neigh_types, xyz, and r
   if (neigh_indices.size() < num_edges) Kokkos::realloc(neigh_indices, num_edges);
   if (neigh_types.size() < num_edges) Kokkos::realloc(neigh_types, num_edges);
-  if (xyz.size() < 3*num_edges) Kokkos::realloc(xyz, 3*num_edges);
+  if (xyz.size() < std::size_t{3}*num_edges) Kokkos::realloc(xyz, std::size_t{3}*num_edges);
   if (r.size() < num_edges) Kokkos::realloc(r, num_edges);
   auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,num_edges));
   auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,num_edges));
-  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*num_edges));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(std::size_t{0},std::size_t{3}*num_edges));
   auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,num_edges));
   Kokkos::parallel_for("Set Edge-Based Views",
     num_nodes,
@@ -689,7 +697,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
       const double x_i = x(i,0);
       const double y_i = x(i,1);
       const double z_i = x(i,2);
-      int ij = first_neigh(ii);
+      std::size_t ij = first_neigh(ii);
       for (int jj=0; jj<d_numneigh(i); ++jj) {
         const int j = (d_neighbors(i,jj) & NEIGHMASK);
         const double dx = x(j,0) - x_i;
@@ -771,7 +779,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
       Kokkos::parallel_reduce(
         Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
         [&] (const int jj, double& f_x, double& f_y, double& f_z) {
-          const int ij = first_neigh(ii) + jj;
+          const std::size_t ij = first_neigh(ii) + jj;
           const int j = neigh_indices(ij);
           f_x += mace_node_forces(3*ij);
           f_y += mace_node_forces(3*ij+1);
@@ -800,7 +808,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_mpi_message_passing
           Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
           [&] (const int jj, double& v_0, double& v_1, double& v_2,
                              double& v_3, double& v_4, double& v_5) {
-            const int ij = first_neigh(ii) + jj;
+            const std::size_t ij = first_neigh(ii) + jj;
             const double x = xyz(3*ij);
             const double y = xyz(3*ij+1);
             const double z = xyz(3*ij+2);
@@ -948,18 +956,22 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
   Kokkos::fence();
 
   // count edges
-  int num_local_edges;
+  std::size_t num_local_edges_wide;
   Kokkos::parallel_reduce("count local edges",
     num_local_nodes,
-    KOKKOS_LAMBDA (const int ii, int& num_local_edges) {
+    KOKKOS_LAMBDA (const int ii, std::size_t& num_local_edges) {
       num_local_edges += num_neigh(ii);
-    }, num_local_edges);
-  int num_ghost_edges;
+    }, num_local_edges_wide);
+  std::size_t num_ghost_edges_wide;
   Kokkos::parallel_reduce("count ghost edges",
     Kokkos::RangePolicy<>(num_local_nodes, num_local_nodes+num_ghost_nodes),
-    KOKKOS_LAMBDA (const int ii, int& num_ghost_edges) {
+    KOKKOS_LAMBDA (const int ii, std::size_t& num_ghost_edges) {
       num_ghost_edges += num_neigh(ii);
-    }, num_ghost_edges);
+    }, num_ghost_edges_wide);
+  if (num_local_edges_wide + num_ghost_edges_wide > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    error->one(FLERR, "Symmetrix: more than INT_MAX edges per rank; use more MPI ranks");
+  const int num_local_edges = static_cast<int>(num_local_edges_wide);
+  const int num_ghost_edges = static_cast<int>(num_ghost_edges_wide);
   Kokkos::fence();
 
   // first neighbor
@@ -979,13 +991,13 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
     Kokkos::realloc(neigh_indices, num_local_edges+num_ghost_edges);
   if (neigh_types.size() < num_local_edges+num_ghost_edges)
     Kokkos::realloc(neigh_types, num_local_edges+num_ghost_edges);
-  if (xyz.size() < 3*(num_local_edges+num_ghost_edges))
-    Kokkos::realloc(xyz, 3*(num_local_edges+num_ghost_edges));
+  if (xyz.size() < std::size_t{3}*(num_local_edges+num_ghost_edges))
+    Kokkos::realloc(xyz, std::size_t{3}*(num_local_edges+num_ghost_edges));
   if (r.size() < num_local_edges+num_ghost_edges)
     Kokkos::realloc(r, num_local_edges+num_ghost_edges);
   auto neigh_indices = Kokkos::subview(this->neigh_indices, Kokkos::make_pair(0,num_local_edges+num_ghost_edges));
   auto neigh_types = Kokkos::subview(this->neigh_types, Kokkos::make_pair(0,num_local_edges+num_ghost_edges));
-  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(0,3*(num_local_edges+num_ghost_edges)));
+  auto xyz = Kokkos::subview(this->xyz, Kokkos::make_pair(std::size_t{0},std::size_t{3}*(num_local_edges+num_ghost_edges)));
   auto r = Kokkos::subview(this->r, Kokkos::make_pair(0,num_local_edges+num_ghost_edges));
   Kokkos::parallel_for("populate edge-based views",
     num_local_nodes+num_ghost_nodes,
@@ -994,7 +1006,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
       const double x_i = x(i,0);
       const double y_i = x(i,1);
       const double z_i = x(i,2);
-      int ij = first_neigh(ii);
+      std::size_t ij = first_neigh(ii);
       for (int jj=0; jj<d_numneigh(i); ++jj) {
         const int j = (d_neighbors(i,jj) & NEIGHMASK);
         const double dx = x(j,0) - x_i;
@@ -1069,7 +1081,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
       Kokkos::parallel_reduce(
         Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
         [&] (const int jj, double& f_x, double& f_y, double& f_z) {
-          const int ij = first_neigh(ii) + jj;
+          const std::size_t ij = first_neigh(ii) + jj;
           const int j = neigh_indices(ij);
           f_x += mace_node_forces(3*ij);
           f_y += mace_node_forces(3*ij+1);
@@ -1098,7 +1110,7 @@ void PairSymmetrixMACEKokkos<DeviceType, Precision>::compute_no_mpi_message_pass
           Kokkos::TeamThreadRange(team_member, num_neigh(ii)),
           [&] (const int jj, double& v_0, double& v_1, double& v_2,
                              double& v_3, double& v_4, double& v_5) {
-            const int ij = first_neigh(ii) + jj;
+            const std::size_t ij = first_neigh(ii) + jj;
             const double x = xyz(3*ij);
             const double y = xyz(3*ij+1);
             const double z = xyz(3*ij+2);
