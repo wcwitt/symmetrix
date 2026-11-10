@@ -1,4 +1,6 @@
 #include <fstream>
+#include <cstddef>
+#include <limits>
 #include <numbers>
 #include <cmath>
 #include <stdexcept>
@@ -53,6 +55,9 @@ void MACEKokkos<Precision>::compute_node_energies_forces(
     Kokkos::View<const double*> xyz,
     Kokkos::View<const double*> r)
 {
+    // Neighbor offsets use int, but flattened component arrays may exceed INT_MAX.
+    if (r.extent(0) > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        throw std::overflow_error("MACEKokkos: more than INT_MAX edges per rank; use more MPI ranks");
     // E = \sum_i E_i,  \mathbf{r}_{ij} = \mathbf{x}_j - \mathbf{x}_i,  \mathbf{F}_{ij} = -\partial E / \partial \mathbf{r}_{ij},  \bar{X} = \partial E / \partial X
     compute_first_layer(num_nodes, node_types, num_neigh, neigh_types, xyz, r);
     compute_second_layer(num_nodes, node_types, num_neigh, neigh_indices, neigh_types, r);
@@ -100,7 +105,7 @@ void MACEKokkos<Precision>::compute_first_layer(
     {
 #if !defined (SYMMETRIX_SPHERICART_CUDA) && !defined (SYMMETRIX_SPHERICART_SYCL)
 
-        const int num = xyz.extent(0) / 3;
+        const std::size_t num = xyz.extent(0) / 3;
         if (Y.extent(0) < num*num_lm) {
             Kokkos::realloc(Y, num*num_lm);
             Kokkos::realloc(Y_grad, 3*num*num_lm);
@@ -113,7 +118,9 @@ void MACEKokkos<Precision>::compute_first_layer(
         if (xyz_sphericart.extent(0) < 3*num)
             Kokkos::realloc(xyz_sphericart, 3*num);
         auto xyz_sphericart = this->xyz_sphericart;
-        Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+        Kokkos::parallel_for("copy_xyz",
+            Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>(0, 3*num),
+            KOKKOS_LAMBDA (std::size_t i) {
             xyz_sphericart(i) = xyz(i);
         });
 
@@ -131,7 +138,7 @@ void MACEKokkos<Precision>::compute_first_layer(
 
 #else // SYMMETRIX_SPHERICART_CUDA or SYMMETRIX_SPHERICART_SYCL
 
-        const int num = xyz.extent(0) / 3;
+        const std::size_t num = xyz.extent(0) / 3;
         const int num_lm = (l_max+1)*(l_max+1);
         if (Y.size() < num*num_lm) {
             Kokkos::realloc(Y, num*num_lm);
@@ -143,7 +150,9 @@ void MACEKokkos<Precision>::compute_first_layer(
         if (xyz_sphericart.extent(0) < 3*num)
             Kokkos::realloc(xyz_sphericart, 3*num);
         auto xyz_sphericart = this->xyz_sphericart;
-        Kokkos::parallel_for("copy_xyz", 3*num, KOKKOS_LAMBDA (int i) {
+        Kokkos::parallel_for("copy_xyz",
+            Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>(0, 3*num),
+            KOKKOS_LAMBDA (std::size_t i) {
             xyz_sphericart(i) = xyz(i);
         });
         Kokkos::fence();
@@ -191,7 +200,7 @@ void MACEKokkos<Precision>::compute_first_layer(
                 Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_channels), [&] (const int k) {
                     const int lk = l*num_channels+k;
                     Precision a[2*mace_l_max+1] = {};
-                    for (int ij=first_neigh(i); ij<first_neigh(i)+num_neigh(i); ++ij) {
+                    for (std::size_t ij=first_neigh(i); ij<first_neigh(i)+num_neigh(i); ++ij) {
                         const int type_ij = node_types(i)*num_types+neigh_types(ij);
                         const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
                         const Precision x = r(ij) - (r_min + h*n);
@@ -363,7 +372,7 @@ void MACEKokkos<Precision>::compute_second_layer(
                     Phi1_i_lel1l2(mk/num_channels, mk%num_channels) = 0.0;
                 });
                 for (int j0=0; j0<num_neigh(i); j0+=batch_size) {
-                    const int ij0 = first_neigh(i) + j0;
+                    const std::size_t ij0 = first_neigh(i) + j0;
                     const int num_j = Kokkos::min(batch_size, num_neigh(i)-j0);
                     team_member.team_barrier();
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_j*num_m*num_m2), [&] (const int jmm2) {
@@ -376,7 +385,7 @@ void MACEKokkos<Precision>::compute_second_layer(
                         CG_Y((j*num_m2+m2)*(2*mace_l_max+1)+m) = t;
                     });
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_j), [&] (const int j) {
-                        const int ij = ij0 + j;
+                        const std::size_t ij = ij0 + j;
                         neigh_ij(j,0) = neigh_indices(ij);
                         neigh_ij(j,1) = radial_1.type_ij(node_types(i), neigh_types(ij));
                         neigh_ij(j,2) = radial_1.interval(r(ij));
@@ -454,7 +463,7 @@ void MACEKokkos<Precision>::compute_second_layer(
             Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
             KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
                 const int i = team_member.league_rank();
-                const int i0 = first_neigh(i);
+                const std::size_t i0 = first_neigh(i);
                 // compute scale factor
                 double A1_scale_factor;
                 Kokkos::parallel_reduce(
@@ -719,7 +728,7 @@ void MACEKokkos<Precision>::reverse_second_layer(
             Kokkos::TeamPolicy<>(num_nodes, Kokkos::AUTO, Kokkos::AUTO),
             KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
                 const int i = team_member.league_rank();
-                const int i0 = first_neigh(i);
+                const std::size_t i0 = first_neigh(i);
                 // scale factor
                 double A1_scale_factor;// = 1.0;
                 Kokkos::parallel_reduce(
@@ -742,7 +751,7 @@ void MACEKokkos<Precision>::reverse_second_layer(
                 Kokkos::parallel_for(
                     Kokkos::TeamThreadRange(team_member, num_neigh(i)),
                     [=] (const int j) {
-                        const int ij = first_neigh(i) + j;
+                        const std::size_t ij = first_neigh(i) + j;
                         const double f = A1_spline_values(ij,0);
                         const double d = A1_spline_derivs(ij,0);
                         node_forces(3*ij+0) += dA1_dot_A1/A1_scale_factor*d*xyz(3*ij+0)/r(ij);
@@ -833,12 +842,12 @@ void MACEKokkos<Precision>::reverse_second_layer(
                 const ScratchInt neigh_ij(team_member.team_scratch(0), batch_size, 3);
                 const Scratch1 x_ij(team_member.team_scratch(0), batch_size);
                 for (int j0=0; j0<num_neigh(i); j0+=batch_size) {
-                    const int ij0 = first_neigh(i) + j0;
+                    const std::size_t ij0 = first_neigh(i) + j0;
                     const int num_j = Kokkos::min(batch_size, num_neigh(i)-j0);
                     team_member.team_barrier();
                     Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_j*num_m*num_m2), [&] (const int jmm2) {
                         const int j = jmm2/(num_m*num_m2);
-                        const int ij = ij0 + j;
+                        const std::size_t ij = ij0 + j;
                         const int m = jmm2/num_m2%num_m;
                         const int m2 = jmm2%num_m2;
                         Precision t = 0.0;
@@ -858,7 +867,7 @@ void MACEKokkos<Precision>::reverse_second_layer(
                         CG_Y_grad(2,(j*num_m2+m2)*(2*mace_l_max+1)+m) = t_z;
                     });
                     Kokkos::parallel_for(Kokkos::TeamVectorRange(team_member, num_j), [&] (const int j) {
-                        const int ij = ij0 + j;
+                        const std::size_t ij = ij0 + j;
                         neigh_ij(j,0) = neigh_indices(ij);
                         neigh_ij(j,1) = radial_1.type_ij(node_types(i), neigh_types(ij));
                         neigh_ij(j,2) = radial_1.interval(r(ij));
@@ -866,7 +875,7 @@ void MACEKokkos<Precision>::reverse_second_layer(
                     });
                     team_member.team_barrier();
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_j), [&] (const int j) {
-                        const int ij = ij0 + j;
+                        const std::size_t ij = ij0 + j;
                         const int neigh_index = neigh_ij(j,0);
                         Precision f_r;
                         Precision f_x;
@@ -1033,7 +1042,7 @@ void MACEKokkos<Precision>::reverse_first_layer(
                 Kokkos::parallel_for(
                     Kokkos::TeamThreadRange(team_member, num_neigh(i)),
                     [=] (const int j) {
-                        const int ij = first_neigh(i) + j;
+                        const std::size_t ij = first_neigh(i) + j;
                         const double f = A0_spline_values(ij,0);
                         const double d = A0_spline_derivs(ij,0);
                         node_forces(3*ij+0) += dA0_dot_A0/A0_scale_factor*d*xyz(3*ij+0)/r(ij);
@@ -1071,7 +1080,7 @@ void MACEKokkos<Precision>::reverse_first_layer(
             KOKKOS_LAMBDA (Kokkos::TeamPolicy<>::member_type team_member) {
                 const int i = team_member.league_rank();
                 Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_neigh(i)), [&] (const int j) {
-                    const int ij = first_neigh(i) + j;
+                    const std::size_t ij = first_neigh(i) + j;
                     const int type_ij = node_types(i)*num_types+neigh_types(ij);
                     const int n = Kokkos::clamp(static_cast<int>((r(ij) - r_min)/h), 0, num_intervals - 1);
                     const Precision x = r(ij) - (r_min + h*n);
