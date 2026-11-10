@@ -174,27 +174,23 @@ template <class Sh, int LT, int G> struct TP {
     static constexpr std::array<GT, NT> gt = make_gt();
     struct E { int k, m1, i; };
     struct Entries { int n; std::array<E, NT> e; std::array<int, NT> of; };
+    static constexpr int W = 2*Sh::l_max + 1;
     static constexpr Entries make_entries(bool qform) {
         Entries r{};
-        for (int t = 0; t < NT; ++t) {
-            const E key{gt[t].k, gt[t].m1, qform ? gt[t].lm2 : gt[t].a};
-            bool found = false;
-            for (int d = 0; d < r.n; ++d)
-                found = found or (r.e[d].k == key.k and r.e[d].m1 == key.m1 and r.e[d].i == key.i);
-            if (not found) r.e[r.n++] = key;
+        int t = 0;
+        for (int k = 0; k < NK; ++k) {
+            const int t0 = t;
+            while (t < NT and gt[t].k == k) ++t;
+            const int base = qform ? ks[k].l2*ks[k].l2 : ks[k].out;
+            std::array<int, NIN*W> slot{};
+            for (int u = t0; u < t; ++u) slot[gt[u].m1*W + (qform ? gt[u].lm2 : gt[u].a) - base] = 1;
+            for (int s = 0; s < NIN*W; ++s)
+                if (slot[s]) {
+                    r.e[r.n] = {k, s/W, base + s%W};
+                    slot[s] = ++r.n;
+                }
+            for (int u = t0; u < t; ++u) r.of[u] = slot[gt[u].m1*W + (qform ? gt[u].lm2 : gt[u].a) - base] - 1;
         }
-        for (int a = 1; a < r.n; ++a)
-            for (int b = a; b > 0; --b) {
-                const E x = r.e[b - 1];
-                const E y = r.e[b];
-                if (x.k < y.k or (x.k == y.k and (x.m1 < y.m1 or (x.m1 == y.m1 and x.i < y.i)))) break;
-                r.e[b - 1] = y;
-                r.e[b] = x;
-            }
-        for (int t = 0; t < NT; ++t)
-            for (int d = 0; d < r.n; ++d)
-                if (r.e[d].k == gt[t].k and r.e[d].m1 == gt[t].m1 and r.e[d].i == (qform ? gt[t].lm2 : gt[t].a))
-                    r.of[t] = d;
         return r;
     }
     static constexpr Entries me = make_entries(false);
