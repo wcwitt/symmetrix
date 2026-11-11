@@ -180,7 +180,13 @@ jobs:
       run: |
         uv venv --clear
         source .venv/bin/activate
-        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace]"
+        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace,test]"
+        deactivate
+    - name: Test extraction against mace-torch
+      run: |
+        source .venv/bin/activate
+        cd symmetrix/test
+        pytest test_extract_mace.py
         deactivate
     - name: Test model extraction
       run: |
