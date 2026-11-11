@@ -42,7 +42,10 @@ class Symmetrix(BaseCalculator):
     Parameters
     ----------
     model_file: str
-        JSON-format model file used for potential energy
+        JSON-format model file used for potential energy, or a torch model file
+        to convert on the fly
+    species: list(int / str)
+        Elements to convert, required when model_file is a torch model
 
     Notes
     -----
@@ -97,8 +100,6 @@ class Symmetrix(BaseCalculator):
 
                 keys = ["species", "head", "num_spline_points", "r_min"]
             kwargs_extract = {k: v for k, v in kwargs.items() if k in keys}
-            if nequip:
-                kwargs_extract.setdefault("species", None)
             logging.warning(
                 f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}"
             )
