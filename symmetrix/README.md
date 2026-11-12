@@ -97,3 +97,6 @@ sums over the model's k-vectors, which is what PyTorch computes. The cell must b
 arguments set the values used when `atoms.info` has none. The GPU evaluator needs a build that found CUDA (Kokkos is not
 needed) and supports the tensor products of MACE-POLAR-1 only.
 `test/test_mace_polar.py` compares both with PyTorch for the model in `$SYMMETRIX_POLAR_MODEL`.
+
+In OpenMM, the models of `MACEPolar`, `MACEFoundation` and `NequIPFoundation` run on the CUDA platform through
+the plugin in [`openmm_symmetrix`](../openmm_symmetrix/README.md).
