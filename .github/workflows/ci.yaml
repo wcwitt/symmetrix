@@ -186,7 +186,7 @@ jobs:
       run: |
         source .venv/bin/activate
         cd symmetrix/test
-        pytest test_extract_mace.py
+        pytest test_extract_mace.py test_mace_architectures.py
         deactivate
     - name: Test model extraction
       run: |

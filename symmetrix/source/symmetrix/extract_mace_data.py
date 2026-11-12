@@ -129,11 +129,6 @@ def extract_mace_data(
             "RealAgnosticResidualInteractionBlock or RealAgnosticDensityResidualInteractionBlock."
         )
 
-    if model.spherical_harmonics._lmax != 3:
-        raise RuntimeError(
-            "Currently, symmetrix only supports MACE models with l_max=3."
-        )
-
     ### ----- HELPER FUNCTION -----
 
     def linear_simplify(linear):
