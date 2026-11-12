@@ -162,6 +162,12 @@ struct NequIPFoundationCUDA : Evaluator {
     ~NequIPFoundationCUDA() override;
     double compute(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
                    double* forces, double* virial, double* energies) override;
+    double compute_device(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
+                          bool moved, double* virial, bool* rebuilt) override;
+    const double* forces_device() const override { return fd.p; }
+    bool changed(int n, const int* numbers, const double* cell, const bool* pbc) const;
+    void build(int n, const double* x, const int* numbers, const double* cell, const bool* pbc);
+    double evaluate(int n, const double* x, const double* cell, double* forces, double* virial, double* energies);
     template <class Sh>
     double compute_shape(int n, const double* x, const double* cell, double* forces, double* virial, double* energies);
     template <class Sh> void compute_node_energies_forces();
@@ -192,69 +198,106 @@ NequIPFoundationCUDA<Precision, mixed>::~NequIPFoundationCUDA()
 }
 
 template <class Precision, bool mixed>
-double NequIPFoundationCUDA<Precision, mixed>::compute(int n, const double* x, const int* numbers, const double* cell,
-                                                       const bool* pbc, double* forces,
+double NequIPFoundationCUDA<Precision, mixed>::compute(int n, const double* x, const int* numbers,
+                                                       const double* cell, const bool* pbc, double* forces,
                                                        double* virial, double* energies)
 {
     std::fill(virial, virial + 6, 0.0);
     if (n == 0) return 0;
-    bool rebuild = n != natoms or not std::equal(numbers, numbers + n, numbers0.begin())
-                   or not std::equal(cell, cell + 9, cell0.begin())
-                   or not std::equal(pbc, pbc + 3, pbc0.begin());
+    bool rebuild = changed(n, numbers, cell, pbc);
     for (int i = 0; not rebuild and i < n; ++i) {
         const double dx = x[3*i] - x0[3*i];
         const double dy = x[3*i+1] - x0[3*i+1];
         const double dz = x[3*i+2] - x0[3*i+2];
         rebuild = 4*(dx*dx + dy*dy + dz*dz) > skin*skin;
     }
-    if (rebuild) {
-        natoms = -1;
-        const int T_ = nequip.num_elements;
-        std::vector<int> el(n);
-        for (int i = 0; i < n; ++i) {
-            const auto it = std::find(nequip.atomic_numbers.begin(), nequip.atomic_numbers.end(), numbers[i]);
-            if (it == nequip.atomic_numbers.end())
-                throw std::runtime_error("NequIPFoundation: atomic number " + std::to_string(numbers[i])
-                                         + " is not an element of the model");
-            el[i] = int(it - nequip.atomic_numbers.begin());
-        }
-        neighbor_list(n, x, cell, pbc, nequip.r_cut + skin, nl);
-        std::vector<int> nodes;
-        nequip.type_start.assign(T_ + 1, 0);
-        for (int t = 0; t < T_; ++t) {
-            nequip.type_start[t] = int(nodes.size());
-            for (int i = 0; i < n; ++i) if (el[i] == t) nodes.push_back(i);
-        }
-        nequip.type_start[T_] = int(nodes.size());
-        nequip.N = n;
-        nequip.NR = n;
-        std::vector<int> node_type(nequip.N);
-        std::vector<int> rows(n);
-        for (int k = 0; k < nequip.N; ++k) {
-            node_type[k] = el[nodes[k]];
-            rows[nodes[k]] = k;
-        }
-        nequip.E = long(nl.j.size());
-        nequip.atom_of_node.upload(nodes, nequip.stream);
-        nequip.elem.upload(node_type, nequip.stream);
-        nequip.row_of_atom.upload(rows, nequip.stream);
-        nl_first.upload(nl.start, nequip.stream);
-        nl_j.upload(nl.j, nequip.stream);
-        nl_S.upload(nl.S, nequip.stream);
-        xd.reserve(3*(size_t)n);
-        fd.reserve(3*(size_t)n);
-        eatom.reserve(n);
-        celld.reserve(9);
-        with_preset(nequip.num_layers, nequip.l_max, nequip.emb, nequip.mul0, [&](auto s) {
-            nequip.template reserve<decltype(s)>(0);
-        });
+    if (rebuild) build(n, x, numbers, cell, pbc);
+    return evaluate(n, x, cell, forces, virial, energies);
+}
+
+template <class Precision, bool mixed>
+double NequIPFoundationCUDA<Precision, mixed>::compute_device(int n, const double* x, const int* numbers,
+                                                              const double* cell, const bool* pbc, bool moved,
+                                                              double* virial, bool* rebuilt)
+{
+    std::fill(virial, virial + 6, 0.0);
+    *rebuilt = false;
+    if (n == 0) return 0;
+    if (moved or changed(n, numbers, cell, pbc)) {
+        std::vector<double> host(3*(size_t)n);
+        CHECK(cudaMemcpyAsync(host.data(), x, host.size()*sizeof(double), cudaMemcpyDeviceToHost, nequip.stream));
         CHECK(cudaStreamSynchronize(nequip.stream));
-        natoms = n;
-        x0.assign(x, x + 3*(size_t)n);
-        cell0.assign(cell, cell + 9);
-        numbers0.assign(numbers, numbers + n);
-        pbc0 = {pbc[0], pbc[1], pbc[2]};
+        build(n, host.data(), numbers, cell, pbc);
+        *rebuilt = true;
     }
+    return evaluate(n, x, cell, nullptr, virial, nullptr);
+}
+
+template <class Precision, bool mixed>
+bool NequIPFoundationCUDA<Precision, mixed>::changed(int n, const int* numbers, const double* cell,
+                                                     const bool* pbc) const
+{
+    return n != natoms or not std::equal(numbers, numbers + n, numbers0.begin())
+           or not std::equal(cell, cell + 9, cell0.begin()) or not std::equal(pbc, pbc + 3, pbc0.begin());
+}
+
+template <class Precision, bool mixed>
+void NequIPFoundationCUDA<Precision, mixed>::build(int n, const double* x, const int* numbers, const double* cell,
+                                                   const bool* pbc)
+{
+    natoms = -1;
+    const int T_ = nequip.num_elements;
+    std::vector<int> el(n);
+    for (int i = 0; i < n; ++i) {
+        const auto it = std::find(nequip.atomic_numbers.begin(), nequip.atomic_numbers.end(), numbers[i]);
+        if (it == nequip.atomic_numbers.end())
+            throw std::runtime_error("NequIPFoundation: atomic number " + std::to_string(numbers[i])
+                                     + " is not an element of the model");
+        el[i] = int(it - nequip.atomic_numbers.begin());
+    }
+    neighbor_list(n, x, cell, pbc, nequip.r_cut + skin, nl);
+    std::vector<int> nodes;
+    nequip.type_start.assign(T_ + 1, 0);
+    for (int t = 0; t < T_; ++t) {
+        nequip.type_start[t] = int(nodes.size());
+        for (int i = 0; i < n; ++i) if (el[i] == t) nodes.push_back(i);
+    }
+    nequip.type_start[T_] = int(nodes.size());
+    nequip.N = n;
+    nequip.NR = n;
+    std::vector<int> node_type(nequip.N);
+    std::vector<int> rows(n);
+    for (int k = 0; k < nequip.N; ++k) {
+        node_type[k] = el[nodes[k]];
+        rows[nodes[k]] = k;
+    }
+    nequip.E = long(nl.j.size());
+    nequip.atom_of_node.upload(nodes, nequip.stream);
+    nequip.elem.upload(node_type, nequip.stream);
+    nequip.row_of_atom.upload(rows, nequip.stream);
+    nl_first.upload(nl.start, nequip.stream);
+    nl_j.upload(nl.j, nequip.stream);
+    nl_S.upload(nl.S, nequip.stream);
+    xd.reserve(3*(size_t)n);
+    fd.reserve(3*(size_t)n);
+    eatom.reserve(n);
+    celld.reserve(9);
+    with_preset(nequip.num_layers, nequip.l_max, nequip.emb, nequip.mul0, [&](auto s) {
+        nequip.template reserve<decltype(s)>(0);
+    });
+    CHECK(cudaStreamSynchronize(nequip.stream));
+    natoms = n;
+    x0.assign(x, x + 3*(size_t)n);
+    cell0.assign(cell, cell + 9);
+    numbers0.assign(numbers, numbers + n);
+    pbc0 = {pbc[0], pbc[1], pbc[2]};
+}
+
+// x and forces may be on the host or on the GPU (forces may be null)
+template <class Precision, bool mixed>
+double NequIPFoundationCUDA<Precision, mixed>::evaluate(int n, const double* x, const double* cell, double* forces,
+                                                        double* virial, double* energies)
+{
     nequip.upload_coefficients();
     double energy = 0;
     with_preset(nequip.num_layers, nequip.l_max, nequip.emb, nequip.mul0, [&](auto s) {
@@ -270,7 +313,7 @@ double NequIPFoundationCUDA<Precision, mixed>::compute_shape(int n_atoms, const 
 {
     using T = Precision;
     constexpr int NL = Sh::num_layers;
-    CHECK(cudaMemcpyAsync(xd, x, 3*(size_t)n_atoms*sizeof(double), cudaMemcpyHostToDevice, nequip.stream));
+    CHECK(cudaMemcpyAsync(xd, x, 3*(size_t)n_atoms*sizeof(double), cudaMemcpyDefault, nequip.stream));
     CHECK(cudaMemcpyAsync(celld, cell, 9*sizeof(double), cudaMemcpyHostToDevice, nequip.stream));
     const Atoms A{xd, celld, nl_first, nl_j, nl_S};
 
@@ -326,7 +369,8 @@ double NequIPFoundationCUDA<Precision, mixed>::compute_shape(int n_atoms, const 
     CHECK(cudaGraphLaunch(graph, nequip.stream));
     double out[7];
     CHECK(cudaMemcpyAsync(out, nequip.outputs, 7*sizeof(double), cudaMemcpyDeviceToHost, nequip.stream));
-    CHECK(cudaMemcpyAsync(forces, fd, 3*(size_t)n_atoms*sizeof(double), cudaMemcpyDeviceToHost, nequip.stream));
+    if (forces)
+        CHECK(cudaMemcpyAsync(forces, fd, 3*(size_t)n_atoms*sizeof(double), cudaMemcpyDefault, nequip.stream));
     if (energies)
         CHECK(cudaMemcpyAsync(energies, eatom, (size_t)n_atoms*sizeof(double), cudaMemcpyDeviceToHost, nequip.stream));
     CHECK(cudaStreamSynchronize(nequip.stream));
