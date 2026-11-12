@@ -608,6 +608,8 @@ template <typename Precision>
 void NequIPKokkos<Precision>::load_from_json(std::string filename)
 {
     std::ifstream f(filename);
+    if (not f)
+        throw std::runtime_error("Symmetrix: Cannot open " + filename);
     nlohmann::json file = nlohmann::json::parse(f);
     if (file.value("format_version", 0) != 3)
         throw std::runtime_error(filename + " was extracted by an incompatible symmetrix version; extract it again");

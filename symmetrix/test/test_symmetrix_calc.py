@@ -12,6 +12,7 @@ from ase.atoms import Atoms
 from ase.stress import full_3x3_to_voigt_6_stress
 
 try:
+    import symmetrix
     from symmetrix import Symmetrix
 except ModuleNotFoundError as exc:
     if "No module named 'symmetrix.symmetrix'" in str(exc):
@@ -48,6 +49,17 @@ def mace_foundation_model(tmp_path_factory):
             os.environ["XDG_CACHE_HOME"] = xdg_cache_home
 
         return str(downloaded_model)
+
+
+@pytest.mark.parametrize("use_kokkos", [True, False])
+@pytest.mark.parametrize("evaluator", ["MACE", "NequIP"])
+def test_missing_model_file(evaluator, use_kokkos, tmp_path):
+    if use_kokkos:
+        evaluator += "Kokkos"
+        if not symmetrix._kokkos_is_initialized():
+            symmetrix._init_kokkos()
+    with pytest.raises(RuntimeError, match="Symmetrix: Cannot open .*missing.json"):
+        getattr(symmetrix, evaluator)(str(tmp_path / "missing.json"))
 
 
 @pytest.mark.parametrize("use_kokkos", [True, False])
