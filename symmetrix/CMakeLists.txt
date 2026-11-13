@@ -47,6 +47,7 @@ add_subdirectory(../libsymmetrix ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix)
 add_subdirectory(external/pybind11)
 
 add_subdirectory(source/cpp/mace_foundation)
+add_subdirectory(source/cpp/mace_polar)
 add_subdirectory(source/cpp/nequip_foundation)
 
 set(SYMMETRIX_BINDINGS
