@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace symmetrix::openmm_kernels {
+namespace symmetrix::gpu {
 
 namespace {
 
@@ -15,7 +15,7 @@ constexpr double force_scale = 1.602176634e-19 * 6.02214076e23 / 100 * 429496729
 void check(cudaError_t e)
 {
     if (e != cudaSuccess)
-        throw std::runtime_error(std::string("SymmetrixMACEPolarForce: ") + cudaGetErrorString(e));
+        throw std::runtime_error(std::string("Symmetrix: ") + cudaGetErrorString(e));
 }
 
 int blocks(long n, int threads) { return int((n + threads - 1)/threads); }
@@ -119,10 +119,32 @@ __device__ inline void add(unsigned long long* force, int padded, int s, double 
     atomicAdd(force + s + 2*padded, (unsigned long long)(long long)(fz*force_scale));
 }
 
+// adds to OpenMM's fixed-point force buffer, in its sorted order
+struct OpenMMForces {
+    const int* sorted_index;
+    int padded;
+    unsigned long long* force;
+    __device__ void operator()(int i, double fx, double fy, double fz) const
+    {
+        add(force, padded, sorted_index[i], fx, fy, fz);
+    }
+};
+
+// adds to forces by atom
+struct AtomForces {
+    double* f;
+    __device__ void operator()(int i, double fx, double fy, double fz) const
+    {
+        atomicAdd(f + 3*i, fx);
+        atomicAdd(f + 3*i + 1, fy);
+        atomicAdd(f + 3*i + 2, fz);
+    }
+};
+
 // one warp per node: the edge force F_ij acts on j and, opposite, on i
-__global__ void k_add_forces(int n, const int* start, const int* num_neigh, const int* neigh_indices,
-                             const double* edge_forces, const double* position_forces, const int* sorted_index,
-                             int padded, unsigned long long* force)
+template <class Sink>
+__global__ void k_edge_forces(int n, const int* start, const int* num_neigh, const int* neigh_indices,
+                              const double* edge_forces, const double* position_forces, Sink sink)
 {
     const int i = (blockIdx.x*blockDim.x + threadIdx.x) >> 5;
     const int lane = threadIdx.x & 31;
@@ -130,7 +152,7 @@ __global__ void k_add_forces(int n, const int* start, const int* num_neigh, cons
     double fx = 0, fy = 0, fz = 0;
     for (int e = start[i] + lane; e < start[i] + num_neigh[i]; e += 32) {
         const double* f = edge_forces + 3*e;
-        add(force, padded, sorted_index[neigh_indices[e]], f[0], f[1], f[2]);
+        sink(neigh_indices[e], f[0], f[1], f[2]);
         fx -= f[0]; fy -= f[1]; fz -= f[2];
     }
     for (int s = 16; s > 0; s >>= 1) {
@@ -139,8 +161,7 @@ __global__ void k_add_forces(int n, const int* start, const int* num_neigh, cons
         fz += __shfl_down_sync(0xffffffffu, fz, s);
     }
     if (lane == 0)
-        add(force, padded, sorted_index[i], fx + position_forces[3*i], fy + position_forces[3*i + 1],
-            fz + position_forces[3*i + 2]);
+        sink(i, fx + position_forces[3*i], fy + position_forces[3*i + 1], fz + position_forces[3*i + 2]);
 }
 
 __global__ void k_add_atom_forces(int n, const double* f, const int* sorted_index, int padded,
@@ -178,16 +199,16 @@ __global__ void k_neighbor_search(int n, CellSearch c, const double* x, const in
                 for (int a0 = first[q]; a0 < first[q + 1]; a0 += 32) {
                     const int a = a0 + lane;
                     bool keep = false;
-                    int j = 0, Sh[3] = {0, 0, 0};
+                    int j = 0, shift[3] = {0, 0, 0};
                     if (a < first[q + 1]) {
                         j = atoms[a];
                         for (int d = 0; d < 3; ++d)
-                            Sh[d] = s[d] + image[3*i + d] - image[3*j + d];
-                        if (i != j or Sh[0] != 0 or Sh[1] != 0 or Sh[2] != 0) {
+                            shift[d] = s[d] + image[3*i + d] - image[3*j + d];
+                        if (i != j or shift[0] != 0 or shift[1] != 0 or shift[2] != 0) {
                             double r2 = 0;
                             for (int f = 0; f < 3; ++f) {
-                                const double D = x[3*j + f] - xi[f] + Sh[0]*c.cell[f] + Sh[1]*c.cell[3 + f] +
-                                                 Sh[2]*c.cell[6 + f];
+                                const double D = x[3*j + f] - xi[f] + shift[0]*c.cell[f] + shift[1]*c.cell[3 + f] +
+                                                 shift[2]*c.cell[6 + f];
                                 r2 += D*D;
                             }
                             keep = r2 < c.cutoff2;
@@ -197,9 +218,9 @@ __global__ void k_neighbor_search(int n, CellSearch c, const double* x, const in
                     if (start and keep) {
                         const int o = e + __popc(mask & ((1u << lane) - 1));
                         J[o] = j;
-                        S[3*o] = Sh[0];
-                        S[3*o + 1] = Sh[1];
-                        S[3*o + 2] = Sh[2];
+                        S[3*o] = shift[0];
+                        S[3*o + 1] = shift[1];
+                        S[3*o + 2] = shift[2];
                     }
                     e += __popc(mask);
                 }
@@ -255,8 +276,19 @@ void add_forces(int n, const int* start, const int* num_neigh, const int* neigh_
                 const double* position_forces, const int* sorted_index, int padded, unsigned long long* force,
                 cudaStream_t stream)
 {
-    k_add_forces<<<blocks(32L*n, 128), 128, 0, stream>>>(n, start, num_neigh, neigh_indices, edge_forces,
-                                                          position_forces, sorted_index, padded, force);
+    k_edge_forces<<<blocks(32L*n, 128), 128, 0, stream>>>(n, start, num_neigh, neigh_indices, edge_forces,
+                                                           position_forces, OpenMMForces{sorted_index, padded, force});
+    check(cudaGetLastError());
+}
+
+void atom_forces(int n, const int* start, const int* num_neigh, const int* neigh_indices, const double* edge_forces,
+                 const double* position_forces, double* f, cudaStream_t stream)
+{
+    check(cudaMemsetAsync(f, 0, 3*size_t(n)*sizeof(double), stream));
+    if (n == 0)
+        return;
+    k_edge_forces<<<blocks(32L*n, 128), 128, 0, stream>>>(n, start, num_neigh, neigh_indices, edge_forces,
+                                                           position_forces, AtomForces{f});
     check(cudaGetLastError());
 }
 
@@ -320,4 +352,4 @@ void sum(int n, const double* values, double* out, Scratch& scratch, cudaStream_
     check(cub::DeviceReduce::Sum(scratch.p, bytes, values, out, n, stream));
 }
 
-}  // namespace symmetrix::openmm_kernels
+}  // namespace symmetrix::gpu

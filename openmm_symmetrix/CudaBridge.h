@@ -45,40 +45,7 @@ private:
     bool changed = false;
 };
 
-// Memory of the runtime API: allocate and free it with OpenMM's context current
-template <class T> struct DeviceBuffer {
-    T* p = nullptr;
-    size_t size = 0;
-    DeviceBuffer() = default;
-    DeviceBuffer(const DeviceBuffer&) = delete;
-    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    ~DeviceBuffer() { clear(); }
-    void reserve(size_t m)
-    {
-        if (m <= size)
-            return;
-        clear();
-        if (cudaMalloc(reinterpret_cast<void**>(&p), m*sizeof(T)) != cudaSuccess)
-            throw std::runtime_error("cudaMalloc failed");
-        size = m;
-    }
-    void clear()
-    {
-        if (p)
-            cudaFree(p);
-        p = nullptr;
-        size = 0;
-    }
-    operator T*() const { return p; }
-};
-
-template <class T> void upload(DeviceBuffer<T>& b, const std::vector<T>& v, cudaStream_t stream,
-                               const std::string& name)
-{
-    b.reserve(std::max<size_t>(v.size(), 1));
-    if (not v.empty())
-        check(cudaMemcpyAsync(b.p, v.data(), v.size()*sizeof(T), cudaMemcpyHostToDevice, stream), name);
-}
+using gpu::DeviceBuffer;
 
 class CudaBridge : public CudaEvaluator {
 public:

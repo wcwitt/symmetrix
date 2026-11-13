@@ -104,8 +104,8 @@ SymmetrixFoundationForce::SymmetrixFoundationForce(std::string family, std::stri
                                       this->dtype + "'");
     if (this->atomic_numbers.empty())
         throw OpenMM::OpenMMException(name + ": no atomic numbers");
-    if (skin < 0)
-        throw OpenMM::OpenMMException(name + ": negative skin");
+    if (not (skin >= 0))
+        throw OpenMM::OpenMMException(name + ": the skin must be a number >= 0");
     setName(name);
 }
 
