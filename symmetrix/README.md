@@ -85,3 +85,18 @@ elsewhere pass the architecture, e.g. `pip install ... -C cmake.define.CMAKE_CUD
 from symmetrix.experimental import NequIPFoundation
 atoms.calc = NequIPFoundation("NequIP-OAM-L-0.1-H-O.json", device="cuda", dtype="float64")
 ```
+`MACEPolar` evaluates the PolarMACE models of `pair_style symmetrix/mace/polar` and `symmetrix/mace/polar/cuda`:
+```
+from symmetrix.experimental import MACEPolar
+atoms.calc = MACEPolar("polar-m-H-O.json", device="cuda")   # dtype "float32" or "float32-mixed"; or device="cpu" (float64)
+atoms.info.update(charge=-1, spin=1)                       # total charge and spin multiplicity (defaults 0 and 1)
+```
+with the arithmetic of the CPU and GPU pair styles respectively and the electrostatics of their `direct` option: k-space
+sums over the model's k-vectors, which is what PyTorch computes. The cell must be periodic in all three directions
+(box molecules), and the cost of the sums grows with the number of atoms times the cell volume. `charge` and `spin`
+arguments set the values used when `atoms.info` has none. The GPU evaluator needs a build that found CUDA (Kokkos is not
+needed) and supports the tensor products of MACE-POLAR-1 only.
+`test/test_mace_polar.py` compares both with PyTorch for the model in `$SYMMETRIX_POLAR_MODEL`.
+
+In OpenMM, the models of `MACEPolar`, `MACEFoundation` and `NequIPFoundation` run on the CUDA platform through
+the plugin in [`openmm_symmetrix`](../openmm_symmetrix/README.md).
