@@ -41,8 +41,9 @@ system.addForce(create_nequip_foundation_force("NequIP-OAM-S-0.1-H-O.json", atom
 ```
 `atomic_numbers` are those of all the particles of the System. The neighbor list has a skin (`skin=1.0`, in A) and
 is built again, on the GPU, when an atom has moved by half of it; a larger skin (2 A, the LAMMPS default for metal
-units) is faster for large systems. The forces are saved and restored by `XmlSerializer`. The energy is the total
-energy of the model, including the energies of the isolated atoms.
+units) is faster for large systems. The list is also built again whenever the box changes, as it does under a
+barostat. The forces are saved and restored by `XmlSerializer`. The energy is the total energy of the model,
+including the energies of the isolated atoms.
 
 Each model is evaluated in its `dtype`, whatever the OpenMM precision: `"float32"` (the default for PolarMACE) or
 `"float32-mixed"`, and for foundation models also `"float64"` (their default). A PolarMACE model needs a periodic
