@@ -19,6 +19,10 @@ See the `pair_symmetrix` [README](pair_symmetrix/README.md) for use from LAMMPS.
 
 See the `openmm_symmetrix` [README](openmm_symmetrix/README.md) for use from OpenMM.
 
+### GROMACS integration
+
+See the `gromacs_symmetrix` [README](gromacs_symmetrix/README.md) for use from GROMACS.
+
 ### Development Setup
 
 Use `uv` to create a virtual environment and install the package with its test dependencies:
