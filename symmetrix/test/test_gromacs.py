@@ -306,7 +306,7 @@ def test_refuses_other_inputs(mace_model, tmp_path):
     """grompp refuses the inputs the Symmetrix models do not take"""
     a = foundation_structures()["bulk"]
     mdp = MDP.replace("nnpot-model-input4 = pbc", "nnpot-model-input4 = atom-pairs")
-    with pytest.raises(RuntimeError, match="atom-positions, atom-numbers, box and pbc"):
+    with pytest.raises(RuntimeError, match="take exactly the inputs atom-positions"):
         run(a, mace_model, tmp_path, {}, mdp=mdp)
 
 
