@@ -19,12 +19,14 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 set(OPENMM_DIR "" CACHE PATH "OpenMM installation, with include/ and lib/")
-set(OPENMM_VERSION "" CACHE STRING "Version of that OpenMM, checked when a Context is created (empty: no check)")
+set(OPENMM_VERSION "" CACHE STRING "Version of that OpenMM, checked when a Context is created")
+if(NOT OPENMM_VERSION)
+  message(FATAL_ERROR "Set OPENMM_VERSION to the version of the OpenMM in OPENMM_DIR, as install.sh does")
+endif()
 find_path(OPENMM_INCLUDE_DIR openmm/cuda/CudaContext.h HINTS "${OPENMM_DIR}/include" REQUIRED)
 find_library(OPENMM_LIBRARY NAMES OpenMM HINTS "${OPENMM_DIR}/lib" REQUIRED)
 find_library(OPENMM_CUDA_LIBRARY NAMES OpenMMCUDA HINTS "${OPENMM_DIR}/lib/plugins" REQUIRED)
 find_package(CUDAToolkit REQUIRED)
-find_package(OpenMP REQUIRED)
 
 set(LIBSYMMETRIX ${CMAKE_CURRENT_SOURCE_DIR}/../libsymmetrix)
 
@@ -47,27 +49,25 @@ set_source_files_properties(${LIBSYMMETRIX}/source/mace_polar_cuda.cpp PROPERTIE
 function(symmetrix_cuda_module target)
   add_library(${target} MODULE CudaBridge.cpp kernels.cu neighbor_list.cpp ${ARGN})
   target_include_directories(${target} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR} ${OPENMM_INCLUDE_DIR} ${LIBSYMMETRIX}/source
+    ${CMAKE_CURRENT_SOURCE_DIR} ${OPENMM_INCLUDE_DIR} ${LIBSYMMETRIX}/source ${SYMMETRIX_CPP}
     ${LIBSYMMETRIX}/external/json/single_include)
   target_compile_options(${target} PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
     $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Release>>:--use_fast_math>)
   target_link_libraries(${target} PRIVATE
-    ${OPENMM_LIBRARY} ${OPENMM_CUDA_LIBRARY} CUDA::cudart CUDA::cublas CUDA::cuda_driver OpenMP::OpenMP_CXX)
+    ${OPENMM_LIBRARY} ${OPENMM_CUDA_LIBRARY} CUDA::cudart CUDA::cublas CUDA::cuda_driver)
   set_target_properties(${target} PROPERTIES BUILD_RPATH_USE_ORIGIN ON INSTALL_RPATH_USE_LINK_PATH ON)
   add_dependencies(OpenMMSymmetrix ${target})
   install(TARGETS ${target} LIBRARY DESTINATION lib)
 endfunction()
 
-symmetrix_cuda_module(OpenMMSymmetrixMACEPolarCUDA MACEPolarEvaluator.cpp ${LIBSYMMETRIX}/source/mace_polar_cuda.cpp)
-symmetrix_cuda_module(OpenMMSymmetrixMACEFoundationCUDA FoundationEvaluator.cpp
+symmetrix_cuda_module(OpenMMSymmetrixMACEPolarCUDA MACEPolarEvaluator.cpp polar_graph.cpp
+  ${LIBSYMMETRIX}/source/mace_polar_cuda.cpp)
+symmetrix_cuda_module(OpenMMSymmetrixMACEFoundationCUDA FoundationEvaluator.cpp foundation_neighbors.cpp
   ${SYMMETRIX_CPP}/mace_foundation/cuda.cu)
-target_include_directories(OpenMMSymmetrixMACEFoundationCUDA PRIVATE ${SYMMETRIX_CPP}/mace_foundation)
-symmetrix_cuda_module(OpenMMSymmetrixNequIPFoundationCUDA FoundationEvaluator.cpp
+symmetrix_cuda_module(OpenMMSymmetrixNequIPFoundationCUDA FoundationEvaluator.cpp foundation_neighbors.cpp
   ${SYMMETRIX_CPP}/nequip_foundation/cuda.cu)
-target_include_directories(OpenMMSymmetrixNequIPFoundationCUDA PRIVATE ${SYMMETRIX_CPP}/nequip_foundation)
 target_compile_definitions(OpenMMSymmetrixNequIPFoundationCUDA PRIVATE SYMMETRIX_NEQUIP)
 
 set_target_properties(OpenMMSymmetrix PROPERTIES BUILD_RPATH_USE_ORIGIN ON INSTALL_RPATH_USE_LINK_PATH ON)
 install(TARGETS OpenMMSymmetrix LIBRARY DESTINATION lib/plugins)
-install(FILES SymmetrixMACEPolarForce.h SymmetrixFoundationForce.h DESTINATION include)

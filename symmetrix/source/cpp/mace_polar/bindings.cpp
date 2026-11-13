@@ -34,7 +34,7 @@ struct PolarCuda {
 
     template <class T> static void upload(MACEPolarCuda::Buffer<T>& b, const T* p, size_t n)
     {
-        b.reserve(std::max<size_t>(n, 1));
+        b.reserve(n);
         if (n > 0)
             check(cudaMemcpy(b.p, p, n*sizeof(T), cudaMemcpyHostToDevice), "upload");
     }
@@ -67,7 +67,6 @@ PYBIND11_MODULE(_mace_polar, m)
             Array<double> node_forces({E, 3L});
             Array<double> position_forces({N, 3L});
             Array<double> virial(6);
-            double electrostatic_energy;
             {
                 py::gil_scoped_release release;
                 PolarCuda::upload(self.node_types, node_types.data(), N);
@@ -87,11 +86,9 @@ PYBIND11_MODULE(_mace_polar, m)
                 PolarCuda::download(p.node_forces, 3*E, node_forces.mutable_data());
                 PolarCuda::download(p.position_forces, 3*N, position_forces.mutable_data());
                 std::copy(p.virial.begin(), p.virial.end(), virial.mutable_data());
-                electrostatic_energy = p.electrostatic_energy;
             }
-            return py::make_tuple(node_energies, node_forces, position_forces, virial, electrostatic_energy);
+            return py::make_tuple(node_energies, node_forces, position_forces, virial);
         },
         py::arg("node_types"), py::arg("num_neigh"), py::arg("neigh_indices"), py::arg("neigh_types"), py::arg("xyz"),
-        py::arg("r"), py::arg("positions"), py::arg("cell"), py::arg("total_charge") = 0.0,
-        py::arg("total_spin") = 1.0);
+        py::arg("r"), py::arg("positions"), py::arg("cell"), py::arg("total_charge"), py::arg("total_spin"));
 }
