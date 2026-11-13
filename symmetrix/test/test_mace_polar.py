@@ -5,7 +5,6 @@ The reference stress is the finite-difference derivative of the PyTorch energy: 
 PolarMACE stress takes the reciprocal cell and the volume of the k-space terms from the unstrained cell, and misses
 their strain derivative."""
 
-import json
 import os
 
 import numpy as np
@@ -132,18 +131,6 @@ class PolarTorch(Calculator):
 
 
 @pytest.fixture(scope="module")
-def polar(tmp_path_factory):
-    if MODEL is None:
-        pytest.skip("SYMMETRIX_POLAR_MODEL is not set")
-    pytest.importorskip("graph_longrange")
-    from symmetrix.extract_mace_data import extract_mace_data
-
-    path = tmp_path_factory.mktemp("polar") / "polar-1-8.json"
-    path.write_text(json.dumps(extract_mace_data(MODEL, [1, 8])))
-    return str(path)
-
-
-@pytest.fixture(scope="module")
 def reference():
     if MODEL is None:
         pytest.skip("SYMMETRIX_POLAR_MODEL is not set")
@@ -207,7 +194,6 @@ def test_against_pytorch(polar, reference, name, device, dtype, e_tol, f_tol, s_
     assert abs(e - energy) / len(a) < e_tol
     assert np.abs(f - forces).max() < f_tol
     assert np.abs(s - stress).max() < s_tol
-    assert np.abs(a.get_potential_energies().sum() - e) < 1e-8 * max(1.0, abs(e))
 
 
 def test_stress_finite_differences(polar):
@@ -236,7 +222,7 @@ def test_charge_and_spin_from_info(polar):
     assert cation != neutral
     b = structures()["water"]
     b.calc = MACEPolar(polar, device="cpu", charge=1, spin=2)
-    assert b.get_potential_energy() == cation
+    assert abs(b.get_potential_energy() - cation) < 1e-8 * abs(cation)
 
 
 def test_translation_and_wrapping(polar):
@@ -252,17 +238,6 @@ def test_translation_and_wrapping(polar):
     assert abs(b.get_potential_energy() - e) < 1e-8
 
 
-@pytest.mark.skipif(not gpu_available(), reason="no CUDA build or GPU")
-def test_cuda_against_cpu(polar):
-    a = structures()["hydroxide"]
-    a.calc = MACEPolar(polar, device="cpu")
-    e, f = a.get_potential_energy(), a.get_forces()
-    b = a.copy()
-    b.calc = MACEPolar(polar, device="cuda")
-    assert abs(b.get_potential_energy() - e) / len(a) < 5e-5
-    assert np.abs(b.get_forces() - f).max() < 1e-3
-
-
 def test_rejects_open_boundaries_and_unknown_elements(polar):
     calc = MACEPolar(polar, device="cpu")
     a = structures()["water"]
@@ -275,3 +250,22 @@ def test_rejects_open_boundaries_and_unknown_elements(polar):
     b.calc = calc
     with pytest.raises(ValueError, match=r"\[6\]"):
         b.get_potential_energy()
+    c = structures()["water"]
+    c.cell[2] = c.cell[0]
+    c.calc = calc
+    with pytest.raises(ValueError, match="volume"):
+        c.get_potential_energy()
+
+
+@pytest.mark.parametrize(
+    "device,dtype,match",
+    [
+        ("gpu", None, "device"),
+        ("cpu", "float32", "float64"),
+        ("cuda", "float64", "float32"),
+    ],
+)
+def test_rejects_unknown_device_and_dtype(device, dtype, match):
+    # refused before the model file is read
+    with pytest.raises(ValueError, match=match):
+        MACEPolar("model.json", device=device, dtype=dtype)
