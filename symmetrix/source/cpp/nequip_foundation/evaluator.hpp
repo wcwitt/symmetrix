@@ -21,3 +21,5 @@ std::unique_ptr<nequip_foundation::Evaluator> nequip_foundation_cpu(const std::s
                                                                     const std::string& dtype, double skin);
 std::unique_ptr<nequip_foundation::Evaluator> nequip_foundation_cuda(const std::string& file,
                                                                      const std::string& dtype, double skin);
+std::unique_ptr<nequip_foundation::Evaluator> nequip_foundation_hip(const std::string& file,
+                                                                    const std::string& dtype, double skin);

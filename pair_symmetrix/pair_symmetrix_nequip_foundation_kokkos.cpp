@@ -1435,3 +1435,7 @@ template class PairSymmetrixNequIPFoundationKokkos<float, true>;
 }
 
 #endif
+
+#ifdef SYMMETRIX_HIP
+#include "pair_symmetrix_nequip_foundation_kokkos_hip.cpp"
+#endif

@@ -5,8 +5,10 @@
 
 namespace {
 
-#ifdef __CUDACC__
+#if defined(__CUDACC__)
 #define FOUNDATION_INLINE __host__ __device__ __forceinline__
+#elif defined(__HIPCC__)
+#define FOUNDATION_INLINE __host__ __device__ inline __attribute__((always_inline))
 #else
 #define FOUNDATION_INLINE [[gnu::always_inline]] inline
 #endif

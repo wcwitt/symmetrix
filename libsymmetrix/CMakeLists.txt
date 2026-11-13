@@ -59,7 +59,7 @@ add_library(symmetrix ${SYMMETRIX_SOURCE_FILES})
 # TODO: generalize
 target_compile_options(symmetrix
     PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
-            $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
+            "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math;-fno-finite-math-only>")
 
 target_include_directories(symmetrix
     PUBLIC  source

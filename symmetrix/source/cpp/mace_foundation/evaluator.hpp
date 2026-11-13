@@ -12,6 +12,7 @@ struct Evaluator {
 
 std::unique_ptr<Evaluator> mace_foundation_cpu(const std::string& file, const std::string& dtype, double skin);
 std::unique_ptr<Evaluator> mace_foundation_cuda(const std::string& file, const std::string& dtype, double skin);
+std::unique_ptr<Evaluator> mace_foundation_hip(const std::string& file, const std::string& dtype, double skin);
 
 namespace mace_foundation {
 

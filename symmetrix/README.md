@@ -80,6 +80,10 @@ evaluates them with the arithmetic of that pair style and a neighbor list of its
 by half of `skin`, 1 A by default), on CPUs with OpenMP threads, or on the GPU when CUDA was found at install time.
 The GPU code is built for the GPUs of the installing machine (for all major architectures, slowly, if it has none);
 elsewhere pass the architecture, e.g. `pip install ... -C cmake.define.CMAKE_CUDA_ARCHITECTURES=80`.
+Without CUDA, a HIP compiler (for AMD GPUs; so far tested only on MI250X) is used if CMake finds one; pass it and
+the architecture explicitly if needed, e.g. on Frontier
+`pip install ... -C cmake.define.CMAKE_HIP_COMPILER=$ROCM_PATH/llvm/bin/clang++
+-C cmake.define.CMAKE_HIP_ARCHITECTURES=gfx90a`. The device is then `"cuda"` (as in PyTorch) or `"hip"`.
 `NequIPFoundation` does the same for the models of `pair_style symmetrix/nequip/foundation`:
 ```
 from symmetrix.experimental import NequIPFoundation

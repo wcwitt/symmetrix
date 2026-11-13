@@ -186,12 +186,14 @@ PYBIND11_MODULE(_mace_foundation, m)
                          throw std::invalid_argument("dtype must be 'float64' or 'float32' on the CPU");
                      return mace_foundation_cpu(file, dtype, skin);
                  }
-                 if (device != "cuda")
-                     throw std::invalid_argument("device must be 'cpu' or 'cuda', not '" + device + "'");
-#ifdef MACE_FOUNDATION_CUDA
+                 if (device != "cuda" and device != "hip")
+                     throw std::invalid_argument("device must be 'cpu', 'cuda' or 'hip', not '" + device + "'");
+#if defined(MACE_FOUNDATION_CUDA)
                  return mace_foundation_cuda(file, dtype, skin);
+#elif defined(MACE_FOUNDATION_HIP)
+                 return mace_foundation_hip(file, dtype, skin);
 #else
-                 throw std::runtime_error("symmetrix was built without CUDA");
+                 throw std::runtime_error("symmetrix was built without CUDA or HIP");
 #endif
              }),
              py::arg("model_file"), py::arg("device") = "cuda", py::arg("dtype") = "float64", py::arg("skin") = 1.0)

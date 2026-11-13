@@ -71,7 +71,7 @@ if(PKG_KSPACE)
 endif()
 set_source_files_properties(\${LAMMPS_SOURCE_DIR}/pair_symmetrix_mace_foundation.cpp
   \${LAMMPS_SOURCE_DIR}/pair_symmetrix_nequip_foundation.cpp
-  PROPERTIES COMPILE_OPTIONS \"-march=native;\$<\$<AND:\$<CONFIG:Release>,\$<NOT:\$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math;-fno-finite-math-only>\")
+  PROPERTIES COMPILE_OPTIONS \"-march=native;\$<\$<AND:\$<CONFIG:Release>,\$<NOT:\$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math;-fno-finite-math-only>;\$<\$<CXX_COMPILER_ID:Clang>:-fbracket-depth=1024>\")
 if(Kokkos_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
   target_compile_definitions(lammps PRIVATE SYMMETRIX_CUDA)
@@ -79,6 +79,17 @@ if(Kokkos_ENABLE_CUDA)
   set_source_files_properties(\${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_mace_foundation_kokkos.cpp
     \${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.cpp
     PROPERTIES COMPILE_OPTIONS \"--expt-relaxed-constexpr;\$<\$<CONFIG:Release>:--use_fast_math>\")
+endif()
+if(Kokkos_ENABLE_HIP)
+  find_package(hipblas REQUIRED)
+  find_package(hipcub REQUIRED)
+  target_compile_definitions(lammps PRIVATE SYMMETRIX_HIP)
+  target_link_libraries(lammps PRIVATE roc::hipblas hip::hipcub)
+  set_source_files_properties(\${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_mace_foundation_kokkos.cpp
+    \${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.cpp
+    PROPERTIES COMPILE_OPTIONS \"-munsafe-fp-atomics;-fbracket-depth=1024;-Wno-c++23-lambda-attributes;\$<\$<CONFIG:Release>:-ffast-math;-fno-finite-math-only>\")
+  set_property(SOURCE \${LAMMPS_SOURCE_DIR}/pair_symmetrix_mace_foundation.cpp \${LAMMPS_SOURCE_DIR}/pair_symmetrix_nequip_foundation.cpp
+    APPEND PROPERTY COMPILE_OPTIONS -Wno-c++23-lambda-attributes)
 endif()
 ### SYMMETRIX END
 " >> $lammps/cmake/CMakeLists.txt

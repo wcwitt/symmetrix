@@ -14,7 +14,7 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-#ifdef SYMMETRIX_CUDA
+#if defined(SYMMETRIX_CUDA) || defined(SYMMETRIX_HIP)
 PairStyle(symmetrix/nequip/foundation/kk,PairSymmetrixNequIPFoundationKokkosDouble);
 PairStyle(symmetrix/nequip/foundation/kk/device,PairSymmetrixNequIPFoundationKokkosDouble);
 PairStyle(symmetrix/nequip/foundation/float32/kk,PairSymmetrixNequIPFoundationKokkosFloat);
@@ -173,5 +173,8 @@ using PairSymmetrixNequIPFoundationKokkosMixed = PairSymmetrixNequIPFoundationKo
 }    // namespace LAMMPS_NS
 
 #endif
+#endif
+#ifdef SYMMETRIX_HIP
+#include "pair_symmetrix_nequip_foundation_kokkos_hip.h"
 #endif
 #endif

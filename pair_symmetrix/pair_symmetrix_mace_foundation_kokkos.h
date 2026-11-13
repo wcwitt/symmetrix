@@ -13,7 +13,7 @@
 
 #ifdef PAIR_CLASS
 // clang-format off
-#ifdef SYMMETRIX_CUDA
+#if defined(SYMMETRIX_CUDA) || defined(SYMMETRIX_HIP)
 #define PairSymmetrixMACEFoundationKokkosDouble PairSymmetrixMACEFoundationKokkos<double,false>
 #define PairSymmetrixMACEFoundationKokkosFloat PairSymmetrixMACEFoundationKokkos<float,false>
 #define PairSymmetrixMACEFoundationKokkosMixed PairSymmetrixMACEFoundationKokkos<float,true>
@@ -121,5 +121,8 @@ using PairSymmetrixMACEFoundationKokkosMixed = PairSymmetrixMACEFoundationKokkos
 }    // namespace LAMMPS_NS
 
 #endif
+#endif
+#ifdef SYMMETRIX_HIP
+#include "pair_symmetrix_mace_foundation_kokkos_hip.h"
 #endif
 #endif

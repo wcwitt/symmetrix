@@ -40,7 +40,7 @@ mpirun -np 4 lmp -k on g 4 -sf kk -pk kokkos newton on neigh half -in in.lammps
 ### Foundation-model pair styles (experimental)
 
 Fixed-architecture models have specialized pair styles, each with CPU (OpenMP threads in each MPI process) and GPU
-(a CUDA build of Kokkos and `-sf kk`) versions:
+(a CUDA or HIP build of Kokkos and `-sf kk`) versions:
 ```
 pair_style    symmetrix/mace/foundation              # or .../float32, or .../float32-mixed (GPU only)
 pair_coeff    * * mace-mp-0b3-medium-1-8.json H O
@@ -88,7 +88,8 @@ Some (probably incomplete) prerequisites are:
 
 Below are recipies for building LAMMPS with `pair_symmetrix` on various machines:
 * [ARCHER2](#building-lammps-on-archer2);
-* [Harvard's FASRC Cannon](#building-lammps-on-fasrc-cannon).
+* [Harvard's FASRC Cannon](#building-lammps-on-fasrc-cannon);
+* [OLCF Frontier](#building-lammps-on-olcf-frontier) (AMD MI250X, HIP).
 
 -----
 
@@ -198,6 +199,50 @@ cmake \
 cmake --build build-gpu -j 64
 cd ../..
 ```
+
+#### Building LAMMPS on OLCF Frontier
+
+The foundation-model GPU styles have a HIP version for AMD GPUs (so far tested only on MI250X), selected
+automatically when Kokkos is built with HIP; the style names are the same as with CUDA. On AMD GPUs `float32-mixed`
+keeps part of the second-layer splines in fp16 but runs its GEMMs in fp32 (there is no TF32), and `direct_exchange`
+is untested.
+```
+# download lammps and patch with symmetrix
+mkdir lammps-symmetrix && cd lammps-symmetrix
+git clone --branch release --depth 1 https://github.com/lammps/lammps
+git clone --recursive https://github.com/wcwitt/symmetrix
+cd symmetrix/pair_symmetrix
+./install.sh ../../lammps
+cd ../..
+
+# obtain a compute node, e.g. salloc -A ABC123 -t 1:00:00 -p batch -N 1, then
+module load PrgEnv-amd rocm/7.0.2 craype-accel-amd-gfx90a cray-mpich cmake
+export LD_LIBRARY_PATH=$CRAY_LD_LIBRARY_PATH:$LD_LIBRARY_PATH
+cd lammps
+cmake -S cmake -B build-hip \
+    -D CMAKE_BUILD_TYPE=Release \
+    -D CMAKE_CXX_COMPILER=hipcc \
+    -D CMAKE_CXX_STANDARD=20 \
+    -D CMAKE_CXX_STANDARD_REQUIRED=ON \
+    -D CMAKE_CXX_FLAGS="-I${MPICH_DIR}/include" \
+    -D CMAKE_EXE_LINKER_FLAGS="-L${MPICH_DIR}/lib -lmpi ${PE_MPICH_GTL_DIR_amd_gfx90a} ${PE_MPICH_GTL_LIBS_amd_gfx90a}" \
+    -D BUILD_MPI=ON \
+    -D MPI_CXX_COMPILER=${MPICH_DIR}/bin/mpicxx \
+    -D BUILD_OMP=ON \
+    -D PKG_KOKKOS=ON \
+    -D Kokkos_ENABLE_SERIAL=ON \
+    -D Kokkos_ENABLE_HIP=ON \
+    -D Kokkos_ARCH_AMD_GFX90A=ON \
+    -D Kokkos_ARCH_ZEN3=ON \
+    -D Kokkos_ENABLE_HIP_MULTIPLE_KERNEL_INSTANTIATIONS=ON \
+    -D SYMMETRIX_KOKKOS=ON
+cmake --build build-hip -j 56
+```
+Run on one GCD with, e.g., `srun -n 1 -c 7 --gpus=1 build-hip/lmp -k on g 1 -sf kk -pk kokkos newton on neigh half
+-in in.lammps`.
+
+With ROCm 7.0.2, HIP graphs of the MACE kernels gave wrong forces after being captured again, so the MACE style and
+evaluator launch their kernels directly.
 
 -----
 

@@ -40,6 +40,18 @@ if(_cuda_found)
   endif()
 endif()
 
+set(SYMMETRIX_HIP_FOUND FALSE)
+if(NOT _cuda_found)
+  check_language(HIP)
+  if(CMAKE_HIP_COMPILER)
+    message(STATUS "Symmetrix: HIP found.")
+    set(SYMMETRIX_HIP_FOUND TRUE)
+    if(DEFINED CMAKE_HIP_ARCHITECTURES)
+      set(SYMMETRIX_HIP_ARCHITECTURES ${CMAKE_HIP_ARCHITECTURES})
+    endif()
+  endif()
+endif()
+
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
 add_subdirectory(../libsymmetrix ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix)

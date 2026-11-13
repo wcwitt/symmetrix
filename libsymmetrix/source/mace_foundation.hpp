@@ -1500,20 +1500,26 @@ void MACEFoundation<Precision>::products()
 {
     constexpr int rows = sizeof(Precision) == 4 ? 6 : 3;
 #pragma omp parallel
-    for (const auto& [m, n, k, A, lda, B, C, ldc] : queue)
+    for (const Product& p : queue) {
+        // clang cannot capture structured bindings in OpenMP regions
+        const int m = p.m, n = p.n, k = p.k, lda = p.lda, ldc = p.ldc;
+        const Precision* A = p.a;
+        const Precision* B = p.b;
+        Precision* C = p.c;
 #pragma omp for collapse(2) schedule(static) nowait
-        for (int i0 = 0; i0 < m; i0 += rows)
-            for (int j0 = 0; j0 < n; j0 += 16) {
-                const Precision* a[rows];
-                for (int r = 0; r < rows; ++r) a[r] = A + (long)std::min(i0 + r, m - 1)*lda;
-                const Precision* b = B + (long)j0*k;
-                Precision c[rows][16] = {};
-                for (int q = 0; q < k; ++q)
-                    for (int r = 0; r < rows; ++r)
+            for (int i0 = 0; i0 < m; i0 += rows)
+                for (int j0 = 0; j0 < n; j0 += 16) {
+                    const Precision* a[rows];
+                    for (int r = 0; r < rows; ++r) a[r] = A + (long)std::min(i0 + r, m - 1)*lda;
+                    const Precision* b = B + (long)j0*k;
+                    Precision c[rows][16] = {};
+                    for (int q = 0; q < k; ++q)
+                        for (int r = 0; r < rows; ++r)
 #pragma omp simd
-                        for (int j = 0; j < 16; ++j) c[r][j] += a[r][q]*b[q*16 + j];
-                for (int r = 0; r < std::min(rows, m - i0); ++r) std::copy_n(c[r], 16, C + (long)(i0 + r)*ldc + j0);
-            }
+                            for (int j = 0; j < 16; ++j) c[r][j] += a[r][q]*b[q*16 + j];
+                    for (int r = 0; r < std::min(rows, m - i0); ++r) std::copy_n(c[r], 16, C + (long)(i0 + r)*ldc + j0);
+                }
+    }
     queue.clear();
 }
 

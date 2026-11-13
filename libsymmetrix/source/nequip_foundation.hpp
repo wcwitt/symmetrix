@@ -937,26 +937,33 @@ template <class Precision>
 void NequIPFoundation<Precision>::products()
 {
 #pragma omp parallel
-    for (const auto& [m, n, k, A, lda, B, C, ldc, add] : queue)
+    for (const Product& p : queue) {
+        // clang cannot capture structured bindings in OpenMP regions
+        const int m = p.m, n = p.n, k = p.k, lda = p.lda, ldc = p.ldc;
+        const Precision* A = p.a;
+        const Precision* B = p.b;
+        Precision* C = p.c;
+        const bool add = p.add;
 #pragma omp for collapse(2) schedule(static) nowait
-        for (int i0 = 0; i0 < m; i0 += 6)
-            for (int j0 = 0; j0 < n; j0 += 16) {
-                const Precision* a[6];
-                for (int r = 0; r < 6; ++r) a[r] = A + (long)std::min(i0 + r, m - 1)*lda;
-                const Precision* b = B + (long)j0*k;
-                Precision c[6][16] = {};
-                for (int q = 0; q < k; ++q)
-                    for (int r = 0; r < 6; ++r)
+            for (int i0 = 0; i0 < m; i0 += 6)
+                for (int j0 = 0; j0 < n; j0 += 16) {
+                    const Precision* a[6];
+                    for (int r = 0; r < 6; ++r) a[r] = A + (long)std::min(i0 + r, m - 1)*lda;
+                    const Precision* b = B + (long)j0*k;
+                    Precision c[6][16] = {};
+                    for (int q = 0; q < k; ++q)
+                        for (int r = 0; r < 6; ++r)
 #pragma omp simd
-                        for (int j = 0; j < 16; ++j) c[r][j] += a[r][q]*b[q*16 + j];
-                for (int r = 0; r < std::min(6, m - i0); ++r) {
-                    Precision* o = C + (long)(i0 + r)*ldc + j0;
-                    if (add)
-                        for (int j = 0; j < 16; ++j) o[j] += c[r][j];
-                    else
-                        std::copy_n(c[r], 16, o);
+                            for (int j = 0; j < 16; ++j) c[r][j] += a[r][q]*b[q*16 + j];
+                    for (int r = 0; r < std::min(6, m - i0); ++r) {
+                        Precision* o = C + (long)(i0 + r)*ldc + j0;
+                        if (add)
+                            for (int j = 0; j < 16; ++j) o[j] += c[r][j];
+                        else
+                            std::copy_n(c[r], 16, o);
+                    }
                 }
-            }
+    }
     queue.clear();
 }
 

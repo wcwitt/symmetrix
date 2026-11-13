@@ -800,3 +800,7 @@ template class PairSymmetrixMACEFoundationKokkos<float, true>;
 }
 
 #endif
+
+#ifdef SYMMETRIX_HIP
+#include "pair_symmetrix_mace_foundation_kokkos_hip.cpp"
+#endif
