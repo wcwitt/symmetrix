@@ -15,8 +15,7 @@ from ase.geometry import find_mic
 
 from symmetrix.experimental import MACEFoundation, MACEPolar, NequIPFoundation
 from test_mace_foundation import structures as foundation_structures
-from test_mace_polar import polar, structures  # noqa: F401
-from test_openmm import mace_model, nequip_model  # noqa: F401
+from test_mace_polar import structures
 
 GMX = os.environ.get("SYMMETRIX_GMX")
 
@@ -25,14 +24,14 @@ pytestmark = pytest.mark.skipif(not GMX, reason="SYMMETRIX_GMX is not set")
 # e N_A / 1000, exact in the SI since 2019
 EV_TO_KJ_PER_MOL = 1.602176634e-19 * 6.02214076e23 / 1000
 
-CALCULATORS = {"polar": MACEPolar, "mace": MACEFoundation, "nequip": NequIPFoundation}
+CALCULATORS = {"mace": MACEFoundation, "nequip": NequIPFoundation}
 
 MDP = """integrator = md
 dt = {dt}
 nsteps = {steps}
 cutoff-scheme = Verlet
 nstlist = 10
-pbc = {pbc}
+pbc = xyz
 coulombtype = cut-off
 rcoulomb = {rc}
 rvdw = {rc}
@@ -111,16 +110,24 @@ def write_inputs(a, directory):
 
 
 def run(
-    a, model_json, directory, env, steps=0, dt=0.0005, temperature=0, charge=0, ranks=1
+    a,
+    model_json,
+    directory,
+    env,
+    steps=0,
+    dt=0.0005,
+    temperature=0,
+    charge=0,
+    ranks=1,
+    mdp=MDP,
 ):
     """run GROMACS on a; the last frame's positions (A), energy (kJ/mol), forces (kJ/mol/nm) and virial (kJ/mol)"""
     b = write_inputs(a, directory)
     height = min(1 / np.linalg.norm(np.linalg.inv(b.cell.array), axis=0)) * 0.1
     (directory / "md.mdp").write_text(
-        MDP.format(
+        mdp.format(
             dt=dt,
             steps=steps,
-            pbc="xyz",
             rc=min(0.3, 0.45 * height),
             gen_vel="yes" if temperature else "no",
             temperature=temperature,
@@ -239,7 +246,7 @@ def compare(energy, forces, virial, ref, e_rtol, f_tol):
 
 @pytest.mark.parametrize("dtype", ["float32", "float32-mixed"])
 @pytest.mark.parametrize("name", ["water", "triclinic", "hydroxide", "radical"])
-def test_polar_matches_ase(polar, name, dtype, tmp_path):  # noqa: F811
+def test_polar_matches_ase(polar, name, dtype, tmp_path):
     a = structures()[name]
     charge, spin = a.info.get("charge", 0), a.info.get("spin", 1)
     env = {"SYMMETRIX_DTYPE": dtype, "SYMMETRIX_SPIN_MULTIPLICITY": str(spin)}
@@ -252,12 +259,6 @@ def test_polar_matches_ase(polar, name, dtype, tmp_path):  # noqa: F811
         1e-6,
         2e-2,
     )
-
-
-@pytest.fixture(params=["mace", "nequip"])
-def foundation(request):
-    """(family, Symmetrix JSON)"""
-    return request.param, request.getfixturevalue(f"{request.param}_model")
 
 
 @pytest.mark.parametrize(
@@ -273,7 +274,7 @@ def test_foundation_matches_ase(foundation, dtype, e_rtol, f_tol, tmp_path):
     )
 
 
-def test_neighbor_list_after_steps(mace_model, tmp_path):  # noqa: F811
+def test_neighbor_list_after_steps(mace_model, tmp_path):
     """after MD steps in which atoms cross the skin and GROMACS puts them back in the box, the forces still match"""
     a = foundation_structures()["bulk"]
     env = {"SYMMETRIX_DTYPE": "float64", "SYMMETRIX_SKIN": "0.2"}
@@ -281,13 +282,16 @@ def test_neighbor_list_after_steps(mace_model, tmp_path):  # noqa: F811
         a, mace_model, tmp_path, env, steps=200, dt=0.00025, temperature=2000
     )
     start = a[np.argsort(a.numbers, kind="stable")]
-    assert find_mic(b.positions - start.positions, b.cell, b.pbc)[1].max() > 0.2
+    moved = b.positions - start.positions
+    shortest = find_mic(moved, b.cell, b.pbc)[0]
+    assert np.linalg.norm(shortest, axis=1).max() > 0.2  # crossed the skin
+    assert np.abs(moved - shortest).max() > 1  # put back in the box
     compare(
         energy, forces, virial, reference("mace", mace_model, b, "float64"), 1e-7, 1e-2
     )
 
 
-def test_domain_decomposition(polar, tmp_path):  # noqa: F811
+def test_domain_decomposition(polar, tmp_path):
     """with two domains, the forces return to the ranks that own the atoms"""
     a = structures()["water"]
     env = {"SYMMETRIX_DTYPE": "float32"}
@@ -296,3 +300,26 @@ def test_domain_decomposition(polar, tmp_path):  # noqa: F811
     )
     assert "Domain decomposition grid" in (tmp_path / "md.log").read_text()
     compare(energy, forces, virial, reference("polar", polar, b, "float32"), 1e-6, 2e-2)
+
+
+def test_refuses_other_inputs(mace_model, tmp_path):
+    """grompp refuses the inputs the Symmetrix models do not take"""
+    a = foundation_structures()["bulk"]
+    mdp = MDP.replace("nnpot-model-input4 = pbc", "nnpot-model-input4 = atom-pairs")
+    with pytest.raises(RuntimeError, match="atom-positions, atom-numbers, box and pbc"):
+        run(a, mace_model, tmp_path, {}, mdp=mdp)
+
+
+@pytest.mark.parametrize(
+    "env,charge,match",
+    [
+        ({"SYMMETRIX_SKIN": "-1"}, 0, "skin"),
+        ({"SYMMETRIX_SKIN": "0.2nm"}, 0, "SYMMETRIX_SKIN must be a number"),
+        ({"SYMMETRIX_DTYPE": "float16"}, 0, "dtype"),
+        ({}, 1, "no total charge"),
+    ],
+)
+def test_refuses_bad_settings(mace_model, tmp_path, env, charge, match):
+    a = foundation_structures()["bulk"]
+    with pytest.raises(RuntimeError, match=match):
+        run(a, mace_model, tmp_path, env, charge=charge)

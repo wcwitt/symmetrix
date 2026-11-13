@@ -1,11 +1,12 @@
 // The GROMACS side of the Symmetrix NNPot model: units, periodicity, and the distribution of the forces to the ranks
 // that own the atoms. The model runs on the main rank, after GROMACS has collected the positions.
 
-#include "symmetrixmodel.h"
-
 #include "gmxpre.h"
 
+#include "symmetrixmodel.h"
+
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <set>
@@ -27,20 +28,47 @@ namespace gmx
 namespace
 {
 
+//! The value of an environment variable, or \p otherwise when it is unset or empty
 std::string environment(const char* name, const std::string& otherwise)
 {
     const char* value = std::getenv(name);
     return value && *value ? value : otherwise;
 }
 
+//! A number from an environment variable, which must be all of it, or \p otherwise when it is unset or empty
+double environmentNumber(const char* name, double otherwise)
+{
+    const std::string text = environment(name, "");
+    if (text.empty())
+    {
+        return otherwise;
+    }
+    size_t used  = 0;
+    double value = 0;
+    try
+    {
+        value = std::stod(text, &used);
+    }
+    catch (const std::exception&)
+    {
+        used = 0;
+    }
+    if (used != text.size() || !std::isfinite(value))
+    {
+        GMX_THROW(InconsistentInputError(std::string(name) + " must be a number, not '" + text + "'"));
+    }
+    return value;
+}
+
 symmetrix::gromacs::Options options(const NNPotParameters& parameters)
 {
-    symmetrix::gromacs::Options o;
-    o.dtype             = environment("SYMMETRIX_DTYPE", o.dtype);
-    o.skin              = std::stod(environment("SYMMETRIX_SKIN", std::to_string(o.skin)));
-    o.spin_multiplicity = std::stod(environment("SYMMETRIX_SPIN_MULTIPLICITY", "1"));
-    o.total_charge      = parameters.nnpCharge_;
-    return o;
+    symmetrix::gromacs::Options settings;
+    settings.dtype = environment("SYMMETRIX_DTYPE", settings.dtype);
+    settings.skin  = environmentNumber("SYMMETRIX_SKIN", settings.skin);
+    settings.spin_multiplicity =
+            environmentNumber("SYMMETRIX_SPIN_MULTIPLICITY", settings.spin_multiplicity);
+    settings.total_charge = parameters.nnpCharge_;
+    return settings;
 }
 
 } // namespace
@@ -142,28 +170,34 @@ void SymmetrixModel::evaluateModel(gmx_enerdata_t*     energy,
                 x[3 * i + j] = positions[i][j] * c_nm2A;
             }
         }
-        std::vector<double>   f(x.size());
-        std::array<double, 6> w{};
-        double                e = 0;
+        std::vector<double>   modelForces(x.size());
+        std::array<double, 6> modelVirial{};
+        double                modelEnergy = 0;
         try
         {
-            e = model_->compute(positions.ssize(), x.data(), numbers.data(), cell.data(), pbc, f.data(), w.data());
+            modelEnergy = model_->compute(positions.ssize(),
+                                          x.data(),
+                                          numbers.data(),
+                                          cell.data(),
+                                          pbc,
+                                          modelForces.data(),
+                                          modelVirial.data());
         }
         catch (const std::exception& error)
         {
-            GMX_THROW(InternalError(std::string("Symmetrix: ") + error.what()));
+            GMX_THROW(InternalError(error.what()));
         }
-        energy->term[InteractionFunction::NeuralNetworkPotentialEnergy] = e * energyFactor;
-        for (size_t k = 0; k < f.size(); ++k)
+        energy->term[InteractionFunction::NeuralNetworkPotentialEnergy] = modelEnergy * energyFactor;
+        for (size_t k = 0; k < modelForces.size(); ++k)
         {
-            globalForces[k] = f[k] * forceFactor;
+            globalForces[k] = modelForces[k] * forceFactor;
         }
         // GROMACS's pressure is 2*(Ekin-Xi)/V, so Xi = -W/2 for the virial W (xx yy zz xy xz yz) of the model;
         // it is added once, on the main rank
         constexpr int a[6] = { 0, 1, 2, 0, 0, 1 }, b[6] = { 0, 1, 2, 1, 2, 2 };
         for (int k = 0; k < 6; ++k)
         {
-            virial_[a[k]][b[k]] = virial_[b[k]][a[k]] = -0.5 * energyFactor * w[k];
+            virial_[a[k]][b[k]] = virial_[b[k]][a[k]] = -0.5 * energyFactor * modelVirial[k];
         }
     }
     if (comm_.isParallel())

@@ -18,6 +18,10 @@ if ! grep -q '^project(Gromacs VERSION 2026.4)' ${gromacs}/CMakeLists.txt; then
     exit 2
 fi
 
+# a GROMACS tree without its own .git must not be taken for part of an enclosing repository, where git apply would
+# skip the paths outside the current directory
+export GIT_CEILING_DIRECTORIES=$(dirname ${gromacs})
+
 if git -C ${gromacs} apply --unidiff-zero --reverse --check ${patch} 2>/dev/null; then
     echo "The Symmetrix patch is already applied to ${gromacs}." 1>&2
 elif git -C ${gromacs} apply --unidiff-zero --check ${patch}; then
