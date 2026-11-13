@@ -1,8 +1,9 @@
 #include <cmath>
 #include <fstream>
+#include <regex>
 #include <stdexcept>
+#include <string>
 
-#include "nlohmann/json.hpp"
 #include "symmetrix_gromacs.h"
 
 namespace symmetrix::gromacs {
@@ -13,14 +14,20 @@ std::unique_ptr<Model> nequip_foundation_model(const std::string& file, const Op
 
 std::unique_ptr<Model> Model::load(const std::string& file, const Options& options)
 {
+    if (options.dtype != "float64" and options.dtype != "float32" and options.dtype != "float32-mixed")
+        throw std::runtime_error("Symmetrix: dtype must be float64, float32 or float32-mixed, not " + options.dtype);
+    if (not (options.skin >= 0) or not std::isfinite(options.skin))
+        throw std::runtime_error("Symmetrix: the skin must be a finite number >= 0");
+    // the extracted models write model_type near the top, as symmetrix.calculator reads it
     std::ifstream in(file);
     if (not in)
         throw std::runtime_error("Symmetrix: cannot open " + file);
-    // only the top level matters here
-    const auto js = nlohmann::json::parse(in);
-    if (options.dtype != "float64" and options.dtype != "float32" and options.dtype != "float32-mixed")
-        throw std::runtime_error("Symmetrix: dtype must be float64, float32 or float32-mixed, not " + options.dtype);
-    const std::string type = js.value("model_type", "");
+    std::string head(4096, '\0');
+    in.read(head.data(), std::streamsize(head.size()));
+    head.resize(size_t(in.gcount()));
+    std::smatch match;
+    const std::string type = std::regex_search(head, match, std::regex(R"re("model_type"\s*:\s*"([^"]*)")re"))
+        ? match[1].str() : "";
     if (type == "PolarMACE")
         return polar_model(file, options);
     if (type == "NequIP")

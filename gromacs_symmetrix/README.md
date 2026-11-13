@@ -45,6 +45,9 @@ The model type is read from the JSON. Settings that the `.mdp` file has no place
 moved by half of it;
 * `SYMMETRIX_SPIN_MULTIPLICITY`: of the whole system, for PolarMACE models (default 1).
 
+Foundation models refuse a total charge or spin multiplicity. The neighbor list is also built again whenever the box
+changes, so with pressure coupling it is built on every step.
+
 The model runs on the main rank, on the GPU that CUDA lists first (set `CUDA_VISIBLE_DEVICES`), after GROMACS has
 collected the positions; the forces return to the ranks that own the atoms, so domain decomposition works. The
 energy is the total energy of the model, and the virial enters the pressure. The tested periodicity is `xyz`, which
