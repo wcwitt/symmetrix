@@ -1,0 +1,102 @@
+diff --git a/cmake/gmxManageNNPot.cmake b/cmake/gmxManageNNPot.cmake
+index 2302180..2693dc7 100644
+--- a/cmake/gmxManageNNPot.cmake
++++ b/cmake/gmxManageNNPot.cmake
+@@ -38 +38 @@ gmx_option_multichoice(GMX_NNPOT
+-    AUTO TORCH OFF
++    AUTO TORCH SYMMETRIX OFF
+@@ -46 +46,7 @@ set(GMX_TORCH OFF)
+-if(NOT GMX_NNPOT STREQUAL "OFF")
++set(GMX_SYMMETRIX OFF)
++if(GMX_NNPOT STREQUAL "SYMMETRIX")
++    if(NOT EXISTS "${SYMMETRIX_GROMACS_DIR}/symmetrixmodel.cpp")
++        message(FATAL_ERROR "Set SYMMETRIX_GROMACS_DIR to the gromacs_symmetrix directory of Symmetrix")
++    endif()
++    set(GMX_SYMMETRIX ON)
++elseif(NOT GMX_NNPOT STREQUAL "OFF")
+diff --git a/src/config.h.cmakein b/src/config.h.cmakein
+index 5f46046..4276006 100644
+--- a/src/config.h.cmakein
++++ b/src/config.h.cmakein
+@@ -483,0 +484 @@
++#cmakedefine01 GMX_SYMMETRIX
+diff --git a/src/gromacs/applied_forces/nnpot/CMakeLists.txt b/src/gromacs/applied_forces/nnpot/CMakeLists.txt
+index e2160f7..9ccb38a 100644
+--- a/src/gromacs/applied_forces/nnpot/CMakeLists.txt
++++ b/src/gromacs/applied_forces/nnpot/CMakeLists.txt
+@@ -42 +42,6 @@ gmx_add_libgromacs_sources(
+-if (GMX_TORCH)
++if(GMX_SYMMETRIX)
++    add_subdirectory("${SYMMETRIX_GROMACS_DIR}" "${CMAKE_BINARY_DIR}/symmetrix_gromacs")
++    gmx_add_libgromacs_sources(nnpotforceprovider.cpp "${SYMMETRIX_GROMACS_DIR}/symmetrixmodel.cpp")
++    target_include_directories(applied_forces INTERFACE "${SYMMETRIX_GROMACS_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
++    target_link_libraries(applied_forces INTERFACE symmetrix_gromacs)
++elseif (GMX_TORCH)
+diff --git a/src/gromacs/applied_forces/nnpot/binary_information.cpp b/src/gromacs/applied_forces/nnpot/binary_information.cpp
+index 5ee75b6..e9388c6 100644
+--- a/src/gromacs/applied_forces/nnpot/binary_information.cpp
++++ b/src/gromacs/applied_forces/nnpot/binary_information.cpp
+@@ -57 +57,3 @@ std::string torchDescription()
+-#if GMX_TORCH
++#if GMX_SYMMETRIX
++    return "Symmetrix (native)";
++#elif GMX_TORCH
+diff --git a/src/gromacs/applied_forces/nnpot/nnpotforceprovider.cpp b/src/gromacs/applied_forces/nnpot/nnpotforceprovider.cpp
+index 293866f..0e280b3 100644
+--- a/src/gromacs/applied_forces/nnpot/nnpotforceprovider.cpp
++++ b/src/gromacs/applied_forces/nnpot/nnpotforceprovider.cpp
+@@ -61,0 +62,3 @@
++#if GMX_SYMMETRIX
++#include "symmetrixmodel.h"
++#else
+@@ -62,0 +66 @@
++#endif
+@@ -151,0 +156,6 @@ NNPotForceProvider::NNPotForceProvider(const NNPotParameters& nnpotParameters,
++#if GMX_SYMMETRIX
++    else if (modelPath.extension() == ".json")
++    {
++        model_ = std::make_shared<SymmetrixModel>(params_, mpiComm_);
++    }
++#else
+@@ -156,0 +167 @@ NNPotForceProvider::NNPotForceProvider(const NNPotParameters& nnpotParameters,
++#endif
+@@ -208,0 +220,4 @@ void NNPotForceProvider::calculateForces(const ForceProviderInput& fInput, Force
++#if GMX_SYMMETRIX
++    fOutput->forceWithVirial_.addVirialContribution(
++            static_cast<SymmetrixModel*>(model_.get())->virial());
++#endif
+diff --git a/src/gromacs/applied_forces/nnpot/nnpotoptions.cpp b/src/gromacs/applied_forces/nnpot/nnpotoptions.cpp
+index f8c7f51..a238a53 100644
+--- a/src/gromacs/applied_forces/nnpot/nnpotoptions.cpp
++++ b/src/gromacs/applied_forces/nnpot/nnpotoptions.cpp
+@@ -65 +65,3 @@
+-#if GMX_TORCH
++#if GMX_SYMMETRIX
++#    include "symmetrixmodel.h"
++#elif GMX_TORCH
+@@ -209,0 +212 @@ void NNPotOptions::initMdpTransform(IKeyValueTreeTransformRules* rules)
++    addMdpTransformFromString<real>(rules, &fromStdString<real>, NNPotModuleInfo::sc_name, c_nnpChargeTag_);
+@@ -271,0 +275 @@ void NNPotOptions::buildMdpOutput(KeyValueTreeObjectBuilder* builder) const
++        addMdpOutputValue<real>(builder, NNPotModuleInfo::sc_name, c_nnpChargeTag_, params_.nnpCharge_);
+@@ -548 +552 @@ void NNPotOptions::setWarninp(WarningHandler* wi)
+-#if !GMX_TORCH
++#if !GMX_TORCH && !GMX_SYMMETRIX
+@@ -553 +557,3 @@ void NNPotOptions::checkNNPotModel()
+-#if GMX_TORCH
++#if GMX_SYMMETRIX
++    validateSymmetrixParameters(params_);
++#elif GMX_TORCH
+diff --git a/src/gromacs/applied_forces/nnpot/nnpotoptions.h b/src/gromacs/applied_forces/nnpot/nnpotoptions.h
+index 9182227..e837d4e 100644
+--- a/src/gromacs/applied_forces/nnpot/nnpotoptions.h
++++ b/src/gromacs/applied_forces/nnpot/nnpotoptions.h
+@@ -194 +194 @@ private:
+-#if !GMX_TORCH
++#if !GMX_TORCH && !GMX_SYMMETRIX
+diff --git a/src/gromacs/mdrun/runner.cpp b/src/gromacs/mdrun/runner.cpp
+index f6d5491..7e1edff 100644
+--- a/src/gromacs/mdrun/runner.cpp
++++ b/src/gromacs/mdrun/runner.cpp
+@@ -2489 +2489 @@ int Mdrunner::mdrunner()
+-        if (GMX_GPU && !GMX_TORCH)
++        if (GMX_GPU && !GMX_TORCH && !GMX_SYMMETRIX)
