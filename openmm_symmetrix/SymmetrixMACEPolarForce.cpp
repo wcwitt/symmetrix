@@ -32,7 +32,7 @@ public:
         args.skin = owner.getSkin();
         args.total_charge = owner.getTotalCharge();
         args.spin_multiplicity = owner.getSpinMultiplicity();
-        args.float32_mixed = owner.getFloat32Mixed();
+        args.dtype = owner.getDtype();
         evaluator.reset(create_cuda_evaluator(context, SYMMETRIX_MACE_POLAR_MODULE, args));
     }
 
@@ -61,7 +61,7 @@ public:
         node.setDoubleProperty("totalCharge", force.getTotalCharge());
         node.setDoubleProperty("spinMultiplicity", force.getSpinMultiplicity());
         node.setDoubleProperty("skin", force.getSkin());
-        node.setIntProperty("float32Mixed", force.getFloat32Mixed() ? 1 : 0);
+        node.setStringProperty("dtype", force.getDtype());
         node.setIntProperty("forceGroup", force.getForceGroup());
         node.setStringProperty("name", force.getName());
         auto& numbers = node.createChildNode("AtomicNumbers");
@@ -78,8 +78,8 @@ public:
             numbers.push_back(atom.getIntProperty("z"));
         auto* force = new SymmetrixMACEPolarForce(
             node.getStringProperty("modelFile"), numbers, node.getDoubleProperty("totalCharge", 0.0),
-            node.getDoubleProperty("spinMultiplicity", 1.0), node.getDoubleProperty("skin", 1.0),
-            node.getIntProperty("float32Mixed", 0) != 0);
+            node.getDoubleProperty("spinMultiplicity", 1.0), node.getStringProperty("dtype", "float32"),
+            node.getDoubleProperty("skin", 1.0));
         force->setForceGroup(node.getIntProperty("forceGroup", 0));
         force->setName(node.getStringProperty("name", "SymmetrixMACEPolarForce"));
         return force;
@@ -89,15 +89,18 @@ public:
 }  // namespace
 
 SymmetrixMACEPolarForce::SymmetrixMACEPolarForce(std::string model_file, std::vector<int> atomic_numbers,
-                                                 double total_charge, double spin_multiplicity, double skin,
-                                                 bool float32_mixed)
+                                                 double total_charge, double spin_multiplicity, std::string dtype,
+                                                 double skin)
     : model_file(std::move(model_file)), atomic_numbers(std::move(atomic_numbers)), total_charge(total_charge),
-      spin_multiplicity(spin_multiplicity), skin(skin), float32_mixed(float32_mixed)
+      spin_multiplicity(spin_multiplicity), dtype(std::move(dtype)), skin(skin)
 {
     if (this->atomic_numbers.empty())
         throw OpenMM::OpenMMException("SymmetrixMACEPolarForce: no atomic numbers");
-    if (skin < 0)
-        throw OpenMM::OpenMMException("SymmetrixMACEPolarForce: negative skin");
+    if (this->dtype != "float32" and this->dtype != "float32-mixed")
+        throw OpenMM::OpenMMException("SymmetrixMACEPolarForce: dtype must be 'float32' or 'float32-mixed', not '" +
+                                      this->dtype + "'");
+    if (not (skin >= 0))
+        throw OpenMM::OpenMMException("SymmetrixMACEPolarForce: the skin must be a number >= 0");
     setName("SymmetrixMACEPolarForce");
 }
 

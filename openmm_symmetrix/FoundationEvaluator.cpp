@@ -11,41 +11,21 @@
 #include <openmm/internal/ContextImpl.h>
 
 #include "CudaBridge.h"
-#include "evaluator.hpp"
 #include "neighbor_list.h"
 
 #ifdef SYMMETRIX_NEQUIP
-namespace family = nequip_foundation;
+#include "nequip_foundation/evaluator.hpp"
 using Model = nequip_foundation::Evaluator;
 #define SYMMETRIX_FOUNDATION_CUDA nequip_foundation_cuda
 #else
-namespace family = mace_foundation;
+#include "mace_foundation/evaluator.hpp"
 using Model = Evaluator;
 #define SYMMETRIX_FOUNDATION_CUDA mace_foundation_cuda
 #endif
 
-// The search of the evaluator's neighbor list (which the Python package defines in its bindings): on the GPU while
-// a FoundationEvaluator is evaluating, on the CPU otherwise
-thread_local symmetrix::openmm_neighbors::GpuNeighborList* gpu_neighbor_list = nullptr;
-
-void family::neighbor_list(int n, const double* x, const double* cell, const bool* pbc, double cutoff,
-                           family::NeighborList& nl)
-{
-    symmetrix::openmm_neighbors::NeighborList list;
-    if (gpu_neighbor_list)
-        gpu_neighbor_list->build(n, x, cell, pbc, cutoff, list);
-    else
-        symmetrix::openmm_neighbors::neighbor_list(n, x, cell, pbc, cutoff, list);
-    nl.start = std::move(list.start);
-    nl.j = std::move(list.j);
-    nl.S = std::move(list.S);
-}
-
 namespace symmetrix {
 
 namespace {
-
-namespace kernels = openmm_kernels;
 
 class FoundationEvaluator final : public CudaBridge {
 public:
@@ -76,32 +56,28 @@ protected:
     {
         check(cudaStreamSynchronize(stream), name);  // x is complete before the evaluator's stream reads it
         const bool pbc[3] = {periodic, periodic, periodic};
-        double virial[6];
         bool rebuilt = false;
         double energy;
-        gpu_neighbor_list = &neighbors;
         try {
-            energy = model->compute_device(n, x, numbers.data(), cell.data(), pbc, moved, virial, &rebuilt);
-            gpu_neighbor_list = nullptr;
+            gpu::GpuNeighborList::Scope scope(neighbors);
+            energy = model->compute_device(n, x, numbers.data(), cell.data(), pbc, moved, &rebuilt);
+            if (include_forces)
+                gpu::add_atom_forces(n, model->forces_device(), sorted_index, cu.getPaddedNumAtoms(),
+                                     openmm_forces(), stream);
         } catch (const OpenMM::OpenMMException&) {
-            gpu_neighbor_list = nullptr;
             throw;
         } catch (const std::exception& e) {
-            gpu_neighbor_list = nullptr;
             throw OpenMM::OpenMMException(name + ": " + e.what());
         }
         if (rebuilt)
             mark_built(cell);
-        if (include_forces)
-            kernels::add_atom_forces(n, model->forces_device(), sorted_index, cu.getPaddedNumAtoms(),
-                                     openmm_forces(), stream);
         return energy*energy_scale;
     }
 
 private:
     const std::vector<int> numbers;
     std::unique_ptr<Model> model;
-    openmm_neighbors::GpuNeighborList neighbors;
+    gpu::GpuNeighborList neighbors;
 };
 
 }  // namespace

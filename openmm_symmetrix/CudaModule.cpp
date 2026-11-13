@@ -52,7 +52,7 @@ CudaEvaluator* create_cuda_evaluator(OpenMM::ContextImpl& context, const std::st
         throw OpenMM::OpenMMException(args.name + " runs on the CUDA platform only");
     // the CUDA modules use internal classes of the CUDA platform, which change between OpenMM versions
     const std::string built = SYMMETRIX_OPENMM_VERSION;
-    if (not built.empty() and built != OpenMM::Platform::getOpenMMVersion())
+    if (built != OpenMM::Platform::getOpenMMVersion())
         throw OpenMM::OpenMMException(args.name + " was built for OpenMM " + built + ", not " +
                                       OpenMM::Platform::getOpenMMVersion() +
                                       "; build it again with openmm_symmetrix/install.sh");

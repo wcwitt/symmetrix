@@ -163,7 +163,7 @@ struct NequIPFoundationCUDA : Evaluator {
     double compute(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
                    double* forces, double* virial, double* energies) override;
     double compute_device(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
-                          bool moved, double* virial, bool* rebuilt) override;
+                          bool moved, bool* rebuilt) override;
     const double* forces_device() const override { return fd.p; }
     bool changed(int n, const int* numbers, const double* cell, const bool* pbc) const;
     void build(int n, const double* x, const int* numbers, const double* cell, const bool* pbc);
@@ -218,9 +218,8 @@ double NequIPFoundationCUDA<Precision, mixed>::compute(int n, const double* x, c
 template <class Precision, bool mixed>
 double NequIPFoundationCUDA<Precision, mixed>::compute_device(int n, const double* x, const int* numbers,
                                                               const double* cell, const bool* pbc, bool moved,
-                                                              double* virial, bool* rebuilt)
+                                                              bool* rebuilt)
 {
-    std::fill(virial, virial + 6, 0.0);
     *rebuilt = false;
     if (n == 0) return 0;
     if (moved or changed(n, numbers, cell, pbc)) {
@@ -230,6 +229,7 @@ double NequIPFoundationCUDA<Precision, mixed>::compute_device(int n, const doubl
         build(n, host.data(), numbers, cell, pbc);
         *rebuilt = true;
     }
+    double virial[6];
     return evaluate(n, x, cell, nullptr, virial, nullptr);
 }
 

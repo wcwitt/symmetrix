@@ -28,8 +28,7 @@ struct CudaEvaluatorArgs {
     // PolarMACE
     double total_charge = 0;
     double spin_multiplicity = 1;
-    bool float32_mixed = false;
-    // foundation models: "float64", "float32" or "float32-mixed"
+    // "float32" or "float32-mixed"; foundation models also "float64"
     std::string dtype;
 };
 

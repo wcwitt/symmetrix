@@ -9,7 +9,6 @@
 
 namespace symmetrix {
 
-namespace kernels = openmm_kernels;
 
 void check(CUresult status, const std::string& name)
 {
@@ -90,7 +89,7 @@ double CudaBridge::execute(OpenMM::ContextImpl& context, bool include_forces, bo
         for (int a = 0; a < 3; ++a)
             for (int b = 0; b < 3; ++b)
                 cell[3*a + b] = 10*box[a][b];
-    const kernels::Box b{box[0][0], box[1][1], box[2][2], box[1][0], box[2][0], box[2][1]};
+    const gpu::Box b{box[0][0], box[1][1], box[2][2], box[1][0], box[2][0], box[2][1]};
 
     // OpenMM's own stream orders this work after its positions and before its integration
     ContextScope scope(cuda_context, name);
@@ -106,9 +105,9 @@ double CudaBridge::execute(OpenMM::ContextImpl& context, bool include_forces, bo
     const auto* order = reinterpret_cast<const int*>(cu.getAtomIndexArray().getDevicePointer());
     const auto* correction = cu.getUseMixedPrecision()
         ? reinterpret_cast<const float4*>(cu.getPosqCorrection().getDevicePointer()) : nullptr;
-    kernels::positions(n, reinterpret_cast<const void*>(cu.getPosq().getDevicePointer()), cu.getUseDoublePrecision(),
+    gpu::positions(n, reinterpret_cast<const void*>(cu.getPosq().getDevicePointer()), cu.getUseDoublePrecision(),
                        correction, order, reinterpret_cast<const int4*>(offsets.p), b, x, stream);
-    kernels::invert_order(n, order, sorted_index, stream);
+    gpu::invert_order(n, order, sorted_index, stream);
 
     const bool moved = not built or cell != cell0 or displaced();
     const double energy = evaluate(cell, moved, include_forces, include_energy);
@@ -118,7 +117,7 @@ double CudaBridge::execute(OpenMM::ContextImpl& context, bool include_forces, bo
 bool CudaBridge::displaced()
 {
     auto* d2 = static_cast<unsigned*>(pinned);
-    kernels::max_displacement(n, x, x0, displacement, stream);
+    gpu::max_displacement(n, x, x0, displacement, stream);
     check(cudaMemcpyAsync(d2, displacement.p, sizeof(unsigned), cudaMemcpyDeviceToHost, stream), name);
     check(cudaStreamSynchronize(stream), name);
     float max_d2;

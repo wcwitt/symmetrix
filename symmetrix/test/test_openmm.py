@@ -6,7 +6,6 @@ SymmetrixMACEPolarForce is compared with MACEPolar for the model in $SYMMETRIX_P
 is compared with MACEFoundation for $SYMMETRIX_MACE_MODEL, or MACE-OMAT-0 small from mace-torch's cache (downloaded
 if absent), and with NequIPFoundation for NequIP-OAM-S when nequip is installed."""
 
-import json
 import os
 
 import numpy as np
@@ -22,7 +21,7 @@ from symmetrix.openmm import (  # noqa: E402
     create_nequip_foundation_force,
 )
 from test_mace_foundation import structures as foundation_structures  # noqa: E402
-from test_mace_polar import gpu_available, polar, structures  # noqa: E402, F401
+from test_mace_polar import gpu_available, structures  # noqa: E402
 
 # e N_A / 1000, exact in the SI since 2019
 EV_TO_KJ_PER_MOL = 1.602176634e-19 * 6.02214076e23 / 1000
@@ -66,7 +65,7 @@ def ase_reference(model_json, a):
     )
 
 
-def system(a, model_json, skin=1.0):
+def system(a, model_json, skin=1.0, dtype="float32"):
     s = openmm.System()
     s.setDefaultPeriodicBoxVectors(*[openmm.Vec3(*v) for v in a.cell.array * 0.1])
     for m in a.get_masses():
@@ -76,7 +75,8 @@ def system(a, model_json, skin=1.0):
             model_json,
             a.numbers,
             charge=a.info.get("charge", 0),
-            multiplicity=a.info.get("spin", 1),
+            spin=a.info.get("spin", 1),
+            dtype=dtype,
             skin=skin,
         )
     )
@@ -141,9 +141,14 @@ def test_neighbor_list_after_steps(polar):
 
 @polar_gpu
 def test_xml_serialization(polar):
-    a = structures()["triclinic"]
-    s = system(a, polar)
-    copy = openmm.XmlSerializer.deserialize(openmm.XmlSerializer.serialize(s))
+    """every setting, none of them the default, survives XmlSerializer"""
+    a = structures()["hydroxide"]
+    s = system(a, polar, skin=1.5, dtype="float32-mixed")
+    xml = openmm.XmlSerializer.serialize(s)
+    for attribute in ('totalCharge="-1"', 'skin="1.5"', 'dtype="float32-mixed"'):
+        assert attribute in xml
+    copy = openmm.XmlSerializer.deserialize(xml)
+    assert openmm.XmlSerializer.serialize(copy) == xml
     e, f, _ = energy_forces(context(s, a))
     e2, f2, _ = energy_forces(context(copy, a))
     # float32 atomics in the evaluator: equal up to summation order
@@ -168,39 +173,6 @@ FOUNDATION = {
     "mace": (MACEFoundation, create_mace_foundation_force),
     "nequip": (NequIPFoundation, create_nequip_foundation_force),
 }
-
-
-@pytest.fixture(scope="module")
-def mace_model(tmp_path_factory):
-    try:
-        from symmetrix.extract_mace_data import extract_mace_data
-    except ImportError:
-        pytest.skip("mace-torch is not available")
-    model = os.environ.get("SYMMETRIX_MACE_MODEL")
-    if not model:
-        from mace.calculators.foundations_models import download_mace_mp_checkpoint
-
-        model = str(download_mace_mp_checkpoint("small-omat-0"))
-    model_json = tmp_path_factory.mktemp("mace") / "mace-1-8.json"
-    model_json.write_text(json.dumps(extract_mace_data(model, [1, 8])))
-    return str(model_json)
-
-
-@pytest.fixture(scope="module")
-def nequip_model(tmp_path_factory):
-    pytest.importorskip("nequip")
-    from symmetrix.extract_nequip_data import extract_nequip_data
-
-    model = "nequip.net:mir-group/NequIP-OAM-S:0.1"
-    model_json = tmp_path_factory.mktemp("nequip") / "nequip-1-8.json"
-    model_json.write_text(json.dumps(extract_nequip_data(model, [1, 8])))
-    return str(model_json)
-
-
-@pytest.fixture(params=["mace", "nequip"])
-def foundation(request):
-    """(family, Symmetrix JSON)"""
-    return request.param, request.getfixturevalue(f"{request.param}_model")
 
 
 def foundation_reference(family, model_json, a, dtype):
@@ -270,18 +242,22 @@ def test_foundation_neighbor_list_after_steps(foundation):
 
 
 def test_foundation_xml_serialization(mace_model):
-    a = foundation_structures()["bulk"]
-    c = foundation_context("mace", mace_model, a, "float64", "double")
-    system = c.getSystem()
-    copy = openmm.XmlSerializer.deserialize(openmm.XmlSerializer.serialize(system))
+    """every setting, none of them the default, survives XmlSerializer"""
+    a = foundation_structures()["cluster"]
+    c = foundation_context("mace", mace_model, a, "float32", "single", skin=1.5)
+    xml = openmm.XmlSerializer.serialize(c.getSystem())
+    for attribute in ('family="mace"', 'dtype="float32"', 'skin="1.5"', 'periodic="0"'):
+        assert attribute in xml
+    copy = openmm.XmlSerializer.deserialize(xml)
+    assert openmm.XmlSerializer.serialize(copy) == xml
     c2 = openmm.Context(
-        copy, openmm.VerletIntegrator(0.0005), CUDA, {"Precision": "double"}
+        copy, openmm.VerletIntegrator(0.0005), CUDA, {"Precision": "single"}
     )
     c2.setPositions(a.positions * 0.1)
     e, f, _ = energy_forces(c)
     e2, f2, _ = energy_forces(c2)
-    assert abs(e - e2) < 1e-12 * abs(e)
-    assert np.abs(f - f2).max() < 1e-6
+    assert abs(e - e2) < 1e-6 * abs(e)
+    assert np.abs(f - f2).max() < 1e-2
 
 
 def test_foundation_nve_energy_conservation(mace_model):
@@ -298,6 +274,52 @@ def test_foundation_nve_energy_conservation(mace_model):
     assert np.ptp(totals) < 1e-2 * np.mean(kinetic)
 
 
-def test_foundation_rejects_bad_dtype(mace_model):
-    with pytest.raises(Exception, match="dtype"):
-        create_mace_foundation_force(mace_model, [8, 1, 1], dtype="float16")
+@pytest.mark.parametrize(
+    "create,kwargs,match",
+    [
+        (create_mace_polar_force, dict(dtype="float64"), "dtype"),
+        (create_mace_polar_force, dict(skin=-1.0), "skin"),
+        (create_mace_foundation_force, dict(dtype="float16"), "dtype"),
+        (create_nequip_foundation_force, dict(skin=-0.5), "skin"),
+    ],
+)
+def test_rejects_bad_settings(create, kwargs, match):
+    with pytest.raises(Exception, match=match):
+        create("model.json", [8, 1, 1], **kwargs)
+    with pytest.raises(Exception, match="no atomic numbers"):
+        create("model.json", [])
+
+
+def test_rejects_unknown_family():
+    xml = (
+        '<Force type="SymmetrixFoundationForce" version="1" family="allegro" modelFile="model.json" '
+        'dtype="float64" skin="1" periodic="1" forceGroup="0" name="f"><AtomicNumbers><Atom z="8"/>'
+        "</AtomicNumbers></Force>"
+    )
+    with pytest.raises(Exception, match="family"):
+        openmm.XmlSerializer.deserialize(xml)
+
+
+def test_foundation_rejects_other_platforms(mace_model):
+    a = foundation_structures()["cluster"]
+    s = openmm.System()
+    for m in a.get_masses():
+        s.addParticle(float(m))
+    s.addForce(create_mace_foundation_force(mace_model, a.numbers, periodic=False))
+    with pytest.raises(Exception, match="CUDA platform"):
+        openmm.Context(
+            s,
+            openmm.VerletIntegrator(0.0005),
+            openmm.Platform.getPlatformByName("Reference"),
+        )
+
+
+def test_rejects_particle_count(mace_model):
+    a = foundation_structures()["cluster"]
+    s = openmm.System()
+    for m in a.get_masses():
+        s.addParticle(float(m))
+    s.addParticle(1.0)
+    s.addForce(create_mace_foundation_force(mace_model, a.numbers, periodic=False))
+    with pytest.raises(Exception, match="one atomic number per particle"):
+        openmm.Context(s, openmm.VerletIntegrator(0.0005), CUDA)

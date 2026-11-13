@@ -18,7 +18,7 @@ pip install "openmm[cuda12]"
 ```
 The forces go into OpenMM's `lib/plugins`, which OpenMM loads when it starts, and their CUDA modules into `lib`. The
 code is built for the GPUs of the installing machine; elsewhere set the architectures, e.g.
-`CMAKE_CUDA_ARCHITECTURES="90;100" ./install.sh`. It needs CMake, a CUDA toolkit and a compiler with OpenMP.
+`CMAKE_CUDA_ARCHITECTURES="90;100" ./install.sh`. It needs CMake, a CUDA toolkit and a C++20 compiler.
 
 The plugin uses internal classes of the OpenMM CUDA platform, so it works only with the OpenMM version it was built
 against. After updating OpenMM, run `install.sh` again; until then, creating a `Context` fails with an error that
@@ -30,7 +30,7 @@ First, extract your model in `.json` form. See the `symmetrix` [Python package d
 for details. Then
 ```
 from symmetrix.openmm import create_mace_polar_force
-system.addForce(create_mace_polar_force("polar-m-H-O.json", atomic_numbers, charge=0, multiplicity=1))
+system.addForce(create_mace_polar_force("polar-m-H-O.json", atomic_numbers, charge=0, spin=1))
 context = openmm.Context(system, integrator, openmm.Platform.getPlatformByName("CUDA"))
 ```
 for a PolarMACE model, or for a foundation model
@@ -44,10 +44,10 @@ is built again, on the GPU, when an atom has moved by half of it; a larger skin 
 units) is faster for large systems. The forces are saved and restored by `XmlSerializer`. The energy is the total
 energy of the model, including the energies of the isolated atoms.
 
-A PolarMACE model needs a periodic System, and is evaluated in single precision for every OpenMM precision
-(`float32_mixed=True` selects mixed precision). A foundation model is evaluated in `dtype` (`"float64"`, the
-default, `"float32"` or `"float32-mixed"`), whatever the OpenMM precision; with `periodic=False` the System is an
-isolated molecule, and otherwise it is periodic in all three directions.
+Each model is evaluated in its `dtype`, whatever the OpenMM precision: `"float32"` (the default for PolarMACE) or
+`"float32-mixed"`, and for foundation models also `"float64"` (their default). A PolarMACE model needs a periodic
+System, with the total `charge` and `spin` multiplicity of the whole System. For a foundation model,
+`periodic=False` makes the System an isolated molecule; otherwise it is periodic in all three directions.
 
 On a B200 in float32, a step of NVE water with a 2 A skin takes about as long as with the LAMMPS pair styles for
 MACE and NequIP foundation models (within 10% from 192 to 12288 atoms), and for PolarMACE up to 1536 atoms; for
