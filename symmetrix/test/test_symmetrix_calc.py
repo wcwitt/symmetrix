@@ -9,9 +9,12 @@ from unittest.mock import Mock
 import numpy as np
 
 from ase.atoms import Atoms
+from ase.calculators.calculator import PropertyNotImplementedError
+from ase.collections import s22
 from ase.stress import full_3x3_to_voigt_6_stress
 
 try:
+    import symmetrix
     from symmetrix import Symmetrix
 except ModuleNotFoundError as exc:
     if "No module named 'symmetrix.symmetrix'" in str(exc):
@@ -51,6 +54,17 @@ def mace_foundation_model(tmp_path_factory):
 
 
 @pytest.mark.parametrize("use_kokkos", [True, False])
+@pytest.mark.parametrize("evaluator", ["MACE", "NequIP"])
+def test_missing_model_file(evaluator, use_kokkos, tmp_path):
+    if use_kokkos:
+        evaluator += "Kokkos"
+        if not symmetrix._kokkos_is_initialized():
+            symmetrix._init_kokkos()
+    with pytest.raises(RuntimeError, match="Symmetrix: Cannot open .*missing.json"):
+        getattr(symmetrix, evaluator)(str(tmp_path / "missing.json"))
+
+
+@pytest.mark.parametrize("use_kokkos", [True, False])
 def test_calc_caching(model_cache, use_kokkos):
     atoms = Atoms("O", cell=[2] * 3, pbc=[True] * 3)
     atoms *= 4
@@ -73,6 +87,28 @@ def test_calc_caching(model_cache, use_kokkos):
 
     # with perturbation, forces have to be recomputed
     assert calc.calculate.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "pbc", [(False, False, False), (True, True, False)], ids=["molecule", "slab"]
+)
+def test_degenerate_cell(model_cache, pbc):
+    # same results as for the atoms isolated in a large periodic cell
+    atoms = s22["Water_dimer"]
+    atoms.cell = [6.0 if p else 0.0 for p in pbc]
+    atoms.pbc = pbc
+    boxed = atoms.copy()
+    boxed.cell = [6.0 if p else 40.0 for p in pbc]
+    boxed.pbc = True
+    atoms.calc = Symmetrix(model_cache["MACE-OFF23_small-1-8.json"])
+    boxed.calc = Symmetrix(model_cache["MACE-OFF23_small-1-8.json"])
+
+    assert atoms.get_potential_energy() == pytest.approx(
+        boxed.get_potential_energy(), abs=1e-6
+    )
+    assert np.allclose(atoms.get_forces(), boxed.get_forces(), atol=1e-6)
+    with pytest.raises(PropertyNotImplementedError):
+        atoms.get_stress()
 
 
 @pytest.mark.parametrize("use_kokkos", [True, False])

@@ -159,7 +159,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - mace-torch: "mace-torch==0.3.10"
+        - mace-torch: "mace-torch==0.3.14"
           torch: "torch==2.5.*"
         - mace-torch: "mace-torch"
           torch: "torch"
@@ -180,7 +180,13 @@ jobs:
       run: |
         uv venv --clear
         source .venv/bin/activate
-        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace]"
+        uv pip install "${{ matrix.torch }}" "${{ matrix.mace-torch }}" "./symmetrix[mace,test]"
+        deactivate
+    - name: Test extraction against mace-torch
+      run: |
+        source .venv/bin/activate
+        cd symmetrix/test
+        pytest test_extract_mace.py test_mace_architectures.py
         deactivate
     - name: Test model extraction
       run: |

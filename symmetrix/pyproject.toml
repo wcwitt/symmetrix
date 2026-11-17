@@ -3,6 +3,7 @@ requires = ["scikit-build-core>=1.0", "pybind11", "cmake>=3.27"]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
+minimum-version = "build-system.requires"
 cmake.version = ">=3.27"
 build-dir = "build"
 wheel.exclude = ["bin/", "lib/", "lib64/", "include/"]

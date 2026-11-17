@@ -11,11 +11,13 @@ import re
 from tempfile import NamedTemporaryFile
 import numpy as np
 
+from ase.neighborlist import neighbor_list as ase_neighbor_list
+
 try:
     from matscipy.neighbours import neighbour_list as neighbor_list
 except ImportError:
     logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
-    from ase.neighborlist import neighbor_list
+    neighbor_list = ase_neighbor_list
 
 from ase.calculators.calculator import BaseCalculator, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
@@ -42,7 +44,10 @@ class Symmetrix(BaseCalculator):
     Parameters
     ----------
     model_file: str
-        JSON-format model file used for potential energy
+        JSON-format model file used for potential energy, or a torch model file
+        to convert on the fly
+    species: list(int / str)
+        Elements to convert, required when model_file is a torch model
 
     Notes
     -----
@@ -97,8 +102,6 @@ class Symmetrix(BaseCalculator):
 
                 keys = ["species", "head", "num_spline_points", "r_min"]
             kwargs_extract = {k: v for k, v in kwargs.items() if k in keys}
-            if nequip:
-                kwargs_extract.setdefault("species", None)
             logging.warning(
                 f"Converting model from pytorch model to symmetrix dict with {kwargs_extract}"
             )
@@ -117,7 +120,10 @@ class Symmetrix(BaseCalculator):
 
         ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
         mace_atomic_numbers = self.evaluator.atomic_numbers
-        i_list, j_list, r, xyz = neighbor_list("ijdD", self.atoms, self.cutoff)
+        # matscipy and the stress need a full-rank cell
+        full_cell = self.atoms.cell.rank == 3
+        nl = neighbor_list if full_cell else ase_neighbor_list
+        i_list, j_list, r, xyz = nl("ijdD", self.atoms, self.cutoff)
         num_nodes = len(self.atoms)
         node_types = [
             mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)
@@ -155,6 +161,7 @@ class Symmetrix(BaseCalculator):
         self.results["forces"] = atom_forces
 
         # stress from pair_forces
-        self.results["stress"] = full_3x3_to_voigt_6_stress(
-            (-pair_forces.T @ xyz) / self.atoms.get_volume()
-        )
+        if full_cell:
+            self.results["stress"] = full_3x3_to_voigt_6_stress(
+                (-pair_forces.T @ xyz) / self.atoms.get_volume()
+            )
