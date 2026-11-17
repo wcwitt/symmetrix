@@ -159,7 +159,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - mace-torch: "mace-torch==0.3.10"
+        - mace-torch: "mace-torch==0.3.14"
           torch: "torch==2.5.*"
         - mace-torch: "mace-torch"
           torch: "torch"
