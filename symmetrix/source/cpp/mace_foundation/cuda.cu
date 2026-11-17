@@ -159,6 +159,12 @@ struct MACEFoundationCUDA : Evaluator {
     ~MACEFoundationCUDA() override;
     double compute(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
                    double* forces, double* virial, double* energies) override;
+    double compute_device(int n, const double* x, const int* numbers, const double* cell, const bool* pbc,
+                          bool moved, bool* rebuilt) override;
+    const double* forces_device() const override { return fd.p; }
+    bool changed(int n, const int* numbers, const double* cell, const bool* pbc) const;
+    void build(int n, const double* x, const int* numbers, const double* cell, const bool* pbc);
+    double evaluate(int n, const double* x, const double* cell, double* forces, double* virial, double* energies);
     template <class Sh> double compute_shape(int, const double*, const double*, double*, double*, double*);
     template <class Sh>
     void compute_node_energies_forces(const Model<Precision>&, const Graph<Precision>&, const Atoms&, bool);
@@ -192,68 +198,106 @@ MACEFoundationCUDA<Precision, mixed>::~MACEFoundationCUDA()
 
 template <class Precision, bool mixed>
 double MACEFoundationCUDA<Precision, mixed>::compute(int n, const double* x, const int* numbers,
-                                                     const double* cell, const bool* pbc,
-                                                 double* forces, double* virial, double* energies) {
+                                                     const double* cell, const bool* pbc, double* forces,
+                                                     double* virial, double* energies)
+{
     std::fill(virial, virial + 6, 0.0);
     if (n == 0) return 0;
-    bool rebuild = n != natoms or not std::equal(numbers, numbers + n, numbers0.begin()) or not std::equal(cell,
-            cell + 9, cell0.begin())
-                   or not std::equal(pbc, pbc + 3, pbc0.begin());
+    bool rebuild = changed(n, numbers, cell, pbc);
     for (int i = 0; not rebuild and i < n; ++i) {
         const double dx = x[3*i] - x0[3*i];
         const double dy = x[3*i+1] - x0[3*i+1];
         const double dz = x[3*i+2] - x0[3*i+2];
         rebuild = 4*(dx*dx + dy*dy + dz*dz) > skin*skin;
     }
-    if (rebuild) {
-        natoms = -1;
-        const int T = mace.num_elements;
-        std::vector<int> el(n);
-        for (int i = 0; i < n; ++i) {
-            const auto it = std::find(mace.atomic_numbers.begin(), mace.atomic_numbers.end(), numbers[i]);
-            if (it == mace.atomic_numbers.end())
-                throw std::runtime_error("MACEFoundation: atomic number " + std::to_string(numbers[i])
-                                         + " is not an element of the model");
-            el[i] = int(it - mace.atomic_numbers.begin());
-        }
-        neighbor_list(n, x, cell, pbc, mace.r_cut + skin, nl);
+    if (rebuild) build(n, x, numbers, cell, pbc);
+    return evaluate(n, x, cell, forces, virial, energies);
+}
 
-        std::vector<int> nodes;
-        mace.segments.clear();
-        for (int t = 0; t < T; ++t) {
-            const int first = int(nodes.size());
-            for (int i = 0; i < n; ++i) if (el[i] == t) nodes.push_back(i);
-            if (int(nodes.size()) > first) mace.segments.push_back({first, int(nodes.size()), t});
-        }
-        mace.N = n;
-        mace.NR = n;
-        std::vector<int> node_elem(mace.N);
-        std::vector<int> rows(n);
-        for (int k = 0; k < mace.N; ++k) {
-            node_elem[k] = el[nodes[k]];
-            rows[nodes[k]] = k;
-        }
-        mace.atom_of_node.upload(nodes, mace.stream);
-        mace.elem.upload(node_elem, mace.stream);
-        mace.row_of_atom.upload(rows, mace.stream);
-        mace.elem_all.upload(el, mace.stream);
-        nl_first.upload(nl.start, mace.stream);
-        nl_j.upload(nl.j, mace.stream);
-        nl_S.upload(nl.S, mace.stream);
-        xd.reserve(3*(size_t)n);
-        fd.reserve(3*(size_t)n);
-        eatom.reserve(n);
-        celld.reserve(9);
-
-        mace.reserve(std::max<long>(nl.j.size(), 1));
+template <class Precision, bool mixed>
+double MACEFoundationCUDA<Precision, mixed>::compute_device(int n, const double* x, const int* numbers,
+                                                            const double* cell, const bool* pbc, bool moved,
+                                                            bool* rebuilt)
+{
+    *rebuilt = false;
+    if (n == 0) return 0;
+    if (moved or changed(n, numbers, cell, pbc)) {
+        std::vector<double> host(3*(size_t)n);
+        CHECK(cudaMemcpyAsync(host.data(), x, host.size()*sizeof(double), cudaMemcpyDeviceToHost, mace.stream));
         CHECK(cudaStreamSynchronize(mace.stream));
-
-        natoms = n;
-        x0.assign(x, x + 3*(size_t)n);
-        cell0.assign(cell, cell + 9);
-        numbers0.assign(numbers, numbers + n);
-        pbc0 = {pbc[0], pbc[1], pbc[2]};
+        build(n, host.data(), numbers, cell, pbc);
+        *rebuilt = true;
     }
+    double virial[6];
+    return evaluate(n, x, cell, nullptr, virial, nullptr);
+}
+
+template <class Precision, bool mixed>
+bool MACEFoundationCUDA<Precision, mixed>::changed(int n, const int* numbers, const double* cell,
+                                                   const bool* pbc) const
+{
+    return n != natoms or not std::equal(numbers, numbers + n, numbers0.begin())
+           or not std::equal(cell, cell + 9, cell0.begin()) or not std::equal(pbc, pbc + 3, pbc0.begin());
+}
+
+template <class Precision, bool mixed>
+void MACEFoundationCUDA<Precision, mixed>::build(int n, const double* x, const int* numbers, const double* cell,
+                                                 const bool* pbc)
+{
+    natoms = -1;
+    const int T = mace.num_elements;
+    std::vector<int> el(n);
+    for (int i = 0; i < n; ++i) {
+        const auto it = std::find(mace.atomic_numbers.begin(), mace.atomic_numbers.end(), numbers[i]);
+        if (it == mace.atomic_numbers.end())
+            throw std::runtime_error("MACEFoundation: atomic number " + std::to_string(numbers[i])
+                                     + " is not an element of the model");
+        el[i] = int(it - mace.atomic_numbers.begin());
+    }
+    neighbor_list(n, x, cell, pbc, mace.r_cut + skin, nl);
+
+    std::vector<int> nodes;
+    mace.segments.clear();
+    for (int t = 0; t < T; ++t) {
+        const int first = int(nodes.size());
+        for (int i = 0; i < n; ++i) if (el[i] == t) nodes.push_back(i);
+        if (int(nodes.size()) > first) mace.segments.push_back({first, int(nodes.size()), t});
+    }
+    mace.N = n;
+    mace.NR = n;
+    std::vector<int> node_elem(mace.N);
+    std::vector<int> rows(n);
+    for (int k = 0; k < mace.N; ++k) {
+        node_elem[k] = el[nodes[k]];
+        rows[nodes[k]] = k;
+    }
+    mace.atom_of_node.upload(nodes, mace.stream);
+    mace.elem.upload(node_elem, mace.stream);
+    mace.row_of_atom.upload(rows, mace.stream);
+    mace.elem_all.upload(el, mace.stream);
+    nl_first.upload(nl.start, mace.stream);
+    nl_j.upload(nl.j, mace.stream);
+    nl_S.upload(nl.S, mace.stream);
+    xd.reserve(3*(size_t)n);
+    fd.reserve(3*(size_t)n);
+    eatom.reserve(n);
+    celld.reserve(9);
+
+    mace.reserve(std::max<long>(nl.j.size(), 1));
+    CHECK(cudaStreamSynchronize(mace.stream));
+
+    natoms = n;
+    x0.assign(x, x + 3*(size_t)n);
+    cell0.assign(cell, cell + 9);
+    numbers0.assign(numbers, numbers + n);
+    pbc0 = {pbc[0], pbc[1], pbc[2]};
+}
+
+// x and forces may be on the host or on the GPU (forces may be null)
+template <class Precision, bool mixed>
+double MACEFoundationCUDA<Precision, mixed>::evaluate(int n, const double* x, const double* cell, double* forces,
+                                                      double* virial, double* energies)
+{
     double energy = 0;
     with_preset(mace.num_channels, mace.L_max, mace.num_channels_node, [&](auto s) {
         energy = this->template compute_shape<decltype(s)>(n, x, cell, forces, virial, energies);
@@ -266,7 +310,7 @@ template <class Sh>
 double MACEFoundationCUDA<Precision, mixed>::compute_shape(int n, const double* x, const double* cell, double* forces,
                                                            double* virial, double* energies)
 {
-    CHECK(cudaMemcpyAsync(xd, x, 3*(size_t)n*sizeof(double), cudaMemcpyHostToDevice, mace.stream));
+    CHECK(cudaMemcpyAsync(xd, x, 3*(size_t)n*sizeof(double), cudaMemcpyDefault, mace.stream));
     CHECK(cudaMemcpyAsync(celld, cell, 9*sizeof(double), cudaMemcpyHostToDevice, mace.stream));
 
     const Model<Precision> M = mace.model();
@@ -289,7 +333,8 @@ double MACEFoundationCUDA<Precision, mixed>::compute_shape(int n, const double* 
     k_outputs<<<blocks(mace.N, WARPS), 32*WARPS, 0, mace.stream>>>(G, energies ? eatom.p : nullptr, mace.outputs);
     double out[7];
     CHECK(cudaMemcpyAsync(out, mace.outputs, sizeof(out), cudaMemcpyDeviceToHost, mace.stream));
-    CHECK(cudaMemcpyAsync(forces, A.f, 3*(size_t)n*sizeof(double), cudaMemcpyDeviceToHost, mace.stream));
+    if (forces)
+        CHECK(cudaMemcpyAsync(forces, A.f, 3*(size_t)n*sizeof(double), cudaMemcpyDefault, mace.stream));
     if (energies)
         CHECK(cudaMemcpyAsync(energies, eatom, (size_t)n*sizeof(double), cudaMemcpyDeviceToHost, mace.stream));
     CHECK(cudaStreamSynchronize(mace.stream));
