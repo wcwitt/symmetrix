@@ -62,7 +62,9 @@ class Symmetrix(BaseCalculator):
 
     implemented_properties = ["energy", "free_energy", "energies", "forces", "stress"]
 
-    def __init__(self, model_file, dtype="float64", use_kokkos=True, skin=0.0, **kwargs):
+    def __init__(
+        self, model_file, dtype="float64", use_kokkos=True, skin=0.0, **kwargs
+    ):
         BaseCalculator.__init__(self)
         if dtype not in ["float32", "float64"]:
             raise ValueError(
@@ -125,10 +127,10 @@ class Symmetrix(BaseCalculator):
         mace_atomic_numbers = np.asarray(self.evaluator.atomic_numbers, dtype=int)
         self.mace_atomic_numbers_rev = np.full(
             np.max(mace_atomic_numbers) + 1, -1, dtype=int
-            )
+        )
         self.mace_atomic_numbers_rev[mace_atomic_numbers] = np.arange(
             len(mace_atomic_numbers)
-            )
+        )
 
         if NeighborListSkin is not None and skin > 0.0:
             self.neighbor_list = NeighborListSkin(neighbor_list, skin)
@@ -143,15 +145,15 @@ class Symmetrix(BaseCalculator):
         atom_types = np.full(ase_atomic_numbers.shape, -1, dtype=int)
         in_range = (ase_atomic_numbers >= 0) & (
             ase_atomic_numbers < len(self.mace_atomic_numbers_rev)
-            )
+        )
         atom_types[in_range] = self.mace_atomic_numbers_rev[
             ase_atomic_numbers[in_range]
-            ]
+        ]
         if np.any(atom_types < 0):
             unsupported = np.unique(ase_atomic_numbers[atom_types < 0]).tolist()
             raise ValueError(
                 f"Atomic numbers {unsupported} are not supported by this model."
-                )
+            )
 
         # matscipy and the stress need a full-rank cell
         full_cell = self.atoms.cell.rank == 3
