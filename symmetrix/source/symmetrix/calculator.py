@@ -19,6 +19,12 @@ except ImportError:
     logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
     neighbor_list = ase_neighbor_list
 
+try:
+    from neighbor_list_skin import NeighborListSkin
+except ImportError:
+    NeighborListSkin = None
+    pass
+
 from ase.calculators.calculator import BaseCalculator, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
@@ -56,7 +62,7 @@ class Symmetrix(BaseCalculator):
 
     implemented_properties = ["energy", "free_energy", "energies", "forces", "stress"]
 
-    def __init__(self, model_file, dtype="float64", use_kokkos=True, **kwargs):
+    def __init__(self, model_file, dtype="float64", use_kokkos=True, skin=0.0, **kwargs):
         BaseCalculator.__init__(self)
         if dtype not in ["float32", "float64"]:
             raise ValueError(
@@ -124,6 +130,11 @@ class Symmetrix(BaseCalculator):
             len(mace_atomic_numbers)
             )
 
+        if NeighborListSkin is not None and skin > 0.0:
+            self.neighbor_list = NeighborListSkin(neighbor_list, skin)
+        else:
+            self.neighbor_list = neighbor_list
+
     def calculate(self, atoms=None, properties=["energy"], system_changes=all_changes):
         if atoms is not None:
             self.atoms = atoms.copy()
@@ -144,7 +155,7 @@ class Symmetrix(BaseCalculator):
 
         # matscipy and the stress need a full-rank cell
         full_cell = self.atoms.cell.rank == 3
-        nl = neighbor_list if full_cell else ase_neighbor_list
+        nl = self.neighbor_list if full_cell else ase_neighbor_list
         i_list, j_list, r, xyz = nl("ijdD", self.atoms, self.cutoff)
         num_nodes = len(self.atoms)
         node_types = atom_types[:num_nodes]
