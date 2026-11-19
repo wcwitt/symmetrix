@@ -63,7 +63,7 @@ class Symmetrix(BaseCalculator):
     implemented_properties = ["energy", "free_energy", "energies", "forces", "stress"]
 
     def __init__(
-        self, model_file, dtype="float64", use_kokkos=True, skin=0.0, **kwargs
+        self, model_file, dtype="float64", use_kokkos=True, skin=-1.0, **kwargs
     ):
         BaseCalculator.__init__(self)
         if dtype not in ["float32", "float64"]:
@@ -132,8 +132,14 @@ class Symmetrix(BaseCalculator):
             len(mace_atomic_numbers)
         )
 
-        if NeighborListSkin is not None and skin > 0.0:
-            self.neighbor_list = NeighborListSkin(neighbor_list, skin)
+        self.skin = -1.0
+        if skin > 0.0:
+            if NeighborListSkin is not None:
+                self.neighbor_list = NeighborListSkin(neighbor_list, skin)
+                self.skin = skin
+            else:
+                logging.warning(f"Ignoring requested skin {skin} because "
+                                 "NeighborListSkin is not available")
         else:
             self.neighbor_list = neighbor_list
 
@@ -159,6 +165,12 @@ class Symmetrix(BaseCalculator):
         full_cell = self.atoms.cell.rank == 3
         nl = self.neighbor_list if full_cell else ase_neighbor_list
         i_list, j_list, r, xyz = nl("ijdD", self.atoms, self.cutoff)
+        if self.skin > 0.0:
+            include = np.where(r < self.cutoff)[0]
+            i_list = i_list[include]
+            j_list = j_list[include]
+            r = r[include]
+            xyz = xyz[include]
         num_nodes = len(self.atoms)
         node_types = atom_types[:num_nodes]
         num_neigh = np.bincount(j_list, minlength=num_nodes)
