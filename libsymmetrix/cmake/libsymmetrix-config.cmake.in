@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+set(SYMMETRIX_KOKKOS @SYMMETRIX_KOKKOS@)
+
+if(NOT @BUILD_SHARED_LIBS@)
+  find_dependency(sphericart)
+  if(SYMMETRIX_KOKKOS)
+    if(NOT TARGET Kokkos::kokkos)
+      find_dependency(Kokkos)
+    endif()
+    if(NOT TARGET Kokkos::kokkoskernels)
+      find_dependency(KokkosKernels)
+    endif()
+  endif()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/libsymmetrix-targets.cmake")
