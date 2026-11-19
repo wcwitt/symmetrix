@@ -1741,7 +1741,7 @@ void MACEFoundationCuda<Precision, mixed>::load(const std::string& filename, con
         const int N = int(U.size())/(4*C);
         auto table = [&](const char* key, int p) {
             Matrix m;
-            for (const auto& f : js.at(key)[p]) for (const auto& v : f) m.push_back(v.get<double>());
+            for (const auto& f : js.at(key)[p]) for (const auto& v : f) m.push_back(v.template get<double>());
             return m;
         };
         std::vector<Precision> host_basis((long)T*T*K*4*NB, 0.f);
@@ -1810,7 +1810,7 @@ void MACEFoundationCuda<Precision, mixed>::load(const std::string& filename, con
     auto contraction = [&](const std::string& l, Buffer<Precision>& buf) {
         std::vector<Precision> w;
         for (const auto& a : js.at("M" + l + "_weights"))
-            for (const auto& e : a) for (const auto& x : e) w.push_back(x.get<Precision>());
+            for (const auto& e : a) for (const auto& x : e) w.push_back(x.template get<Precision>());
         buf.upload(w, 0);
     };
     contraction("0", M0_weights);
