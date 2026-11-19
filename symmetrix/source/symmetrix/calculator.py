@@ -138,8 +138,10 @@ class Symmetrix(BaseCalculator):
                 self.neighbor_list = NeighborListSkin(neighbor_list, skin)
                 self.skin = skin
             else:
-                logging.warning(f"Ignoring requested skin {skin} because "
-                                 "NeighborListSkin is not available")
+                logging.warning(
+                    f"Ignoring requested skin {skin} because "
+                    "NeighborListSkin is not available"
+                )
         else:
             self.neighbor_list = neighbor_list
 
