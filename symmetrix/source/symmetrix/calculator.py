@@ -133,8 +133,10 @@ class Symmetrix(BaseCalculator):
         )
 
         self.skin = -1.0
+        self.neighbor_list = neighbor_list
         if skin > 0.0:
             if NeighborListSkin is not None:
+                # use list with padding
                 self.neighbor_list = NeighborListSkin(neighbor_list, skin)
                 self.skin = skin
             else:
@@ -142,8 +144,6 @@ class Symmetrix(BaseCalculator):
                     f"Ignoring requested skin {skin} because "
                     "NeighborListSkin is not available"
                 )
-        else:
-            self.neighbor_list = neighbor_list
 
     def calculate(self, atoms=None, properties=["energy"], system_changes=all_changes):
         if atoms is not None:
