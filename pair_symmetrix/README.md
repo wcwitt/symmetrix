@@ -79,6 +79,20 @@ The default 256 spline points have proven sufficient for most observables. For v
 * `direct_exchange fp16_wire` (float32 styles) sends the feature updates between nodes in fp16 (about 1e-4 eV/A in the
   forces).
 
+On Intel GPUs (a SYCL build of Kokkos), the same `-sf kk` styles run SYCL ports of the CUDA kernels, tuned for the
+Data Center GPU Max series (Aurora at ALCF) and built into their own library, `libsymmetrix_sycl.so` (see
+[Building LAMMPS on ALCF Aurora](#building-lammps-on-alcf-aurora)). They differ from the CUDA styles as follows:
+* They take `no_domain_decomposition` and `mpi_message_passing` (`newton on`), not `direct_exchange`.
+* `symmetrix/mace/foundation/float32-mixed` keeps part of the second-layer splines in fp16 as on CUDA, but runs its
+  GEMMs on the XMX units with three bf16 terms per factor (near-fp32 accuracy, no scale per GEMM).
+* `symmetrix/nequip/foundation/float32-mixed` computes like `float32` (`SYMMETRIX_SYCL_NQ_MIXED_GEMM=1`: bf16 GEMMs as
+  for MACE).
+* The library is built for all the shapes above. `-D SYMMETRIX_SYCL_DEFINES="SYMMETRIX_SYCL_MACE_PRESETS=0,2"` (indices
+  into `Presets` of `mace_foundation_tables.hpp`; `SYMMETRIX_SYCL_NEQUIP_PRESETS` for NequIP-OAM-S, M, L, XL) builds
+  fewer, faster.
+* Their environment settings (sizes of the edge chunks, kernel choices) are listed at the top of
+  `libsymmetrix/source/{mace,nequip}_foundation_sycl.cpp`; the defaults are tuned for Aurora.
+
 ### Building LAMMPS
 
 Some (probably incomplete) prerequisites are:
@@ -88,7 +102,8 @@ Some (probably incomplete) prerequisites are:
 
 Below are recipies for building LAMMPS with `pair_symmetrix` on various machines:
 * [ARCHER2](#building-lammps-on-archer2);
-* [Harvard's FASRC Cannon](#building-lammps-on-fasrc-cannon).
+* [Harvard's FASRC Cannon](#building-lammps-on-fasrc-cannon);
+* [ALCF Aurora](#building-lammps-on-alcf-aurora) (Intel GPUs).
 
 -----
 
@@ -197,6 +212,52 @@ cmake \
     cmake
 cmake --build build-gpu -j 64
 cd ../..
+```
+
+#### Building LAMMPS on ALCF Aurora
+```
+# download lammps and symmetrix
+mkdir lammps-symmetrix && cd lammps-symmetrix
+git clone -b release https://github.com/lammps/lammps
+git clone --recursive https://github.com/wcwitt/symmetrix
+# obtain a compute node (compiling the device code ahead of time for PVC is heavy)
+qsub -I -l select=1 -l walltime=01:00:00 -l filesystems=home:flare -q debug -A <project>
+module load cmake
+# patch lammps with pair_symmetrix
+cd symmetrix/pair_symmetrix
+./install.sh ../../lammps
+cd ../..
+# build lammps (Kokkos with SYCL for PVC; libsymmetrix_sycl.so is built alongside)
+cd lammps
+cmake \
+    -B build-sycl \
+    -D CMAKE_BUILD_TYPE=Release \
+    -D CMAKE_C_COMPILER=icx \
+    -D CMAKE_CXX_COMPILER=icpx \
+    -D CMAKE_Fortran_COMPILER=ifx \
+    -D MPI_CXX_COMPILER=mpicxx \
+    -D CMAKE_CXX_STANDARD=20 \
+    -D CMAKE_CXX_STANDARD_REQUIRED=ON \
+    -D CMAKE_CXX_FLAGS="-w -fsycl-device-code-split=per_kernel" \
+    -D CMAKE_EXE_LINKER_FLAGS="-fsycl -flink-huge-device-code" \
+    -D CMAKE_SHARED_LINKER_FLAGS="-fsycl -flink-huge-device-code" \
+    -D BUILD_SHARED_LIBS=ON \
+    -D BUILD_MPI=ON \
+    -D BUILD_OMP=ON \
+    -D FFT=MKL \
+    -D PKG_KOKKOS=ON \
+    -D Kokkos_ENABLE_SERIAL=ON \
+    -D Kokkos_ENABLE_OPENMP=ON \
+    -D Kokkos_ENABLE_SYCL=ON \
+    -D Kokkos_ARCH_INTEL_PVC=ON \
+    -D Kokkos_ARCH_SPR=ON \
+    -D SYMMETRIX_KOKKOS=ON \
+    cmake
+cmake --build build-sycl -j 64
+cd ../..
+# run on one GPU tile
+ZE_FLAT_DEVICE_HIERARCHY=FLAT ZE_AFFINITY_MASK=0 lammps/build-sycl/lmp -k on g 1 -sf kk \
+    -pk kokkos newton on neigh half -in in.lammps
 ```
 
 -----

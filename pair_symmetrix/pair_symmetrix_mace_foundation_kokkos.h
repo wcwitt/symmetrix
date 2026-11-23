@@ -29,8 +29,20 @@ PairStyle(symmetrix/mace/foundation/float32-mixed/kk/device,PairSymmetrixMACEFou
 #undef PairSymmetrixMACEFoundationKokkosFloat
 #undef PairSymmetrixMACEFoundationKokkosMixed
 #endif
+#ifdef SYMMETRIX_SYCL
+PairStyle(symmetrix/mace/foundation/kk,PairSymmetrixMACEFoundationSyclDouble);
+PairStyle(symmetrix/mace/foundation/kk/device,PairSymmetrixMACEFoundationSyclDouble);
+PairStyle(symmetrix/mace/foundation/float32/kk,PairSymmetrixMACEFoundationSyclFloat);
+PairStyle(symmetrix/mace/foundation/float32/kk/device,PairSymmetrixMACEFoundationSyclFloat);
+PairStyle(symmetrix/mace/foundation/float32-mixed/kk,PairSymmetrixMACEFoundationSyclMixed);
+PairStyle(symmetrix/mace/foundation/float32-mixed/kk/device,PairSymmetrixMACEFoundationSyclMixed);
+#endif
 // clang-format on
 #else
+
+#ifdef SYMMETRIX_SYCL
+#include "pair_symmetrix_foundation_sycl.h"
+#endif
 
 #ifndef LMP_PAIR_SYMMETRIX_MACE_FOUNDATION_KOKKOS_H
 #define LMP_PAIR_SYMMETRIX_MACE_FOUNDATION_KOKKOS_H

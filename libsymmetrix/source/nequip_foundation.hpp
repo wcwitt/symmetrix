@@ -937,7 +937,16 @@ template <class Precision>
 void NequIPFoundation<Precision>::products()
 {
 #pragma omp parallel
-    for (const auto& [m, n, k, A, lda, B, C, ldc, add] : queue)
+    for (const Product& p_ : queue) {  // no structured bindings: icpx cannot capture them in OpenMP
+        const int m = p_.m;
+        const int n = p_.n;
+        const int k = p_.k;
+        const Precision* A = p_.a;
+        const int lda = p_.lda;
+        const Precision* B = p_.b;
+        Precision* C = p_.c;
+        const int ldc = p_.ldc;
+        const bool add = p_.add;
 #pragma omp for collapse(2) schedule(static) nowait
         for (int i0 = 0; i0 < m; i0 += 6)
             for (int j0 = 0; j0 < n; j0 += 16) {
@@ -957,6 +966,7 @@ void NequIPFoundation<Precision>::products()
                         std::copy_n(c[r], 16, o);
                 }
             }
+    }
     queue.clear();
 }
 

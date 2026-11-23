@@ -22,8 +22,20 @@ PairStyle(symmetrix/nequip/foundation/float32/kk/device,PairSymmetrixNequIPFound
 PairStyle(symmetrix/nequip/foundation/float32-mixed/kk,PairSymmetrixNequIPFoundationKokkosMixed);
 PairStyle(symmetrix/nequip/foundation/float32-mixed/kk/device,PairSymmetrixNequIPFoundationKokkosMixed);
 #endif
+#ifdef SYMMETRIX_SYCL
+PairStyle(symmetrix/nequip/foundation/kk,PairSymmetrixNequIPFoundationSyclDouble);
+PairStyle(symmetrix/nequip/foundation/kk/device,PairSymmetrixNequIPFoundationSyclDouble);
+PairStyle(symmetrix/nequip/foundation/float32/kk,PairSymmetrixNequIPFoundationSyclFloat);
+PairStyle(symmetrix/nequip/foundation/float32/kk/device,PairSymmetrixNequIPFoundationSyclFloat);
+PairStyle(symmetrix/nequip/foundation/float32-mixed/kk,PairSymmetrixNequIPFoundationSyclMixed);
+PairStyle(symmetrix/nequip/foundation/float32-mixed/kk/device,PairSymmetrixNequIPFoundationSyclMixed);
+#endif
 // clang-format on
 #else
+
+#ifdef SYMMETRIX_SYCL
+#include "pair_symmetrix_foundation_sycl.h"
+#endif
 
 #ifndef LMP_PAIR_SYMMETRIX_NEQUIP_FOUNDATION_KOKKOS_H
 #define LMP_PAIR_SYMMETRIX_NEQUIP_FOUNDATION_KOKKOS_H

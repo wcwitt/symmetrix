@@ -1500,7 +1500,15 @@ void MACEFoundation<Precision>::products()
 {
     constexpr int rows = sizeof(Precision) == 4 ? 6 : 3;
 #pragma omp parallel
-    for (const auto& [m, n, k, A, lda, B, C, ldc] : queue)
+    for (const Product& p_ : queue) {  // no structured bindings: icpx cannot capture them in OpenMP
+        const int m = p_.m;
+        const int n = p_.n;
+        const int k = p_.k;
+        const Precision* A = p_.a;
+        const int lda = p_.lda;
+        const Precision* B = p_.b;
+        Precision* C = p_.c;
+        const int ldc = p_.ldc;
 #pragma omp for collapse(2) schedule(static) nowait
         for (int i0 = 0; i0 < m; i0 += rows)
             for (int j0 = 0; j0 < n; j0 += 16) {
@@ -1514,6 +1522,7 @@ void MACEFoundation<Precision>::products()
                         for (int j = 0; j < 16; ++j) c[r][j] += a[r][q]*b[q*16 + j];
                 for (int r = 0; r < std::min(rows, m - i0); ++r) std::copy_n(c[r], 16, C + (long)(i0 + r)*ldc + j0);
             }
+    }
     queue.clear();
 }
 

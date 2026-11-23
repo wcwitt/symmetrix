@@ -80,5 +80,10 @@ if(Kokkos_ENABLE_CUDA)
     \${LAMMPS_SOURCE_DIR}/KOKKOS/pair_symmetrix_nequip_foundation_kokkos.cpp
     PROPERTIES COMPILE_OPTIONS \"--expt-relaxed-constexpr;\$<\$<CONFIG:Release>:--use_fast_math>\")
 endif()
+if(Kokkos_ENABLE_SYCL)
+  target_compile_definitions(lammps PRIVATE SYMMETRIX_SYCL)
+  target_link_libraries(lammps PRIVATE symmetrix_sycl)
+  install(TARGETS symmetrix_sycl EXPORT LAMMPS_Targets)
+endif()
 ### SYMMETRIX END
 " >> $lammps/cmake/CMakeLists.txt
