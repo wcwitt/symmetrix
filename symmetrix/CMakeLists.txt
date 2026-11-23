@@ -36,7 +36,17 @@ if(_cuda_found)
   elseif(_gpu_found EQUAL 0)
     set(SYMMETRIX_CUDA_ARCHITECTURES native)
   else()
-    set(SYMMETRIX_CUDA_ARCHITECTURES all-major)
+    # No GPU to detect and no architecture given. A fallback like all-major is not
+    # safe: its contents depend on the CMake/CUDA versions and can include archs
+    # below sm_60, which the CUDA kernels do not support (double atomicAdd).
+    message(FATAL_ERROR
+      "Symmetrix: found a CUDA compiler (${CMAKE_CUDA_COMPILER}) but no GPU "
+      "(nvidia-smi failed), so the GPU architecture cannot be detected. "
+      "Specify it explicitly (for example 80 for A100 or 90 for H100; sm_60 or newer is required):\n"
+      "  cmake: -DCMAKE_CUDA_ARCHITECTURES=80\n"
+      "  pip:   -Ccmake.define.CMAKE_CUDA_ARCHITECTURES=80\n"
+      "To build without CUDA instead, pass -DCMAKE_CUDA_COMPILER=OFF "
+      "(pip: -Ccmake.define.CMAKE_CUDA_COMPILER=OFF).")
   endif()
 endif()
 
