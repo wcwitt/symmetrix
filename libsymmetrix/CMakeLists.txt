@@ -1,26 +1,14 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.20)
 file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION SYMMETRIX_VERSION)
-project(libsymmetrix VERSION ${SYMMETRIX_VERSION} LANGUAGES CXX)
+project(LibSymmetrix VERSION ${SYMMETRIX_VERSION})
+
+message(STATUS "Symmetrix: Beginning to process CMakeLists.txt.")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-# ----- options -----
-
-option(BUILD_SHARED_LIBS "Build libsymmetrix as shared library" OFF)
-
-option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
-option(SYMMETRIX_SPHERICART_CUDA "Use CUDA version of sphericart" OFF)
-option(SYMMETRIX_SPHERICART_SYCL "Use SYCL version of sphericart" OFF)
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
-    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo)
-endif()
 
 # ----- dependencies -----
 
@@ -29,19 +17,16 @@ set(FETCHCONTENT_SOURCE_DIR_GPULITE ${CMAKE_CURRENT_SOURCE_DIR}/external/gpu-lit
 if(SYMMETRIX_SPHERICART_CUDA)
     set(SPHERICART_ENABLE_CUDA ON CACHE BOOL "" FORCE)
 endif()
-
-include(FetchContent)
-function(declare_deps name dirname)
-    FetchContent_Declare("${name}"
-        SOURCE_DIR "${PROJECT_SOURCE_DIR}/external/${dirname}"
-        FIND_PACKAGE_ARGS CONFIG)
-    FetchContent_MakeAvailable("${name}")
-endfunction()
-
-declare_deps(sphericart sphericart)
+add_subdirectory(external/sphericart)
+option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
-    declare_deps(Kokkos kokkos)
-    declare_deps(KokkosKernels kokkos-kernels)
+    if(TARGET Kokkos::kokkos)
+        message(STATUS "Symmetrix: Found existing Kokkos target.")
+        set(BUILD_SHARED_LIBS OFF)
+    else()
+        add_subdirectory(external/kokkos)
+    endif()
+    add_subdirectory(external/kokkos-kernels)
 endif()
 
 # ----- libsymmetrix -----
@@ -76,11 +61,14 @@ add_library(libsymmetrix::symmetrix ALIAS symmetrix)
 
 # TODO: generalize
 target_compile_options(symmetrix
-    PRIVATE $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
+    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+            $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
 
 target_include_directories(symmetrix
-    PRIVATE source
-            external/json/single_include)
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/source>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/symmetrix>
+    PRIVATE external/json/single_include
+            external/sphericart/sphericart/include)
 
 target_compile_definitions(symmetrix PUBLIC SYMMETRIX_VERSION="${PROJECT_VERSION}")
 
@@ -103,16 +91,29 @@ if(SYMMETRIX_KOKKOS)
     endif()
 endif()
 
+
+# ----- options -----
+
+option(SYMMETRIX_SPHERICART_CUDA OFF)
 if (SYMMETRIX_SPHERICART_CUDA)
     message(STATUS "Symmetrix: Will use CUDA version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_CUDA)
 endif()
+option(SYMMETRIX_SPHERICART_SYCL OFF)
 if (SYMMETRIX_SPHERICART_SYCL)
     message(STATUS "Symmetrix: Will use SYCL version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_SYCL)
 endif()
 
+
+# ----- install -----
+
+include(CMakePackageConfigHelpers)
+
 install(TARGETS symmetrix EXPORT libsymmetrix-targets)
+install(DIRECTORY source/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/symmetrix
+    FILES_MATCHING PATTERN "*.hpp")
 
 install(EXPORT libsymmetrix-targets
     NAMESPACE libsymmetrix::
@@ -123,7 +124,7 @@ configure_package_config_file(cmake/libsymmetrix-config.cmake.in
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libsymmetrix)
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config-version.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY SameMinorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config.cmake
               ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config-version.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libsymmetrix)
