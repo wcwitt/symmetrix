@@ -63,6 +63,9 @@ done
 echo "
 ### SYMMETRIX START
 add_subdirectory($(pwd)/../libsymmetrix libsymmetrix)
+target_compile_options(symmetrix PRIVATE
+  \$<\$<COMPILE_LANGUAGE:CXX>:-march=native>
+  \$<\$<AND:\$<COMPILE_LANGUAGE:CXX>,\$<CONFIG:Release>,\$<NOT:\$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
 target_include_directories(lammps PRIVATE $(pwd)/../libsymmetrix/source)
 target_link_libraries(lammps PRIVATE symmetrix)
 install(TARGETS symmetrix EXPORT LAMMPS_Targets)

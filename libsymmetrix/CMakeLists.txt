@@ -8,6 +8,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+include(GNUInstallDirs)
+
+# ----- options -----
+
+option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
+option(SYMMETRIX_SPHERICART_CUDA "Use CUDA version of sphericart" OFF)
+option(SYMMETRIX_SPHERICART_SYCL "Use SYCL version of sphericart" OFF)
+
 # ----- dependencies -----
 
 # sphericart fetches gpu-lite at configure time; use the vendored submodule so builds work offline.
@@ -16,10 +24,10 @@ if(SYMMETRIX_SPHERICART_CUDA)
     set(SPHERICART_ENABLE_CUDA ON CACHE BOOL "" FORCE)
 endif()
 add_subdirectory(external/sphericart)
-option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
     if(TARGET Kokkos::kokkos)
         message(STATUS "Symmetrix: Found existing Kokkos target.")
+        # The parent project already provides Kokkos (e.g. LAMMPS, which builds it statically); stay static so there is one Kokkos per process.
         set(BUILD_SHARED_LIBS OFF)
     else()
         add_subdirectory(external/kokkos)
@@ -55,14 +63,11 @@ if(SYMMETRIX_KOKKOS)
 endif()
 
 add_library(symmetrix ${SYMMETRIX_SOURCE_FILES})
-
-# TODO: generalize
-target_compile_options(symmetrix
-    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
-            $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
+add_library(libsymmetrix::symmetrix ALIAS symmetrix)
 
 target_include_directories(symmetrix
-    PUBLIC  source
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/source>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/symmetrix>
     PRIVATE external/json/single_include
             external/sphericart/sphericart/include)
 
@@ -87,16 +92,35 @@ if(SYMMETRIX_KOKKOS)
     endif()
 endif()
 
-
-# ----- options -----
-
-option(SYMMETRIX_SPHERICART_CUDA OFF)
 if (SYMMETRIX_SPHERICART_CUDA)
     message(STATUS "Symmetrix: Will use CUDA version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_CUDA)
 endif()
-option(SYMMETRIX_SPHERICART_SYCL OFF)
 if (SYMMETRIX_SPHERICART_SYCL)
     message(STATUS "Symmetrix: Will use SYCL version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_SYCL)
 endif()
+
+
+# ----- install -----
+
+include(CMakePackageConfigHelpers)
+
+install(TARGETS symmetrix EXPORT libsymmetrix-targets)
+install(DIRECTORY source/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/symmetrix
+    FILES_MATCHING PATTERN "*.hpp")
+
+install(EXPORT libsymmetrix-targets
+    NAMESPACE libsymmetrix::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libsymmetrix)
+
+configure_package_config_file(cmake/libsymmetrix-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libsymmetrix)
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config-version.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMinorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix-config-version.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libsymmetrix)
