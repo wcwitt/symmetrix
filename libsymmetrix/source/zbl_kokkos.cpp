@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <cmath>
 
 #include "tools_kokkos.hpp"
@@ -129,7 +130,7 @@ void ZBLKokkos::compute_ZBL(
             Kokkos::parallel_reduce(
                 Kokkos::TeamThreadRange(team_member, num_neigh(i)),
                 [&] (const int j, double& e_i) {
-                    const int ij = i0 + j;
+                    const std::size_t ij = i0 + j;
                     const int type_j = neigh_types(ij);
                     const int Z_j = atomic_numbers(type_j);
                     // energy
