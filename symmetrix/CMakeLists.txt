@@ -43,6 +43,9 @@ endif()
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
 add_subdirectory(../libsymmetrix ${CMAKE_CURRENT_BINARY_DIR}/libsymmetrix)
+target_compile_options(symmetrix PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
 
 add_subdirectory(external/pybind11)
 

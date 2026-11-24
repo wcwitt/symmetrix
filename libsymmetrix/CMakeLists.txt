@@ -59,11 +59,6 @@ endif()
 add_library(symmetrix ${SYMMETRIX_SOURCE_FILES})
 add_library(libsymmetrix::symmetrix ALIAS symmetrix)
 
-# TODO: generalize
-target_compile_options(symmetrix
-    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
-            $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
-
 target_include_directories(symmetrix
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/source>
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/symmetrix>
