@@ -22,6 +22,7 @@ option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
     if(TARGET Kokkos::kokkos)
         message(STATUS "Symmetrix: Found existing Kokkos target.")
+        # The parent project already provides Kokkos (e.g. LAMMPS, which builds it statically); stay static so there is one Kokkos per process.
         set(BUILD_SHARED_LIBS OFF)
     else()
         add_subdirectory(external/kokkos)
