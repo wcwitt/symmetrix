@@ -10,6 +10,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(GNUInstallDirs)
 
+# ----- options -----
+
+option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
+option(SYMMETRIX_SPHERICART_CUDA "Use CUDA version of sphericart" OFF)
+option(SYMMETRIX_SPHERICART_SYCL "Use SYCL version of sphericart" OFF)
+
 # ----- dependencies -----
 
 # sphericart fetches gpu-lite at configure time; use the vendored submodule so builds work offline.
@@ -18,7 +24,6 @@ if(SYMMETRIX_SPHERICART_CUDA)
     set(SPHERICART_ENABLE_CUDA ON CACHE BOOL "" FORCE)
 endif()
 add_subdirectory(external/sphericart)
-option(SYMMETRIX_KOKKOS "Enable Kokkos mode in Symmetrix." ON)
 if(SYMMETRIX_KOKKOS)
     if(TARGET Kokkos::kokkos)
         message(STATUS "Symmetrix: Found existing Kokkos target.")
@@ -87,15 +92,10 @@ if(SYMMETRIX_KOKKOS)
     endif()
 endif()
 
-
-# ----- options -----
-
-option(SYMMETRIX_SPHERICART_CUDA OFF)
 if (SYMMETRIX_SPHERICART_CUDA)
     message(STATUS "Symmetrix: Will use CUDA version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_CUDA)
 endif()
-option(SYMMETRIX_SPHERICART_SYCL OFF)
 if (SYMMETRIX_SPHERICART_SYCL)
     message(STATUS "Symmetrix: Will use SYCL version of sphericart.")
     target_compile_definitions(symmetrix PRIVATE SYMMETRIX_SPHERICART_SYCL)
