@@ -71,7 +71,7 @@ if(PKG_KSPACE)
 endif()
 set_source_files_properties(\${LAMMPS_SOURCE_DIR}/pair_symmetrix_mace_foundation.cpp
   \${LAMMPS_SOURCE_DIR}/pair_symmetrix_nequip_foundation.cpp
-  PROPERTIES COMPILE_OPTIONS \"-march=native;\$<\$<AND:\$<CONFIG:Release>,\$<NOT:\$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math;-fno-finite-math-only>\")
+  PROPERTIES COMPILE_OPTIONS \"\${SYMMETRIX_NATIVE_FLAG};\$<\$<AND:\$<CONFIG:Release>,\$<NOT:\$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math;-fno-finite-math-only>\")
 if(Kokkos_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
   target_compile_definitions(lammps PRIVATE SYMMETRIX_CUDA)

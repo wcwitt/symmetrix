@@ -54,7 +54,11 @@ jobs:
 
   symmetrix:
     needs: generate-test-models
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
     - name: Clone repo
       uses: actions/checkout@v6
@@ -92,10 +96,15 @@ jobs:
 
   pair_symmetrix:
     needs: generate-test-models
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         lammps-version: [patch_10Sep2025, stable_30Sep2026]
+        include:
+        - os: ubuntu-24.04-arm
+          lammps-version: stable_30Sep2026
     steps:
     - name: Clone repo
       uses: actions/checkout@v6

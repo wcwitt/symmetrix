@@ -56,9 +56,34 @@ endif()
 
 add_library(symmetrix ${SYMMETRIX_SOURCE_FILES})
 
-# TODO: generalize
+option(SYMMETRIX_ARCH_NATIVE "Optimize libsymmetrix for the build machine's CPU." ON)
+set(_symmetrix_native_flag "")
+if(SYMMETRIX_ARCH_NATIVE)
+    include(CheckCXXCompilerFlag)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+        set(_symmetrix_native_candidates -march=native)
+    else()
+        set(_symmetrix_native_candidates -mcpu=native -march=native)
+    endif()
+    foreach(_flag IN LISTS _symmetrix_native_candidates)
+        string(MAKE_C_IDENTIFIER "SYMMETRIX_CXX_SUPPORTS${_flag}" _var)
+        check_cxx_compiler_flag(${_flag} ${_var})
+        if(${_var})
+            set(_symmetrix_native_flag ${_flag})
+            break()
+        endif()
+    endforeach()
+    if(_symmetrix_native_flag)
+        message(STATUS "Symmetrix: Optimizing for this CPU with ${_symmetrix_native_flag}.")
+    else()
+        list(JOIN _symmetrix_native_candidates " and " _tried)
+        message(WARNING "Symmetrix: Compiler rejects ${_tried}; building without CPU-specific optimizations.")
+    endif()
+endif()
+set(SYMMETRIX_NATIVE_FLAG "${_symmetrix_native_flag}" CACHE INTERNAL "CPU flag chosen by SYMMETRIX_ARCH_NATIVE.")
+
 target_compile_options(symmetrix
-    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${SYMMETRIX_NATIVE_FLAG}>
             $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<CXX_COMPILER_ID:NVHPC>>>:-ffast-math>)
 
 target_include_directories(symmetrix
