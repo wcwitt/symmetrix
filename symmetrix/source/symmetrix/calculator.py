@@ -19,6 +19,12 @@ except ImportError:
     logging.warning("Symmetrix using slow ase.neighborlist.neighbor_list")
     neighbor_list = ase_neighbor_list
 
+try:
+    from neighbor_list_skin import NeighborListSkin
+except ImportError:
+    NeighborListSkin = None
+    pass
+
 from ase.calculators.calculator import BaseCalculator, all_changes
 from ase.stress import full_3x3_to_voigt_6_stress
 
@@ -56,7 +62,9 @@ class Symmetrix(BaseCalculator):
 
     implemented_properties = ["energy", "free_energy", "energies", "forces", "stress"]
 
-    def __init__(self, model_file, dtype="float64", use_kokkos=True, **kwargs):
+    def __init__(
+        self, model_file, dtype="float64", use_kokkos=True, skin=-1.0, **kwargs
+    ):
         BaseCalculator.__init__(self)
         if dtype not in ["float32", "float64"]:
             raise ValueError(
@@ -113,23 +121,62 @@ class Symmetrix(BaseCalculator):
                 self.evaluator = Evaluator(fout.name)
 
         self.cutoff = self.evaluator.r_cut
+        self.dtype = np.dtype(dtype)
+
+        # avoid slow .index calls in calculate
+        mace_atomic_numbers = np.asarray(self.evaluator.atomic_numbers, dtype=int)
+        self.mace_atomic_numbers_rev = np.full(
+            np.max(mace_atomic_numbers) + 1, -1, dtype=int
+        )
+        self.mace_atomic_numbers_rev[mace_atomic_numbers] = np.arange(
+            len(mace_atomic_numbers)
+        )
+
+        self.skin = -1.0
+        self.neighbor_list = neighbor_list
+        if skin > 0.0:
+            if NeighborListSkin is not None:
+                # use list with padding
+                self.neighbor_list = NeighborListSkin(neighbor_list, skin)
+                self.skin = skin
+            else:
+                logging.warning(
+                    f"Ignoring requested skin {skin} because "
+                    "NeighborListSkin is not available"
+                )
 
     def calculate(self, atoms=None, properties=["energy"], system_changes=all_changes):
         if atoms is not None:
             self.atoms = atoms.copy()
 
-        ase_atomic_numbers = self.atoms.get_atomic_numbers().tolist()
-        mace_atomic_numbers = self.evaluator.atomic_numbers
+        ase_atomic_numbers = self.atoms.get_atomic_numbers()
+        atom_types = np.full(ase_atomic_numbers.shape, -1, dtype=int)
+        in_range = (ase_atomic_numbers >= 0) & (
+            ase_atomic_numbers < len(self.mace_atomic_numbers_rev)
+        )
+        atom_types[in_range] = self.mace_atomic_numbers_rev[
+            ase_atomic_numbers[in_range]
+        ]
+        if np.any(atom_types < 0):
+            unsupported = np.unique(ase_atomic_numbers[atom_types < 0]).tolist()
+            raise ValueError(
+                f"Atomic numbers {unsupported} are not supported by this model."
+            )
+
         # matscipy and the stress need a full-rank cell
         full_cell = self.atoms.cell.rank == 3
-        nl = neighbor_list if full_cell else ase_neighbor_list
+        nl = self.neighbor_list if full_cell else ase_neighbor_list
         i_list, j_list, r, xyz = nl("ijdD", self.atoms, self.cutoff)
+        if self.skin > 0.0:
+            include = np.where(r < self.cutoff)[0]
+            i_list = i_list[include]
+            j_list = j_list[include]
+            r = r[include]
+            xyz = xyz[include]
         num_nodes = len(self.atoms)
-        node_types = [
-            mace_atomic_numbers.index(ase_atomic_numbers[i]) for i in range(num_nodes)
-        ]
+        node_types = atom_types[:num_nodes]
         num_neigh = np.bincount(j_list, minlength=num_nodes)
-        neigh_types = [mace_atomic_numbers.index(ase_atomic_numbers[j]) for j in j_list]
+        neigh_types = atom_types[j_list]
         self.evaluator.compute_node_energies_forces(
             num_nodes, node_types, num_neigh, j_list, neigh_types, xyz.flatten(), r
         )
@@ -139,7 +186,8 @@ class Symmetrix(BaseCalculator):
             self.results["energies"]
         )
 
-        pair_forces = np.asarray(self.evaluator.node_forces).reshape((-1, 3))
+        pair_forces_list = self.evaluator.node_forces
+        pair_forces = np.fromiter(pair_forces_list, dtype=self.dtype).reshape((-1, 3))
         pair_forces = pair_forces[
             : len(i_list), :
         ]  # currently, `evaluator.node_forces` is a container
